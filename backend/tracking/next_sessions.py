@@ -26,7 +26,7 @@ from collections import Counter
 from datetime import date, timedelta
 from typing import Dict, Iterable, List, Optional
 
-from backend.tracking import time_spent
+from backend.tracking import levels, time_spent
 from backend.config.shared import RULES
 
 #: What the recommendations are filed under when they span every subject.
@@ -119,6 +119,9 @@ def recent_work(rows: List[dict], names: Optional[Dict[str, str]] = None) -> Lis
             'on': _day(task.get('completed_at')),
             'difficulty': _level(task.get('difficulty')),
             'execution': _level(task.get('execution')),
+            # Every task has a level, rated or not: the one it was made at,
+            # or the one it was rated at (backend/tracking/levels.py).
+            'level': levels.label(levels.level_of(task)),
             'minutes': _minutes(task),
             'reason': _reason(task.get('reason')),
             'note': str(task.get('description') or '').strip()[:NOTE],
@@ -142,6 +145,7 @@ def work_groups(rows: List[dict], names: Optional[Dict[str, str]] = None) -> Lis
         execution = [_level(task.get('execution')) for task in rated]
         minutes = [m for m in (_minutes(task) for task in members) if m]
         reasons = Counter(label for label in (_reason(task.get('reason')) for task in members) if label)
+        usual = Counter(levels.level_of(task) for task in members).most_common(1)
         out.append({
             'name': group['name'][:120],
             'count': len(members),
@@ -150,6 +154,7 @@ def work_groups(rows: List[dict], names: Optional[Dict[str, str]] = None) -> Lis
             'difficulty': _mean([_level(task.get('difficulty')) for task in rated]),
             'execution': _mean(execution),
             'minutes': round(sum(minutes) / len(minutes)) if minutes else None,
+            'level': levels.label(usual[0][0]) if usual else None,
             'well': sum(1 for value in execution if value >= 4),
             'badly': sum(1 for value in execution if value <= 2),
             'reasons': ['{} ×{}'.format(label, count) for label, count in reasons.most_common(3)],

@@ -5,7 +5,8 @@ overall and week-over-week momentum for each. No streak / charge / milestone
 dependencies: every number is derived from the XP ledger, the completed tasks
 and the focus history.
 
-    productivity   XP earned per day since the account was made
+    productivity   tasks finished and time focused on a working day, with
+                   XP as one part of three (see PRODUCTIVITY_WEIGHTS)
     quality        how well the work was done, times how hard it was
     consistency    share of days the user showed up at all — a finished task,
                    a logged focus session, or any XP earned
@@ -43,6 +44,7 @@ from datetime import date, timedelta
 
 from backend.database import connection as db
 from backend.tracking import focus as focus_tracking
+from backend.tracking import levels
 from backend.tracking import time_spent
 from backend.tracking import xp as xp_tracking
 from backend.tracking.auth import created_date_for, find_user
@@ -129,6 +131,28 @@ SCORING_WINDOW_DAYS = 90
 #: a productivity score against one number and a dashboard ring against another
 #: would be two answers to "did I have a good day".
 DEFAULT_DAILY_GOAL = 100
+
+#: What productivity is made of. Tasks finished and time focused lead, and XP
+#: is one part rather than the whole. It used to be XP a day against the daily
+#: goal and nothing else, so a few Grueling tasks outscored a full day of
+#: ordinary ones. Each part is capped at its target, so no one of them can
+#: carry the score alone. An account that tracks no focus time is scored on
+#: tasks and XP only, in the same proportion.
+PRODUCTIVITY_WEIGHTS = {'tasks': 0.45, 'focus': 0.30, 'xp': 0.25}
+
+#: Fewest tasks a working day the productivity target asks for.
+MIN_TASK_TARGET = 3
+
+#: Focus minutes a working day the target asks for when no focus goal is set.
+DEFAULT_FOCUS_MINUTES = 60
+
+#: What a Medium task pays, which turns the daily XP goal into a task count.
+_MEDIUM_XP = next(entry['xp'] for entry in RULES['task_xp']['levels'] if entry['key'] == 'medium')
+
+
+def task_target(daily_goal):
+    """Tasks a working day the account's daily goal comes to, at Medium."""
+    return max(MIN_TASK_TARGET, int(round((daily_goal or DEFAULT_DAILY_GOAL) / _MEDIUM_XP)))
 
 
 def rating_of(task):
@@ -251,7 +275,7 @@ def _trend(current, previous):
 #:
 #: The list is the contract. A metric that needs an eighth column adds it here
 #: and gets a KeyError on the rows it forgot rather than a silent zero.
-SCORED_TASK_FIELDS = ('status', 'completed_at', 'xp_value',
+SCORED_TASK_FIELDS = ('status', 'completed_at', 'xp_value', 'level',
                       'difficulty', 'execution',
                       'completion_seconds', 'met_deadline')
 
@@ -281,7 +305,7 @@ def empty_day():
         # builders below.
         'worked': False,
         # Quality
-        'tasks': 0, 'task_xp': 0,
+        'tasks': 0, 'task_xp': 0, 'level_sum': 0,
         'rated': 0, 'quality_sum': 0, 'difficulty_sum': 0, 'execution_sum': 0,
         # Efficiency
         'timed': 0, 'seconds_sum': 0,
@@ -353,6 +377,8 @@ def _daily_rollup(username, tasks=None, events=None, focus_history=None):
         row['worked'] = True
         row['tasks'] += 1
         row['task_xp'] += task.get('xp_value', 0) or 0
+        # The level on the 1-5 scale the ratings use, for the unrated fallback.
+        row['level_sum'] += levels.five_of(levels.level_of(task))
 
         score = rating_of(task)
         if score is not None:
@@ -410,6 +436,7 @@ def score_window(rollup, start, end, daily_goal):
     active_days = 0
     total_tasks = 0
     total_task_xp = 0
+    level_sum = 0
     rated = 0
     quality_sum = 0
     difficulty_sum = 0
@@ -433,6 +460,7 @@ def score_window(rollup, start, end, daily_goal):
         active_days += 1 if row['worked'] else 0
         total_tasks += row['tasks']
         total_task_xp += row['task_xp']
+        level_sum += row.get('level_sum', 0)
         rated += row['rated']
         quality_sum += row['quality_sum']
         difficulty_sum += row['difficulty_sum']
@@ -455,15 +483,35 @@ def score_window(rollup, start, end, daily_goal):
     avg_difficulty = (difficulty_sum / rated) if rated else 0
     avg_execution = (execution_sum / rated) if rated else 0
 
-    # 1. Productivity — a day's work against the day's goal the account set
-    #    itself. The divisor was a flat 3, which is 300 XP a day for full
-    #    marks: a number nobody chose, applied to everybody.
-    productivity_score = round(_clamp(avg_daily_xp / (daily_goal or DEFAULT_DAILY_GOAL) * 100))
+    # 1. Productivity — what a working day gets done: tasks finished, time
+    #    focused, and XP against the daily goal, each capped at its target.
+    #    Per day worked, so a day off isn't counted twice (consistency has it).
+    worked = active_days or 0
+    goal = daily_goal or DEFAULT_DAILY_GOAL
+    tasks_per_day = (total_tasks / worked) if worked else 0
+    focus_per_day = (focused_sec / 60.0 / worked) if worked else 0
+    focus_target = ((focus_goal_sec / 60.0 / focus_days) if focus_days and focus_goal_sec > 0
+                    else DEFAULT_FOCUS_MINUTES)
+    tasks_goal = task_target(goal)
+    shares = {
+        'tasks': min(1.0, tasks_per_day / tasks_goal),
+        'focus': min(1.0, focus_per_day / focus_target) if focus_target else 0.0,
+        'xp': min(1.0, avg_daily_xp / goal),
+    }
+    weights = dict(PRODUCTIVITY_WEIGHTS)
+    if focused_sec <= 0:
+        # No focus time tracked at all: scored on the other two, so a reader
+        # who never uses the timer isn't marked down for a habit they don't have.
+        weights.pop('focus')
+    total_weight = sum(weights.values())
+    productivity_score = round(_clamp(
+        sum(shares[key] * weight for key, weight in weights.items()) / total_weight * 100))
 
     # 2. Quality — how well the work went, times how hard it was, over the
     #    tasks that were rated. Falls back to the XP proxy when none were; see
     #    the module docstring for why an unrated account is not graded zero.
-    quality_basis = 'ratings' if rated else 'xp'
+    avg_level = (level_sum / total_tasks) if total_tasks else 0
+    quality_basis = 'ratings' if rated else 'levels'
     if quality_basis == 'ratings':
         # The geometric mean of the two answers, on their own 1-5 scale, as a
         # percentage of 5. `avg_quality` is the mean of difficulty x execution,
@@ -473,7 +521,9 @@ def score_window(rollup, start, end, daily_goal):
         # made ordinary good work look like a failure.
         quality_score = round(_clamp((avg_quality ** 0.5) / 5 * 100))
     else:
-        quality_score = round(_clamp(avg_task_xp * 1.75))
+        # Nothing rated: how hard the work was, from the level each task was
+        # given, on the same 1-5 scale. It used to be XP per task x 1.75.
+        quality_score = round(_clamp(avg_level / 5 * 100))
 
     # 3. Consistency — share of the window's days the account showed up on, on
     #    any of the three counts: a finished task, a logged focus session, or
@@ -517,14 +567,21 @@ def score_window(rollup, start, end, daily_goal):
             # reports a single number gives a reader nothing to check it
             # against — see `partsOf` in components/Analytics/GrowthPeriod.
             'productivity': {
+                'tasks_per_day': round(tasks_per_day, 1),
+                'task_target': tasks_goal,
+                'focus_per_day': round(focus_per_day),
+                'focus_target': round(focus_target),
                 'avg_daily_xp': round(avg_daily_xp),
                 'total_xp': total_xp,
                 'earning_days': earning_days,
+                'active_days': worked,
                 'tasks': total_tasks,
-                'daily_goal': daily_goal or DEFAULT_DAILY_GOAL,
+                'daily_goal': goal,
+                'weights': {key: round(weight / total_weight, 2) for key, weight in weights.items()},
             },
             'quality': {
                 'avg_task_xp': round(avg_task_xp),
+                'avg_level': round(avg_level, 1),
                 'basis': quality_basis,
                 'rated_tasks': rated,
                 'total_tasks': total_tasks,
@@ -747,7 +804,8 @@ def ratings(username, record=True, tasks=None, events=None, focus_history=None):
         this_quality = (this_w['xp'] / this_w['tasks']) if this_w['tasks'] else 0
         prev_quality = (prev_w['xp'] / prev_w['tasks']) if prev_w['tasks'] else 0
 
-    productivity_trend = _trend(this_w['xp'], prev_w['xp'])
+    # Tasks finished, like the score: XP is a part of productivity, not its trend.
+    productivity_trend = _trend(this_w['tasks'], prev_w['tasks'])
     quality_trend = _trend(this_quality, prev_quality)
     consistency_trend = _trend(this_w['active_days'], prev_w['active_days'])
     efficiency_trend = _trend(window_efficiency(0, 6) or 0, window_efficiency(7, 13) or 0)
@@ -777,6 +835,9 @@ def ratings(username, record=True, tasks=None, events=None, focus_history=None):
                 "score": productivity_score,
                 "grade": grade_for_score(productivity_score),
                 "avg_daily_xp": round(avg_daily_xp),
+                "tasks_per_day": figures['productivity']['tasks_per_day'],
+                "task_target": figures['productivity']['task_target'],
+                "focus_per_day": figures['productivity']['focus_per_day'],
                 "trend": productivity_trend,
             },
             "quality": {

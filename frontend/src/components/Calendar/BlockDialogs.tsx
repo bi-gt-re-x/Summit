@@ -84,6 +84,7 @@ export function BlockDialogs({
             startTime: hmOf(dialog.task.created_at),
             endTime: hmOf(dialog.task.due_date),
             xp: Number(dialog.task.xp_value) || 0,
+            level: dialog.task.level ?? null,
             subject: dialog.task.subject ?? null,
           }}
           recurring={allowTaskRecurrence && actions.taskOccurrences(dialog.task).length > 1}

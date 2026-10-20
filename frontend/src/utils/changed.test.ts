@@ -122,7 +122,7 @@ describe('hard tasks failing', () => {
     // Half the hard tasks rated 2, none of the middling ones.
     expect(found?.text).toContain('50%');
     expect(found?.text).toContain('0%');
-    expect(found?.basis).toContain('10 tasks rated 4 or 5');
+    expect(found?.basis).toContain('10 tasks rated Hard or harder');
   });
 
   it('refuses a band with too few tasks in it', () => {

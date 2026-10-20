@@ -424,7 +424,7 @@ function StandingPanel({ hero }: { hero: ReturnType<typeof benchHero> }) {
   return (
     <Panel
       title="How this month ranks"
-      note="Your last 30 days against every other 30 you've had"
+      note="Tasks finished in your last 30 days, against every other 30 you've had"
       claim={standingClaim(hero)}
     >
       {hero.percentile === null ? (
@@ -435,12 +435,15 @@ function StandingPanel({ hero }: { hero: ReturnType<typeof benchHero> }) {
         <ul className="ax-gy-notes">
           <li>
             <span>These 30 days</span>
-            <strong>{fmtNumber(hero.currentXp)} XP</strong>
+            <strong>
+              {fmtNumber(hero.currentTasks)} tasks
+              {hero.currentFocusHours > 0 ? <em>, {fmtNumber(hero.currentFocusHours)}h focused</em> : null}
+            </strong>
           </li>
           <li>
             <span>Your best 30</span>
             <strong>
-              {fmtNumber(hero.bestXp)} XP
+              {fmtNumber(hero.bestTasks)} tasks
               {hero.bestEndedOn ? <em> to {longDate(hero.bestEndedOn)}</em> : null}
             </strong>
           </li>
@@ -477,7 +480,7 @@ function YearTable({ years }: { years: GrowthYear[] }) {
        — so it was a second copy of a column already there, in bigger numbers. */
     <Panel
       title="Year by year"
-      note="Amounts from your XP. Ratings from tasks you rated both ways."
+      note="Amounts from what you finished. Ratings from tasks you rated both ways."
     >
       <div className="ax-gy-scroll">
         <table className="ax-gy">

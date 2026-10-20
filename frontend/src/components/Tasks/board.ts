@@ -19,7 +19,7 @@ import { timeText } from '@/utils/clock';
 import type { Task, TaskPriority } from '@/types';
 import { isoDate } from '@/utils/dates';
 import { earnedXp, lateXp } from '@/utils/overdue';
-import { XP_BANDS, xpToBand, type XpBand } from '@/utils/priority';
+import { XP_BANDS, levelLabel, levelOf, type XpBand } from '@/utils/priority';
 import { blockSeconds } from '@/utils/timeSpent';
 
 const DAY = 86_400_000;
@@ -254,7 +254,7 @@ export function filterTasks(tasks: Task[], query: TaskQuery, today = new Date())
     if (query.priorities.length > 0 && !query.priorities.includes(task.priority)) {
       return false;
     }
-    if (query.bands.length > 0 && !query.bands.includes(xpToBand(Number(task.xp_value) || 0))) {
+    if (query.bands.length > 0 && !query.bands.includes(levelLabel(levelOf(task)))) {
       return false;
     }
 
@@ -422,7 +422,7 @@ export function groupTasks(
         label: band.label,
         hint: ordering,
         tasks: sorted.filter(
-          (task) => xpToBand(Number(task.xp_value) || 0) === band.label,
+          (task) => levelLabel(levelOf(task)) === band.label,
         ),
       }))
       .filter((entry) => entry.tasks.length > 0);

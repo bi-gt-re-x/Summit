@@ -518,7 +518,7 @@ export interface TimeProgress {
   pointsGained: number;
   /** Subjects that rose at all. */
   subjectsUp: number;
-  /** XP per focus hour, this period and the one before it. */
+  /** Tasks finished per focus hour, this period and the one before it. */
   perHour: number | null;
   perHourBefore: number | null;
   /** Skill points gained per ten focus hours, where there were hours to read. */
@@ -555,7 +555,7 @@ export function timeToProgress({
   const hours = hoursOf(now);
   const hoursBefore = hoursOf(before);
   const xp = xpOf(now);
-  const xpBefore = xpOf(before);
+  const tasksOf = (rows: GrowthDay[]) => rows.reduce((sum, day) => sum + num(day.tasks_completed), 0);
 
   const rated = finished.filter((task) => num(task.difficulty) > 0 && num(task.execution) > 0);
   const risen = tracks.filter((track) => (track.delta ?? 0) > 0);
@@ -575,8 +575,8 @@ export function timeToProgress({
     xp,
     pointsGained,
     subjectsUp: risen.length,
-    perHour: rate(xp, hours),
-    perHourBefore: rate(xpBefore, hoursBefore),
+    perHour: rate(tasksOf(now), hours),
+    perHourBefore: rate(tasksOf(before), hoursBefore),
     pointsPerTenHours: hours >= 1 ? (pointsGained / hours) * 10 : null,
   };
 }

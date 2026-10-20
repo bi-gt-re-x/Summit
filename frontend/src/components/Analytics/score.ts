@@ -21,6 +21,7 @@
  * weighting lands there, `WEIGHT` is the one line here that changes.
  */
 import type { MetricName, Ratings } from '@/types';
+import { productivityRaw } from '@/utils/activity';
 
 /** The score is stated out of ten; the report card is scored out of a hundred. */
 export const SCORE_SCALE = 10;
@@ -71,7 +72,7 @@ export function growthScore(ratings: Ratings | null): GrowthScore {
       name: 'productivity',
       label: 'Productivity',
       score: m.productivity.score,
-      raw: `${Math.round(m.productivity.avg_daily_xp).toLocaleString()} XP/day`,
+      raw: productivityRaw(m.productivity),
     },
     {
       name: 'quality',

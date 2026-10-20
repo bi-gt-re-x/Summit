@@ -208,7 +208,7 @@ function hardTasksFailing(finished: Task[]): Change | null {
     text:
       `Your hardest tasks go badly more often: ${Math.round(hardRate)}% rated 2 or lower, vs. ${Math.round(midRate)}% for medium ones.`,
     move: `${Math.round(midRate)}% → ${Math.round(hardRate)}%`,
-    basis: `${hard.length} tasks rated 4 or 5 for difficulty, ${middling.length} rated 3.`,
+    basis: `${hard.length} tasks rated Hard or harder, ${middling.length} rated Medium or Medium Hard.`,
     strength: smaller >= 20 && points >= 15 ? 'strong' : smaller >= 12 ? 'likely' : 'weak',
     weight: 30 + points,
   };

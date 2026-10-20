@@ -99,6 +99,7 @@ import { NextSessionsPanel } from '@/components/NextSessions/NextSessions';
 import '@/styles/dashboard.css';
 import '@/styles/dashboard-home.css';
 import { announceStatsChanged } from '@/utils/statsBus';
+import { announceXpChange, ratingTarget, withRating, type RatingTarget } from '@/utils/rated';
 
 /** How long the page and the sitting take to hand over. See `sitting` below. */
 const SITTING_MS = 200;
@@ -452,7 +453,7 @@ export default function Dashboard() {
         // waits on the answer — see `rating` below and
         // components/Tasks/RatePrompt.
         if (ask && prefs.rating_depth !== 'none') {
-          setReviews([{ id: String(task.id), name: task.title }]);
+          setReviews([ratingTarget(task, String(task.id))]);
         }
         return true;
       } catch (cause) {
@@ -481,7 +482,7 @@ export default function Dashboard() {
    * be asked one after another rather than each replacing the last. A single
    * completion puts exactly one thing in it, which is what it always did.
    */
-  const [reviews, setReviews] = useState<{ id: string; name: string }[]>([]);
+  const [reviews, setReviews] = useState<RatingTarget[]>([]);
   const rating = reviews[0] ?? null;
 
   /** Done with the head, however it was dismissed. */
@@ -497,9 +498,10 @@ export default function Dashboard() {
         mutate((current) => ({
           ...current,
           tasks: current.tasks.map((entry) =>
-            String(entry.id) === target.id ? { ...entry, ...values } : entry,
+            String(entry.id) === target.id ? withRating(entry, values, result) : entry,
           ),
         }));
+        announceXpChange(result);
       });
     },
     [mutate, nextReview, rating, username],
@@ -526,9 +528,9 @@ export default function Dashboard() {
       const todo = buckets.today;
       if (todo.length === 0) return;
       setSaving(true);
-      const done: { id: string; name: string }[] = [];
+      const done: RatingTarget[] = [];
       for (const task of todo) {
-        if (await complete(task, false)) done.push({ id: String(task.id), name: task.title });
+        if (await complete(task, false)) done.push(ratingTarget(task, String(task.id)));
       }
       setSaving(false);
       if (review && prefs.rating_depth !== 'none' && done.length > 0) setReviews(done);
@@ -565,6 +567,7 @@ export default function Dashboard() {
               priority: task.priority ?? 'medium',
               status: 'todo' as const,
               xp_value: Number(task.xp_reward) || 0,
+              ...(task.level ? { level: task.level } : {}),
               due_date: task.due_date ?? undefined,
               show_on_calendar: task.show_on_calendar ?? false,
               created_at: task.created_at ?? isoStamp(new Date()),
@@ -794,22 +797,19 @@ export default function Dashboard() {
       {rating && levelled === null && news === null && (
         <RatePrompt
           taskName={rating.name}
+          level={rating.level}
           depth={prefs.rating_depth}
           onSubmit={saveRating}
           onClose={nextReview}
         />
       )}
 
-      {/* The same two defaults the tasks page's composer opens on. This dialog
-          used to start every task at the floor of the XP scale, which made
-          "Default XP" a preference one of the app's two Add Task forms had
-          never heard of. */}
+      {/* The same default level the tasks page's composer opens on. */}
       <TaskModal
         open={adding}
         busy={saving}
         username={username}
-        defaultXp={prefs.default_xp}
-        defaultPriority={prefs.default_priority}
+        defaultLevel={prefs.default_level}
         goals={goals}
         onClose={() => setAdding(false)}
         onAdd={(task) => void addTask(task)}

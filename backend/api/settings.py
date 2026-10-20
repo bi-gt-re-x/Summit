@@ -305,6 +305,10 @@ FIELDS: Dict[str, Any] = {
     # stays on: the controls above the list still change the view for a visit.
     'default_priority':  ('medium', _one_of('low', 'medium', 'high')),
     'default_xp':        (30, _whole(5, 500)),
+    #: How hard a new task starts out, Easy (1) to Grueling (7). Its XP
+    #: follows from it (backend/tracking/levels.py). The two keys above are
+    #: kept so older clients still read, but nothing new writes them.
+    'default_level':     (3, _whole(1, 7)),
     #: How much the app asks after a task is finished, and therefore how much
     #: the report card has to go on. See REASONS in backend/api/tasks.py and
     #: the note in backend/tracking/analytics.py on what quality is measured

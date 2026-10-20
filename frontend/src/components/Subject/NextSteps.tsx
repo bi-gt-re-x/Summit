@@ -56,7 +56,7 @@ import {
   type StepResource,
   type StepState,
 } from '@/services/analytics';
-import { DIFFICULTY_WORDS } from '@/utils/ratings';
+import { DEFAULT_LEVEL, fiveToLevel, levelLabel, levelXp } from '@/utils/priority';
 import { RULES } from '@/utils/sharedRules';
 
 /** How many steps make a batch. The model is asked for at most this many
@@ -202,9 +202,11 @@ export function NextSteps({ steps, status, busy, onPlan, onDidIt, firstOpen = tr
 
                   {/* The model's own two numbers, marked as suggestions. */}
                   <p className="sx-step-facts">
+                    {/* The step's 1-5 as the level it's booked at, and the XP that
+                        level pays (backend/tracking/session_plan.py). */}
                     <span className="is-difficulty" data-level={step.difficulty}>
-                      <b>Difficulty:</b> {DIFFICULTY_WORDS[step.difficulty - 1] ?? `Level ${step.difficulty}`}
-                      {' · '}{step.difficulty}/5
+                      <b>Level:</b> {levelLabel(fiveToLevel(step.difficulty) ?? DEFAULT_LEVEL)}
+                      {' · '}{levelXp(fiveToLevel(step.difficulty) ?? DEFAULT_LEVEL)} XP
                     </span>
                     {step.minutes ? <span><b>Time:</b> {step.minutes} min</span> : null}
                   </p>

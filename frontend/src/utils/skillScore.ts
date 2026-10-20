@@ -52,6 +52,7 @@
  * the number is standing on instead of implying it is all equally solid.
  */
 import type { Task } from '@/types';
+import { difficultyName } from '@/utils/priority';
 
 const DAY = 86_400_000;
 
@@ -411,7 +412,7 @@ export function explainSkill(row: SkillRow, nameOf: (id: string) => string): Ski
   const evidence: { label: string; value: string }[] = [
     { label: 'Rated tasks', value: String(row.rated) },
     { label: 'Accuracy', value: `${Math.round(row.parts.accuracy)}%` },
-    { label: 'Avg difficulty', value: `${row.avgDifficulty} / 5` },
+    { label: 'Usual difficulty', value: difficultyName(row.avgDifficulty) },
   ];
   if (row.hardAccuracy !== null) {
     evidence.push({ label: 'On the hardest work', value: `${row.hardAccuracy}%` });

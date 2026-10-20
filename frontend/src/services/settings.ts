@@ -100,6 +100,8 @@ export interface Prefs {
   show_quote: boolean;
   default_priority: Priority;
   default_xp: number;
+  /** How hard a new task starts out, 1-7 (utils/priority). Sets its XP. */
+  default_level: number;
   rating_depth: RatingDepth;
   confirm_delete: boolean;
   task_status: TaskStatus;
@@ -285,6 +287,7 @@ export const DEFAULTS: Prefs = {
   show_quote: true,
   default_priority: 'medium',
   default_xp: 30,
+  default_level: 3,
   rating_depth: 'ratings',
   confirm_delete: true,
   task_status: 'open',

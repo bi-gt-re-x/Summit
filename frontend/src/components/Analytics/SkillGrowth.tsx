@@ -345,7 +345,7 @@ function SubjectCard({
             tone="plain"
             detail={
               read.hard.den > 0
-                ? `${read.hard.num} of ${read.hard.den} rated 4-5 for difficulty`
+                ? `${read.hard.num} of ${read.hard.den} rated Hard or harder`
                 : 'Nothing rated in this period'
             }
             /* Neutral either way: more hard work is not better on its own,
@@ -1137,7 +1137,7 @@ export function TimeProgressPanel({ progress, periodText }: TimeProgressPanelPro
         <div className="sg-fact">
           <dt>Rate</dt>
           <dd>
-            {perHour === null ? '-' : `${round(perHour)} XP/h`}
+            {perHour === null ? '-' : `${one(perHour)} tasks/h`}
             <span className="sg-fact-against">
               {rateMove === null
                 ? 'no earlier period to compare'

@@ -164,6 +164,12 @@ export interface Task {
   difficulty?: number;
   execution?: number;
   /**
+   * How hard the task is, Easy (1) to Grueling (7). Its XP is this level's
+   * (utils/priority). Absent on tasks made before levels existed; `levelOf`
+   * reads those off their old rating or XP.
+   */
+  level?: number | null;
+  /**
    * The one thing that made the difference, from a fixed vocabulary of twelve
    * — six for a task that went badly, six for one that went well. See REASONS
    * in utils/ratings.
@@ -503,7 +509,14 @@ interface MetricBase {
 export interface Ratings {
   overall: MetricBase & { message: string };
   metrics: {
-    productivity: MetricBase & { avg_daily_xp: number };
+    productivity: MetricBase & {
+      avg_daily_xp: number;
+      /** Tasks finished a working day, and the target the score reads it against. */
+      tasks_per_day?: number;
+      task_target?: number;
+      /** Minutes focused a working day. */
+      focus_per_day?: number;
+    };
     quality: MetricBase & {
       avg_task_xp: number;
       /**
@@ -515,7 +528,7 @@ export interface Ratings {
        * graded zero for quality. Every surface that prints the figure prints
        * the basis with it.
        */
-      basis: 'ratings' | 'xp';
+      basis: 'ratings' | 'levels' | 'xp';
       rated_tasks: number;
       total_tasks: number;
       /** Mean of difficulty × execution, out of `max_quality`. */

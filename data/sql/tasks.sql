@@ -94,7 +94,13 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- that is not the reader grading themselves, which is why the plan reads
     -- it for what went wrong (backend/tracking/record.py `misses`).
     score_got           INTEGER,
-    score_of            INTEGER
+    score_of            INTEGER,
+
+    -- How hard the task is, Easy (1) to Grueling (7), picked from the pill bar
+    -- when it's made and again when it's rated. Its XP is this level's
+    -- (shared/rules.json task_xp). Null on tasks made before levels existed;
+    -- backend/tracking/levels.py reads those off their old rating or XP.
+    level               INTEGER CHECK (level BETWEEN 1 AND 7)
 );
 
 CREATE INDEX IF NOT EXISTS tasks_user_status_idx ON tasks (user_id, status);

@@ -1011,6 +1011,8 @@ html[data-motion="reduced"] .tk-row.is-found { animation: none; }
 .tk-input:focus, .tk-select:focus { border-color: color-mix(in srgb, var(--tk-violet) 55%, transparent); }
 .tk-select { appearance: none; cursor: pointer; padding-right: var(--space-6); }
 .tk-field-subject { grid-column: span 2; }
+/* The level pills take the whole first row: seven of them don't fit a cell. */
+.tk-field-level { grid-column: 1 / -1; }
 @media (max-width: 620px) {
     .tk-field-subject { grid-column: auto; }
     .tk-composer-main { flex-wrap: wrap; }

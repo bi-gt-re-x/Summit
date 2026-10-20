@@ -75,12 +75,24 @@ def test_productivity_is_scored_against_the_accounts_own_daily_goal(client):
     """It was a flat 300 XP a day for full marks — a number nobody chose."""
     user = db.find_row('users', 'tester', key='username')
     db.update_row('users', user['id'], {'daily_goal': 100})
-    finish(client, xp=100)
-    assert card(client)['metrics']['productivity']['score'] == 100
+    # Three tasks is the fewest the target asks for, and 102 XP meets the goal.
+    for _ in range(3):
+        finish(client, xp=34)
+    productivity = card(client)['metrics']['productivity']
+    assert productivity['score'] == 100
+    assert (productivity['tasks_per_day'], productivity['task_target']) == (3, 3)
 
-    # Same day's work, twice the target: half the score.
+    # Same day's work, twice the goal: four tasks and 200 XP are asked for.
     db.update_row('users', user['id'], {'daily_goal': 200})
-    assert card(client)['metrics']['productivity']['score'] == 50
+    assert 50 < card(client)['metrics']['productivity']['score'] < 100
+
+
+def test_xp_alone_does_not_carry_productivity(client):
+    """One Grueling task pays the whole daily goal, and it's still one task."""
+    db.update_row('users', db.find_row('users', 'tester', key='username')['id'],
+                  {'daily_goal': 100})
+    finish(client, xp=250)
+    assert card(client)['metrics']['productivity']['score'] < 60
 
 
 def test_productivity_counts_days_worked_not_days_on_the_calendar(client):
@@ -92,7 +104,8 @@ def test_productivity_counts_days_worked_not_days_on_the_calendar(client):
     """
     db.update_row('users', db.find_row('users', 'tester', key='username')['id'],
                   {'daily_goal': 100})
-    finish(client, xp=100)
+    for _ in range(3):
+        finish(client, xp=34)
     metrics = card(client)['metrics']
     assert metrics['productivity']['score'] == 100
     assert metrics['consistency']['score'] < 5

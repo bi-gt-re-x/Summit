@@ -13,6 +13,14 @@
  * easy task done badly and a brutal one done well both land on three stars, and
  * they are not the same week. Asked apart, they stay apart in the record.
  *
+ * ## Difficulty is the level, and the level is the XP
+ *
+ * The first row is the seven-level pill bar (components/LevelPills), opened on
+ * the level the task was made at. Leaving it is one tap to confirm. Moving it
+ * re-prices the task: the server pays the account the difference
+ * (backend/api/tasks.py `rate_task`), so a task that turned out Grueling is
+ * paid as one.
+ *
  * ## How much is asked is the account's to choose
  *
  * Three depths, set in Settings (or on Analytics, beside the panels that read
@@ -52,6 +60,8 @@
  * without reading, which would poison the very data it exists to collect.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { LevelPills } from '@/components/LevelPills';
+import { levelEntry } from '@/utils/priority';
 import { reasonOf, reasonsFor } from '@/utils/ratings';
 import { problemCount } from '@/utils/problemCount';
 import type { RatingDepth } from '@/services/settings';
@@ -61,12 +71,13 @@ import '@/styles/rate-prompt.css';
 /** The five stars, and what each one means. Hover and focus print the word. */
 const SCALE = 5;
 
-const DIFFICULTY_WORDS = ['Trivial', 'Easy', 'Fair', 'Hard', 'Brutal'];
 const EXECUTION_WORDS = ['Poor', 'Patchy', 'Solid', 'Strong', 'Excellent'];
 
 export interface RatePromptProps {
   /** What was finished, so the dialog names the thing it is asking about. */
   taskName: string;
+  /** The level the task was made at, 1-7, which the pill bar opens on. 0 for none. */
+  level?: number;
   /**
    * How much to ask. 'reasons' adds the third row; anything else is the two
    * star rows. 'none' never reaches here — the caller does not open the
@@ -252,8 +263,8 @@ function Score({
   );
 }
 
-export function RatePrompt({ taskName, depth = 'ratings', onSubmit, onClose }: RatePromptProps) {
-  const [difficulty, setDifficulty] = useState(0);
+export function RatePrompt({ taskName, level: planned = 0, depth = 'ratings', onSubmit, onClose }: RatePromptProps) {
+  const [level, setLevel] = useState(planned);
   const [execution, setExecution] = useState(0);
   const [reason, setReason] = useState('');
   const counted = problemCount(taskName);
@@ -290,14 +301,15 @@ export function RatePrompt({ taskName, depth = 'ratings', onSubmit, onClose }: R
     // reach the server, which would reject it anyway — see `RATING_RANGE`. The
     // reason goes only when it still belongs to the side being asked.
     onSubmit({
-      ...(difficulty > 0 ? { difficulty } : {}),
+      ...(level > 0 ? { level } : {}),
       ...(execution > 0 ? { execution } : {}),
       ...(keeps ? { reason } : {}),
       ...(score ?? {}),
     });
-  }, [difficulty, execution, keeps, onSubmit, reason, score]);
+  }, [level, execution, keeps, onSubmit, reason, score]);
 
-  const answered = difficulty > 0 || execution > 0 || score !== null;
+  const answered = level > 0 || execution > 0 || score !== null;
+  const moved = planned > 0 && level > 0 && level !== planned;
 
   return (
     <div
@@ -314,13 +326,20 @@ export function RatePrompt({ taskName, depth = 'ratings', onSubmit, onClose }: R
           {taskName}
         </p>
 
-        <Stars
-          label="Difficulty"
-          hint="How hard was it?"
-          words={DIFFICULTY_WORDS}
-          value={difficulty}
-          onChange={setDifficulty}
-        />
+        <div className="tk-rate-row">
+          <LevelPills
+            value={level}
+            onChange={setLevel}
+            label="How hard was it?"
+            hint={planned ? 'Tap to change.' : 'Pick one.'}
+            compact
+          />
+          {moved && (
+            <p className="tk-rate-moved">
+              Now worth {levelEntry(level).xp} XP. It was {levelEntry(planned).xp}.
+            </p>
+          )}
+        </div>
         <Stars
           label="Execution"
           hint="How well did it go?"

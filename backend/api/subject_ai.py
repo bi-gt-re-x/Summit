@@ -867,7 +867,6 @@ def plan_session(body: PlanSession, username: str = Depends(current_username)):
         return fail('This session is already done.')
 
     minutes = session_plan.estimate_minutes(row.get('minutes'), row.get('difficulty'))
-    xp = session_plan.xp_for(minutes, row.get('difficulty'))
 
     # A session planned across every subject names its subject in `focus`
     # (subject_ai.OVERALL_NOTE); file it there when the page had none to send.
@@ -895,10 +894,11 @@ def plan_session(body: PlanSession, username: str = Depends(current_username)):
             return fail("There's no free {}-minute slot in the next two weeks.".format(minutes))
         (start, end), why = slot, 'The first free opening on your calendar.'
 
+    worth = session_plan.task_fields(row.get('difficulty'))
+    xp = worth['xp_reward']
     made = create_task(CreateTask(
         name=row.get('title') or 'Practice session',
-        priority=session_plan.priority_for(xp),
-        xp_reward=xp,
+        **worth,
         due_date=end.isoformat(timespec='seconds'),
         created_at=start.isoformat(timespec='seconds'),
         show_on_calendar=True,

@@ -49,6 +49,7 @@ import type { GrowthDay, Task } from '@/types';
 import { isActiveDay } from './activeDay';
 import { RECENT_FLOOR, mean, pctChange } from './recent';
 import { secondsSpent } from '@/utils/timeSpent';
+import { difficultyName } from '@/utils/priority';
 
 /** Fewest finished tasks in a window before a per-task mean is worth taking. */
 const MIN_TASKS = 6;
@@ -112,14 +113,14 @@ export interface Vitals {
   gapTo: string | null;
   /** Gaps of two or more empty days. */
   gapCount: number;
-  /** Mean XP on the first day back after a gap of two or more days. */
-  returnXp: number | null;
+  /** Mean tasks finished on the first day back after a gap of two or more days. */
+  returnTasks: number | null;
   /** Subject of the last task finished before the longest gap began. */
   beforeGap: string | null;
   /** Per weekday (0 is Sunday): days in the window, and days worked. */
-  weekdays: Array<{ total: number; worked: number; xp: number }>;
-  /** The day with the most XP. */
-  busiest: { date: string; xp: number } | null;
+  weekdays: Array<{ total: number; worked: number; tasks: number; xp: number }>;
+  /** The day with the most tasks finished. */
+  busiest: { date: string; tasks: number } | null;
   /** Finished work per subject in the window. */
   subjects: Map<string, SubjectSlice>;
   /** The finished task rated lowest for execution, newest first on a tie. */
@@ -205,7 +206,7 @@ export function vitals(days: GrowthDay[], tasks: Task[]): Vitals {
     if (isActiveDay(day)) {
       if (length >= 2) {
         gapCount += 1;
-        returns.push(num(day.xp_earned));
+        returns.push(num(day.tasks_completed));
       }
       open = null;
       length = 0;
@@ -227,18 +228,20 @@ export function vitals(days: GrowthDay[], tasks: Task[]): Vitals {
     : undefined;
 
   // ---- Weekdays -----------------------------------------------------------
-  const weekdays = Array.from({ length: 7 }, () => ({ total: 0, worked: 0, xp: 0 }));
+  const weekdays = Array.from({ length: 7 }, () => ({ total: 0, worked: 0, tasks: 0, xp: 0 }));
   days.forEach((day) => {
     const at = new Date(`${day.date}T00:00:00Z`).getUTCDay();
     const slot = weekdays[at]!;
     slot.total += 1;
     if (isActiveDay(day)) {
       slot.worked += 1;
+      slot.tasks += num(day.tasks_completed);
       slot.xp += num(day.xp_earned);
     }
   });
-  const busiest = active.reduce<{ date: string; xp: number } | null>(
-    (best, day) => (!best || num(day.xp_earned) > best.xp ? { date: day.date, xp: num(day.xp_earned) } : best),
+  const busiest = active.reduce<{ date: string; tasks: number } | null>(
+    (best, day) =>
+      !best || num(day.tasks_completed) > best.tasks ? { date: day.date, tasks: num(day.tasks_completed) } : best,
     null,
   );
 
@@ -297,7 +300,7 @@ export function vitals(days: GrowthDay[], tasks: Task[]): Vitals {
     gapFrom,
     gapTo,
     gapCount,
-    returnXp: returns.length ? mean(returns) : null,
+    returnTasks: returns.length ? mean(returns) : null,
     beforeGap: before?.subject ?? null,
     weekdays,
     busiest,
@@ -370,13 +373,13 @@ function missedWeekday(v: Vitals): { name: string; worked: number; total: number
   return best;
 }
 
-/** The weekday with the most XP per day worked. */
-function strongWeekday(v: Vitals): { name: string; xp: number } | null {
-  let best: { name: string; xp: number } | null = null;
+/** The weekday with the most tasks finished per day worked. */
+function strongWeekday(v: Vitals): { name: string; tasks: number } | null {
+  let best: { name: string; tasks: number } | null = null;
   v.weekdays.forEach((slot, at) => {
     if (slot.worked < 2) return;
-    const xp = slot.xp / slot.worked;
-    if (!best || xp > best.xp) best = { name: WEEKDAY[at]!, xp };
+    const tasks = slot.tasks / slot.worked;
+    if (!best || tasks > best.tasks) best = { name: WEEKDAY[at]!, tasks };
   });
   return best;
 }
@@ -413,7 +416,8 @@ function mostMoved(
 }
 
 const minutesOf = (row: SubjectSlice) => (row.seconds > 0 ? row.seconds / 60 : null);
-const xpPerHour = (row: SubjectSlice) => (row.seconds >= 1800 ? (row.xp / row.seconds) * 3600 : null);
+/** Minutes a finished task takes in a subject, where enough of it was timed. */
+const minutesPerTask = (row: SubjectSlice) => (row.seconds >= 1800 && row.tasks ? row.seconds / 60 / row.tasks : null);
 
 export function diagnose(now: Vitals, before: Vitals, nameOf: (id: string) => string = (id) => id): Diagnosis[] {
   const found: Diagnosis[] = [];
@@ -488,15 +492,15 @@ export function diagnose(now: Vitals, before: Vitals, nameOf: (id: string) => st
       id: 'levelling-up',
       tone: 'good',
       headline: 'Harder work, same quality',
-      detail: `Difficulty rose from ${one(before.difficulty!)} to ${one(now.difficulty!)} out of 5 and your execution held at ${one(now.execution!)}.`,
+      detail: `Your tasks went from ${difficultyName(before.difficulty!)} to ${difficultyName(now.difficulty!)} on average, and how they went held at ${one(now.execution!)} out of 5.`,
       points: [
-        climbed ? `Most of the climb was ${nameOf(climbed.id)}: ${one(climbed.was)} to ${one(climbed.is)} for difficulty.` : '',
+        climbed ? `Most of the climb was ${nameOf(climbed.id)}: ${difficultyName(climbed.was)} to ${difficultyName(climbed.is)}.` : '',
         `Based on ${now.ratedCount} rated tasks.`,
       ],
       action: climbed
         ? `Keep ${nameOf(climbed.id)} at this level for two more weeks before adding more.`
         : 'Keep this level for another two weeks before adding more.',
-      watch: `Difficulty holding at ${one(now.difficulty!)}`,
+      watch: `Tasks holding at ${difficultyName(now.difficulty!)}`,
       weight: 88,
     });
   }
@@ -507,35 +511,39 @@ export function diagnose(now: Vitals, before: Vitals, nameOf: (id: string) => st
       id: 'drifting-easy',
       tone: 'warning',
       headline: 'Your tasks are getting easier',
-      detail: `Average difficulty fell from ${one(before.difficulty!)} to ${one(now.difficulty!)} out of 5 (${now.ratedCount} rated tasks), while your task count stayed flat.`,
+      detail: `Your tasks went from ${difficultyName(before.difficulty!)} to ${difficultyName(now.difficulty!)} on average (${now.ratedCount} rated tasks), while your task count stayed flat.`,
       points: [
-        eased ? `${nameOf(eased.id)} eased the most: ${one(eased.was)} to ${one(eased.is)}.` : '',
+        eased ? `${nameOf(eased.id)} eased the most: ${difficultyName(eased.was)} to ${difficultyName(eased.is)}.` : '',
       ],
       action: eased
-        ? `Start tomorrow with one ${nameOf(eased.id)} task you expect to rate 4 or 5 for difficulty.`
-        : 'Start tomorrow with one task you expect to rate 4 or 5 for difficulty.',
-      watch: 'One task a day rated 4+ for difficulty',
+        ? `Start tomorrow with one ${nameOf(eased.id)} task you'd call Hard or harder.`
+        : "Start tomorrow with one task you'd call Hard or harder.",
+      watch: 'One Hard or harder task a day',
       weight: 84,
     });
   }
 
-  /* Turning up, doing less each time. */
-  const perDay = pctChange(now.xpPerActiveDay, before.xpPerActiveDay);
-  if (now.activeRate >= 75 && perDay !== null && perDay <= -MOVE) {
-    const thinner = mostMoved(now, before, (row) => row.xp, -1);
+  /* Turning up, doing less each time. Tasks and focus time, not XP: a few
+     Grueling tasks shouldn't hide a day that got less done. */
+  const perDay = pctChange(now.tasksPerActiveDay, before.tasksPerActiveDay);
+  if (now.activeRate >= 75 && perDay !== null && perDay <= -MOVE && before.finishedCount >= MIN_TASKS) {
+    const thinner = mostMoved(now, before, (row) => row.tasks, -1);
     push({
       id: 'present-but-thin',
       tone: 'tension',
       headline: 'Showing up daily, doing less each day',
-      detail: `You worked ${now.activeDays} of ${now.days} days, but each day earned ${round(now.xpPerActiveDay)} XP, down from ${round(before.xpPerActiveDay)}.`,
+      detail: `You worked ${now.activeDays} of ${now.days} days, but finished ${one(now.tasksPerActiveDay)} tasks a day, down from ${one(before.tasksPerActiveDay)}.`,
       points: [
-        thinner ? `${nameOf(thinner.id)} fell furthest: ${round(thinner.is)} XP, down from ${round(thinner.was)}.` : '',
-        strong ? `Your strongest day is ${strong.name}, at ${round(strong.xp)} XP.` : '',
+        thinner ? `${nameOf(thinner.id)} fell furthest: ${round(thinner.is)} tasks, down from ${round(thinner.was)}.` : '',
+        strong ? `Your strongest day is ${strong.name}, at ${one(strong.tasks)} tasks.` : '',
+        before.focusPerActiveDay >= 10
+          ? `Focus went from ${round(before.focusPerActiveDay)} to ${round(now.focusPerActiveDay)} min a day.`
+          : '',
       ],
       action: strong
         ? `Make ${strong.name} and one other day long sessions this week${thinner ? `, starting with ${nameOf(thinner.id)}` : ''}.`
         : 'Pick two days this week for one long session each.',
-      watch: 'XP on your two best days',
+      watch: 'Tasks finished on your two best days',
       weight: 80,
     });
   }
@@ -548,9 +556,9 @@ export function diagnose(now: Vitals, before: Vitals, nameOf: (id: string) => st
       id: 'cramming',
       tone: 'tension',
       headline: 'Same work, fewer days',
-      detail: `You worked ${now.activeDays} of ${now.days} days (down from ${before.activeDays}), with ${moreLess(perDay, 'more', 'less')} XP on each.`,
+      detail: `You worked ${now.activeDays} of ${now.days} days (down from ${before.activeDays}), with ${moreLess(perDay, 'more', 'fewer')} tasks on each.`,
       points: [
-        now.busiest ? `Your biggest day was ${day(now.busiest.date)}, with ${round(now.busiest.xp)} XP.` : '',
+        now.busiest ? `Your biggest day was ${day(now.busiest.date)}, with ${round(now.busiest.tasks)} tasks.` : '',
         quietest ? `You worked ${quietest.worked} of ${quietest.total} ${quietest.name}s.` : '',
       ],
       action: now.busiest && quietest
@@ -567,33 +575,33 @@ export function diagnose(now: Vitals, before: Vitals, nameOf: (id: string) => st
     const absorbed = mostMoved(now, before, minutesOf, 1);
     let efficient: { id: string; rate: number } | null = null;
     now.subjects.forEach((row, id) => {
-      const rate = xpPerHour(row);
-      if (rate !== null && (!efficient || rate > efficient.rate)) efficient = { id, rate };
+      const rate = minutesPerTask(row);
+      if (rate !== null && (!efficient || rate < efficient.rate)) efficient = { id, rate };
     });
     const best = efficient as { id: string; rate: number } | null;
-    const perHourNow = now.focusPerActiveDay ? (now.xpPerActiveDay / now.focusPerActiveDay) * 60 : 0;
-    const perHourBefore = before.focusPerActiveDay ? (before.xpPerActiveDay / before.focusPerActiveDay) * 60 : 0;
+    const perHourNow = now.focusPerActiveDay ? (now.tasksPerActiveDay / now.focusPerActiveDay) * 60 : 0;
+    const perHourBefore = before.focusPerActiveDay ? (before.tasksPerActiveDay / before.focusPerActiveDay) * 60 : 0;
     push({
       id: 'time-without-return',
       tone: 'warning',
       headline: 'More focus time, same results',
-      detail: `You're focusing ${round(now.focusPerActiveDay)} min a day, up from ${round(before.focusPerActiveDay)}, but daily XP hasn't changed.`,
+      detail: `You're focusing ${round(now.focusPerActiveDay)} min a day, up from ${round(before.focusPerActiveDay)}, but you're finishing about the same number of tasks.`,
       points: [
         /* A jump from a few minutes a day is the timer starting to be used,
-           not time that stopped paying. Said so, rather than an XP-per-hour
+           not time that stopped paying. Said so, rather than a per-hour
            "drop" from a figure that was never real. */
         before.focusPerActiveDay < 20
           ? `You timed only ${round(before.focusPerActiveDay)} min a day before, so much of this jump is time that wasn't being tracked yet.`
-          : `That's ${round(perHourNow)} XP an hour of focus, down from ${round(perHourBefore)}.`,
+          : `That's ${one(perHourNow)} tasks an hour of focus, down from ${one(perHourBefore)}.`,
         absorbed ? `The extra time went mostly to ${nameOf(absorbed.id)}: ${round(absorbed.is)} min on finished tasks, up from ${round(absorbed.was)}.` : '',
-        best && (!absorbed || best.id !== absorbed.id) ? `${nameOf(best.id)} earns the most per hour, at ${round(best.rate)} XP.` : '',
+        best && (!absorbed || best.id !== absorbed.id) ? `${nameOf(best.id)} goes quickest, at ${round(best.rate)} min a task.` : '',
       ],
       action: absorbed && best && best.id !== absorbed.id
         ? `Cap ${nameOf(absorbed.id)} sessions at 45 min and give the time back to ${nameOf(best.id)}.`
         : absorbed
           ? `Before each ${nameOf(absorbed.id)} session, write down the one task you'll finish in it.`
           : 'In your next session, note what you did in the first 20 minutes.',
-      watch: 'XP per hour of focus',
+      watch: 'Tasks finished per hour of focus',
       weight: 82,
     });
   }
@@ -633,10 +641,10 @@ export function diagnose(now: Vitals, before: Vitals, nameOf: (id: string) => st
       id: 'gap',
       tone: 'tension',
       headline: 'Long gaps between sessions',
-      detail: `Your longest break was ${now.longestGap} days${now.gapFrom && now.gapTo ? `, ${day(now.gapFrom)} to ${day(now.gapTo)}` : ''}, and you had ${now.gapCount} ${now.gapCount === 1 ? 'break' : 'breaks'} of 2+ days. On days you worked, you averaged ${round(now.xpPerActiveDay)} XP.`,
+      detail: `Your longest break was ${now.longestGap} days${now.gapFrom && now.gapTo ? `, ${day(now.gapFrom)} to ${day(now.gapTo)}` : ''}, and you had ${now.gapCount} ${now.gapCount === 1 ? 'break' : 'breaks'} of 2+ days. On days you worked, you finished ${one(now.tasksPerActiveDay)} tasks.`,
       points: [
         missed ? `${missed.name} is the day you miss most: worked ${missed.worked} of ${missed.total}.` : '',
-        now.returnXp !== null ? `Your first day back after a break averaged ${round(now.returnXp)} XP, against ${round(now.xpPerActiveDay)} on a usual day.` : '',
+        now.returnTasks !== null ? `Your first day back after a break averaged ${one(now.returnTasks)} tasks, against ${one(now.tasksPerActiveDay)} on a usual day.` : '',
         now.beforeGap ? `Before the longest break you were on ${nameOf(now.beforeGap)}.` : '',
       ],
       action: missed
@@ -665,7 +673,7 @@ export function diagnose(now: Vitals, before: Vitals, nameOf: (id: string) => st
       id: 'steady',
       tone: 'good',
       headline: 'Steady two weeks',
-      detail: `${now.finishedCount} tasks over ${now.activeDays} days at ${round(now.xpPerActiveDay)} XP a day, about the same as the two weeks before.`,
+      detail: `${now.finishedCount} tasks over ${now.activeDays} days, about ${one(now.tasksPerActiveDay)} a day, the same as the two weeks before.`,
       points: [
         top ? `Most of it was ${nameOf(top)}: ${now.subjects.get(top)!.tasks} tasks.` : '',
         dropped ? `${nameOf(dropped)} had work two weeks ago and none since.` : '',

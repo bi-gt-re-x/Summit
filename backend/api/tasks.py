@@ -31,6 +31,7 @@ from backend.goal_matcher import service as goal_matcher
 from backend.goal_matcher import store as goal_store
 from backend.tracking import overdue
 from backend.tracking import xp as xp_tracking
+from backend.tracking import levels
 from backend.tracking.auth import load_user
 from backend.config.shared import RULES
 
@@ -45,6 +46,9 @@ class CreateTask(BaseModel):
     name: str = ''
     priority: str = 'medium'
     xp_reward: int = 0
+    #: How hard it is, Easy (1) to Grueling (7). When sent it decides the XP
+    #: and the priority, and xp_reward/priority are ignored. See `_worth`.
+    level: Optional[int] = None
     due_date: Optional[str] = None
     #: Minutes, from the dashboard's Add Task timer. It was only ever accepted
     #: on update, so a timer chosen when the task was made was dropped.
@@ -71,6 +75,9 @@ class UpdateTask(BaseModel):
     description: Optional[str] = None
     priority: Optional[str] = None
     xp_reward: Optional[int] = None
+    #: How hard it is, 1-7. Sets the XP and priority, and re-pays a finished
+    #: task the difference.
+    level: Optional[int] = None
     timer_duration: Optional[Any] = None
     due_date: Optional[str] = None
     completed: Optional[bool] = None
@@ -120,7 +127,12 @@ class RateTask(BaseModel):
     """
 
     task_id: Optional[str] = None
-    #: How hard it was, 1-5. Null means not answered.
+    #: How hard it was, Easy (1) to Grueling (7), from the pill bar. Sets the
+    #: task's XP, and re-pays the account the difference. Null means not
+    #: answered.
+    level: Optional[int] = None
+    #: The old 1-5 star, still accepted from older clients. Written for every
+    #: level too (levels.five_of), because the quality math reads it.
     difficulty: Optional[int] = None
     #: How well it went, 1-5. Null means not answered.
     execution: Optional[int] = None
@@ -161,6 +173,36 @@ ALL_REASONS = REASONS['struggle'] + REASONS['went-well']
 # --------------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------------
+def _worth(level, xp_reward, priority):
+    """(level, xp, priority) for a new task.
+
+    A level decides all three. Without one, an older caller's XP and priority
+    stand, and the level is read off the XP, so every task still has one.
+    """
+    if level is not None and levels.valid(level):
+        return level, levels.xp_for(level), levels.priority_for(level)
+    xp = int(xp_reward or 0)
+    return (levels.from_xp(xp) if xp > 0 else None), xp, priority
+
+
+def _reprice(username, task):
+    """Pay a finished task what its level is worth now. Returns the change.
+
+    Late work keeps its cut (backend/tracking/overdue.py): the new XP is
+    charged for lateness exactly as completing it was.
+    """
+    if task.get('status') != 'done':
+        return 0
+    _, user = load_user(username)
+    if not user:
+        return 0
+    finished = _parse_dt(task.get('completed_at')) or datetime.now()
+    earned = overdue.late_xp(task.get('xp_value'), task.get('due_date'), finished)
+    return db.reprice_task(username, user['id'], task['id'], earned,
+                           datetime.now().isoformat(), finished.date().isoformat(),
+                           lambda total: xp_tracking.level_for_total_xp(total)['level'])
+
+
 def _parse_dt(raw):
     """A datetime from any of the shapes a stored date can take.
 
@@ -246,6 +288,7 @@ def _create(body: CreateTask, username: str):
     goal_id, milestone_id = _link(body.goal_id, body.milestone_id, username)
 
     task_id = body.id or db.new_id('tasks')
+    level, xp, priority = _worth(body.level, body.xp_reward, body.priority)
     # The row comes back carrying the id actually used: `insert_row` steps past
     # a millisecond another writer took first, so the value handed to the
     # client has to be read back rather than assumed.
@@ -254,9 +297,10 @@ def _create(body: CreateTask, username: str):
         "user_id": username,
         "title": body.name,
         "description": '',
-        "priority": body.priority,
+        "priority": priority,
         "status": "todo",
-        "xp_value": body.xp_reward,
+        "xp_value": xp,
+        "level": level,
         "due_date": body.due_date,
         "timer_duration": body.timer_duration if body.timer_duration and body.timer_duration > 0 else None,
         "show_on_calendar": body.show_on_calendar,
@@ -371,14 +415,16 @@ def create_tasks(body: CreateTasks, username: str = Depends(current_username)):
     rows = []
     for one in wanted:
         goal_id, milestone_id = links(one.goal_id, one.milestone_id)
+        level, xp, priority = _worth(one.level, one.xp_reward, one.priority)
         rows.append({
             "id": one.id or None,
             "user_id": username,
             "title": one.name,
             "description": '',
-            "priority": one.priority,
+            "priority": priority,
             "status": "todo",
-            "xp_value": one.xp_reward,
+            "xp_value": xp,
+            "level": level,
             "due_date": one.due_date,
             "show_on_calendar": one.show_on_calendar,
             "created_at": one.created_at or now,
@@ -416,6 +462,12 @@ def update_task(task_id: str, body: UpdateTask,
         task['priority'] = body.priority
     if 'xp_reward' in sent:
         task['xp_value'] = body.xp_reward
+    if 'level' in sent and body.level is not None:
+        if not levels.valid(body.level):
+            return fail('Level must be between {} and {}.'.format(levels.LOWEST, levels.HIGHEST))
+        task['level'] = body.level
+        task['xp_value'] = levels.xp_for(body.level)
+        task['priority'] = levels.priority_for(body.level)
     if 'timer_duration' in sent:
         task['timer_duration'] = body.timer_duration
     if 'due_date' in sent:
@@ -438,6 +490,10 @@ def update_task(task_id: str, body: UpdateTask,
 
     db.save_task(task, username)
     goal_matcher.after_write(username, before, task)
+    # A finished task whose level changed is paid the difference. Re-opening
+    # one doesn't take its XP back, which is what this route always did.
+    if 'level' in sent and body.level is not None:
+        _reprice(username, task)
     return ok()
 
 
@@ -720,8 +776,11 @@ def rate_task(body: RateTask, username: str = Depends(current_username)):
     # taken back. Treating it as nothing to record made the clear below
     # unreachable.
     scored = body.score_got is not None or body.score_of is not None
-    if body.difficulty is None and body.execution is None and body.reason is None and not scored:
+    if (body.level is None and body.difficulty is None and body.execution is None
+            and body.reason is None and not scored):
         return fail('Nothing to record.')
+    if body.level is not None and not levels.valid(body.level):
+        return fail('Level must be between {} and {}.'.format(levels.LOWEST, levels.HIGHEST))
     if scored and (body.score_got is None or body.score_of is None
                    or not (1 <= body.score_of <= 500) or not (0 <= body.score_got <= body.score_of)):
         return fail('A score is how many you got right out of how many there were.')
@@ -734,7 +793,14 @@ def rate_task(body: RateTask, username: str = Depends(current_username)):
     if not task:
         return fail('Task not found')
 
-    if body.difficulty is not None:
+    if body.level is not None:
+        # The level is the difficulty now. The star it replaces is kept in
+        # step so the quality math (difficulty x execution) reads it.
+        task['level'] = int(body.level)
+        task['difficulty'] = levels.five_of(body.level)
+        task['xp_value'] = levels.xp_for(body.level)
+        task['priority'] = levels.priority_for(body.level)
+    elif body.difficulty is not None:
         task['difficulty'] = int(body.difficulty)
     if body.execution is not None:
         task['execution'] = int(body.execution)
@@ -756,9 +822,13 @@ def rate_task(body: RateTask, username: str = Depends(current_username)):
         task['score_of'] = int(body.score_of)
 
     db.save_task(task, username)
+    change = _reprice(username, task) if body.level is not None else 0
 
     return ok(
         task_id=body.task_id,
+        level=task.get('level'),
+        xp_value=task.get('xp_value'),
+        xp_change=change,
         difficulty=task.get('difficulty'),
         execution=task.get('execution'),
         reason=task.get('reason'),

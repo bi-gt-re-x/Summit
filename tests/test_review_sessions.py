@@ -60,16 +60,29 @@ def test_rough_sessions_say_why():
 
 
 def test_spaced_recall_picks_the_days_worth_recalling():
-    tasks = [done('Stewart Ch. 7 #1-8', 'mathematics', 7, execution=4),
+    tasks = [done('Stewart Ch. 7 #1-8', 'mathematics', 7, execution=4, level=5),
              done('Stewart Ch. 7 #9-16', 'mathematics', 7),
-             done('Scales', 'music', 3), done('Bach', 'music', 5), done('Proofs', 'mathematics', 30)]
+             done('Scales', 'music', 3, level=2), done('Bach', 'music', 5), done('Proofs', 'mathematics', 30, level=3)]
     lines = review_ai.recall_lines(tasks, TODAY, NAMES.get)
     # Day 5 is no recall point; two ranges of one chapter are one line.
     assert lines == [
-        '- About 3 days ago: "Scales" (Music).',
-        '- About 7 days ago: "Stewart Ch. 7 #1-8" (Mathematics, rated 4 out of 5).',
-        '- About 30 days ago: "Proofs" (Mathematics).',
+        '- About 3 days ago: "Scales" (Music, Slightly Easy).',
+        '- About 7 days ago: "Stewart Ch. 7 #1-8" (Mathematics, Hard, rated 4 out of 5).',
+        '- About 30 days ago: "Proofs" (Mathematics, Medium).',
     ]
+
+
+def test_hard_work_is_worth_reviewing_even_unrated():
+    tasks = [done('Olympiad set 4', 'mathematics', 2, level=7),
+             done('Olympiad set 5', 'mathematics', 1, level=6),
+             done('Scales', 'music', 1, level=2),
+             done('Proof set 3', 'mathematics', 4, level=5, execution=2),
+             done('Old grind', 'mathematics', 40, level=7)]
+    lines = review_ai.hard_lines(tasks, TODAY, NAMES.get)
+    # Newest first, one line per name family; the rough one is left to its own section.
+    assert lines == ['- "Olympiad set 5" (Mathematics), Challenging, yesterday.']
+    state = review_ai.state_for({'due': [], 'later': []}, tasks, TODAY, NAMES.get)
+    assert '<hard_work>' in review_ai.brief_from(state)
 
 
 def test_with_no_misses_there_is_still_something_to_review():

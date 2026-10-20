@@ -14,7 +14,7 @@ import pytest
 
 from backend.api import spaces, tasks
 from backend.config.shared import PATH, RULES
-from backend.tracking import analytics, background, next_sessions, overdue, record, session_plan, subject_ai, time_spent
+from backend.tracking import analytics, background, levels, next_sessions, overdue, record, subject_ai, time_spent
 
 CASES = os.path.join(os.path.dirname(PATH), 'cases')
 
@@ -59,9 +59,9 @@ def test_every_struggle_reason_has_a_fix():
 
 
 def test_the_server_reads_its_values_from_the_shared_file():
-    assert (session_plan.MIN_XP, session_plan.MAX_XP) == (RULES['task_xp']['min'], RULES['task_xp']['max'])
-    assert (session_plan.MEDIUM_FROM, session_plan.HARD_FROM) == (
+    assert (levels.MEDIUM_FROM, levels.HARD_FROM) == (
         RULES['task_xp']['medium_from'], RULES['task_xp']['hard_from'])
+    assert levels.LEVELS == tuple(RULES['task_xp']['levels'])
     assert [list(band) for band in analytics.GRADE_BANDS] == RULES['grade_bands']
     assert time_spent.LONGEST_BLOCK == RULES['time_spent']['longest_block_seconds']
     assert list(subject_ai.STEP_TYPES) == RULES['recommendations']['step_types']

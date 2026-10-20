@@ -52,25 +52,29 @@ export interface BenchHero {
   /** The last 30 days against the account's opening stretch, as a percentage.
    *  The opening stretch is scaled to the same length first — see below. */
   fromBaseline: number | null;
-  baselineXp: number;
-  currentXp: number;
-  /** The best 30-day stretch the account has ever had. */
-  bestXp: number;
+  baselineTasks: number;
+  /** Tasks finished in the last 30 days, and focus hours beside them. */
+  currentTasks: number;
+  currentFocusHours: number;
+  /** The best 30-day stretch the account has ever had, in tasks finished. */
+  bestTasks: number;
   bestEndedOn: string | null;
 }
 
 /**
  * Where the present sits in the account's own history.
  *
- * Both figures are 30-day totals, which is the shortest window that survives a
- * bad Tuesday. The percentile counts every 30-day window the account has had,
+ * Both figures are 30-day totals of tasks finished, which is the shortest
+ * window that survives a bad Tuesday. Tasks, not XP: the ranking is about how
+ * much got done, and XP only says what it paid. The percentile counts every 30-day window the account has had,
  * overlapping ones included — a reader who has been going eight months has
  * about two hundred of them, and the question "is this a good month for me" is
  * exactly the question that ranking answers.
  */
 export function benchHero(all: GrowthDay[]): BenchHero {
-  const xp = (day: GrowthDay) => num(day.xp_earned);
+  const xp = (day: GrowthDay) => num(day.tasks_completed);
   const current = sumOver(all.slice(-WINDOW_DAYS), xp);
+  const focusMinutes = sumOver(all.slice(-WINDOW_DAYS), (day) => num(day.focus_minutes));
 
   // The baseline is the account's opening window, and it must not overlap the
   // closing one — a comparison that shares days with itself flatters whichever
@@ -103,9 +107,10 @@ export function benchHero(all: GrowthDay[]): BenchHero {
     windows: totals.length,
     fromBaseline:
       scaled > 0 && all.length >= 14 ? Math.round(((current - scaled) / scaled) * 100) : null,
-    baselineXp: Math.round(scaled),
-    currentXp: Math.round(current),
-    bestXp: Math.round(best?.value ?? 0),
+    baselineTasks: Math.round(scaled),
+    currentTasks: Math.round(current),
+    currentFocusHours: Math.round(focusMinutes / 60),
+    bestTasks: Math.round(best?.value ?? 0),
     bestEndedOn: best?.endsOn ?? null,
   };
 }

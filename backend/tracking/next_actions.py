@@ -49,7 +49,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
-from backend.tracking import record, time_spent
+from backend.tracking import levels, record, time_spent
 from backend.tracking.goal_health import evidence_for, js_round, measure_of
 
 BUDGETS = (15, 30, 45, 60, 90, 120)
@@ -87,12 +87,12 @@ SLIP = 0.4
 SLIP_FLOOR = 3
 # A live goal with nothing finished toward it for this long has gone quiet.
 QUIET_DAYS = 10
-# This week's XP this far under the usual pace is worth a row.
+# This week's finished tasks this far under the usual pace is worth a row.
 PACE_GAP = 0.25
 # How far the soft suggestions are shuffled each day, in weight. Enough to
 # swap two of similar weight, never enough to lift one over an overdue task.
 JITTER = 24
-SOFT = ('weak-subject', 'slipping', 'neglected', 'goal-quiet', 'momentum', 'xp', 'stale', 'review')
+SOFT = ('weak-subject', 'slipping', 'neglected', 'goal-quiet', 'momentum', 'xp', 'pace', 'stale', 'review')
 
 #: A lens needs this many rated tasks before it reads a goal by difficulty.
 MIN_RATED = 8
@@ -127,7 +127,7 @@ LENSES = {
         'label': 'Getting more done',
         'priorities': ['productivity', 'efficiency', 'tasks', 'xp', 'consistency', 'quality', 'focus'],
         'watch': [
-            'Your XP a day, and if it\'s going up',
+            'Tasks you finish a day, and if that\'s going up',
             'How many tasks you finish vs. how many pile up',
             'Old tasks slowing you down',
         ],
@@ -272,10 +272,10 @@ def goal_lens(goal, tasks):
     if mean is None:
         return None
     if mean >= HARD:
-        return wrap('depth', 'Your {} rated tasks for this goal average {}/5 for difficulty. Go '
-                             'deeper on hard work before adding more.'.format(len(rated), to_fixed(mean)))
-    return wrap('accuracy', 'Your {} rated tasks for this average {}/5 for difficulty, so doing '
-                            'everyday work well is what matters.'.format(len(rated), to_fixed(mean)))
+        return wrap('depth', 'Your {} rated tasks for this goal average {}. Go deeper on hard '
+                             'work before adding more.'.format(len(rated), levels.name_for_five_mean(mean)))
+    return wrap('accuracy', 'Your {} rated tasks for this average {}, so doing everyday work '
+                            'well is what matters.'.format(len(rated), levels.name_for_five_mean(mean)))
 
 
 def leading_lens(goals, tasks):
@@ -542,9 +542,10 @@ def gather(tasks, goals, days, name_of, now, stamp, lens=None, daily_goal=None, 
             continue
         count_now, xp_now = xp_between(rows, 0, RECENT_DAYS)
         count_before, xp_before = xp_between(rows, RECENT_DAYS, RECENT_DAYS * 2)
-        if count_now == 0 or count_before < SLIP_FLOOR or xp_before <= 0:
+        if count_now == 0 or count_before < SLIP_FLOOR:
             continue
-        drop = 1 - xp_now / xp_before
+        # By tasks finished, not XP: fewer Grueling tasks isn't a slide.
+        drop = 1 - count_now / count_before
         if drop >= SLIP:
             slipping.append((subject, xp_now, xp_before, count_now, count_before, drop))
     slipping.sort(key=lambda row: -row[5])
@@ -553,9 +554,8 @@ def gather(tasks, goals, days, name_of, now, stamp, lens=None, daily_goal=None, 
         found.append(_action(
             id='slipping-{}'.format(subject), kind='slipping',
             title='Catch up on {}'.format(name_of(subject)),
-            because=('{} XP from {} task{} in the last two weeks, down from {} XP from {} the two weeks '
-                     'before. {}').format(
-                js_round(xp_now), count_now, '' if count_now == 1 else 's', js_round(xp_before),
+            because=('{} task{} in the last two weeks, down from {} the two weeks before. {}').format(
+                count_now, '' if count_now == 1 else 's',
                 count_before, 'Your biggest drop of any subject.' if len(slipping) > 1
                 else 'One session this week stops the slide.'),
             minutes=PRACTICE_MINUTES, subject=subject, weight=600 + min(drop, 1) * 40))
@@ -654,16 +654,19 @@ def gather(tasks, goals, days, name_of, now, stamp, lens=None, daily_goal=None, 
     elif len(days) >= 14:
         week = days[-7:]
         earlier = days[:-7]
-        per_day = sum(_num(day.get('xp_earned')) for day in earlier) / len(earlier) if earlier else 0
-        this_week = sum(_num(day.get('xp_earned')) for day in week)
+        # Tasks finished this week against the usual week. XP has the daily
+        # goal row above; the pace is about how much got done.
+        per_day = sum(_num(day.get('tasks_completed')) for day in earlier) / len(earlier) if earlier else 0
+        this_week = sum(_num(day.get('tasks_completed')) for day in week)
         usual = per_day * len(week)
-        if usual > 0 and this_week < usual * (1 - PACE_GAP):
+        if usual >= 3 and this_week < usual * (1 - PACE_GAP):
             top = max(by_subject.items(), key=lambda row: len(row[1]))[0] if by_subject else None
+            behind = max(1, js_round(usual - this_week))
             found.append(_action(
-                id='xp-pace', kind='xp',
-                title="Make up this week's XP" + (' with {}'.format(name_of(top)) if top else ''),
-                because='{} XP in the last 7 days, against your usual {} for a week. {} XP behind.'.format(
-                    js_round(this_week), js_round(usual), js_round(usual - this_week)),
+                id='tasks-pace', kind='pace',
+                title="Catch up on this week" + (' with {}'.format(name_of(top)) if top else ''),
+                because='{} task{} done in the last 7 days. You usually finish {} in a week, so {} behind.'.format(
+                    js_round(this_week), '' if js_round(this_week) == 1 else 's', js_round(usual), behind),
                 minutes=min(60, max(PRACTICE_MINUTES, slot)), subject=top, weight=470))
 
     if (last and last.get('date') == today_iso and _num(last.get('tasks_completed')) == 0

@@ -58,7 +58,7 @@ export const METRIC_META: Record<
     label: 'Productivity',
     tone: 'blue',
     glyph: 'sparkle',
-    asks: 'XP a working day, against your daily goal',
+    asks: 'tasks and focus time a working day, with XP as one part',
   },
   quality: {
     label: 'Quality',
@@ -159,14 +159,18 @@ export function measuredAs(metric: PeriodMetric, side: PeriodSide | null): strin
   const figures = (side.figures?.[metric] ?? {}) as Record<string, number | string | boolean>;
   switch (metric) {
     case 'productivity':
-      return `${fmtNumber(Number(figures.avg_daily_xp) || 0)} XP a working day`;
+      if (figures.tasks_per_day === undefined) {
+        return `${fmtNumber(Number(figures.avg_daily_xp) || 0)} XP a working day`;
+      }
+      return `${Number(figures.tasks_per_day).toFixed(1)} tasks a working day`
+        + (Number(figures.focus_per_day) > 0 ? `, ${fmtNumber(Number(figures.focus_per_day))} min focused` : '');
     case 'quality':
       // The basis is printed, never assumed — an account that has rated
       // nothing is graded on an XP proxy and has to be told so.
       return figures.basis === 'ratings'
         ? `${Number(figures.avg_quality).toFixed(1)} of ${figures.max_quality}, `
           + `over ${fmtNumber(Number(figures.rated_tasks) || 0)} rated`
-        : 'no ratings yet, so this uses task XP';
+        : 'no ratings yet, so this uses the levels you picked';
     case 'consistency':
       return `${fmtNumber(Number(figures.active_days) || 0)} of `
         + `${fmtNumber(Number(figures.total_days) || 0)} days worked`;
@@ -618,16 +622,18 @@ function partsOf(metric: PeriodMetric, now: PeriodSide, then: PeriodSide): Part[
   switch (metric) {
     case 'productivity': {
       const [wasXp, isXp] = pair('avg_daily_xp');
-      const [wasTotal, isTotal] = pair('total_xp');
-      const [wasDays, isDays] = pair('earning_days');
+      const [wasPer, isPer] = pair('tasks_per_day');
+      const [wasFocus, isFocus] = pair('focus_per_day');
       const [wasTasks, isTasks] = pair('tasks');
       const goal = num(now, 'daily_goal') || 100;
+      const target = num(now, 'task_target') || 3;
+      const focusTarget = num(now, 'focus_target') || 60;
+      // In the order the score weighs them: tasks, then focus, then XP. Each
+      // bar is full at the target the score reads it against.
       return [
-        // Against the goal the account set itself, which is what the score
-        // actually divides by — so a full bar here is a full mark there.
+        { label: 'Tasks a working day', from: wasPer, to: isPer, max: Math.max(target, wasPer, isPer), show: asIs },
+        { label: 'Focus minutes a working day', from: wasFocus, to: isFocus, max: Math.max(focusTarget, wasFocus, isFocus), show: asIs },
         { label: 'XP a working day', from: wasXp, to: isXp, max: Math.max(goal, wasXp, isXp), show: asIs },
-        { label: 'XP earned in total', from: wasTotal, to: isTotal, max: headroom(wasTotal, isTotal), show: asIs },
-        { label: 'Days with any XP', from: wasDays, to: isDays, max: headroom(wasDays, isDays), show: asIs },
         { label: 'Tasks finished', from: wasTasks, to: isTasks, max: headroom(wasTasks, isTasks), show: asIs },
       ];
     }
@@ -1055,8 +1061,8 @@ export function MilestoneFeed({ entries, format }: {
  * that would still render if the figures said the opposite.
  *
  * Each line names a *quantity*, not a score. "Productivity rose" is the score
- * moving and the reader already has it in three other places; "you earned 340
- * XP a working day against 210" is the thing that moved it.
+ * moving and the reader already has it in three other places; "you finished
+ * 6.2 tasks a working day against 4.8" is the thing that moved it.
  */
 export function whatChanged(data: GrowthPeriods): ReactNode[] {
   const then = data.previous;
@@ -1066,13 +1072,24 @@ export function whatChanged(data: GrowthPeriods): ReactNode[] {
   const num = (side: PeriodSide, metric: PeriodMetric, field: string) =>
     Number((side.figures?.[metric] as Record<string, unknown>)?.[field]) || 0;
 
-  const xpNow = num(data.current, 'productivity', 'avg_daily_xp');
-  const xpThen = num(then, 'productivity', 'avg_daily_xp');
-  if (Math.abs(xpNow - xpThen) >= 1) {
+  const tasksNow = num(data.current, 'productivity', 'tasks_per_day');
+  const tasksThen = num(then, 'productivity', 'tasks_per_day');
+  if (Math.abs(tasksNow - tasksThen) >= 0.1) {
     lines.push(
       <>
-        You earned <strong>{fmtNumber(Math.round(xpNow))} XP a working day</strong>, against{' '}
-        {fmtNumber(Math.round(xpThen))} over the period before.
+        You finished <strong>{tasksNow.toFixed(1)} tasks a working day</strong>, against{' '}
+        {tasksThen.toFixed(1)} the period before.
+      </>,
+    );
+  }
+
+  const focusNow = num(data.current, 'productivity', 'focus_per_day');
+  const focusThen = num(then, 'productivity', 'focus_per_day');
+  if (Math.abs(focusNow - focusThen) >= 1) {
+    lines.push(
+      <>
+        You focused <strong>{fmtNumber(Math.round(focusNow))} min a working day</strong>, against{' '}
+        {fmtNumber(Math.round(focusThen))} before.
       </>,
     );
   }

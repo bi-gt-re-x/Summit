@@ -153,6 +153,10 @@ ADDED_COLUMNS = (
 
     ('tasks', 'difficulty', 'INTEGER'),
     ('tasks', 'execution', 'INTEGER'),
+    # How hard the task is on the seven-level scale that sets its XP (Easy to
+    # Grueling, shared/rules.json). NULL on tasks made before it existed, which
+    # backend/tracking/levels.py reads off their old rating or their XP.
+    ('tasks', 'level', 'INTEGER'),
 
     # The one missed day a streak was forgiven, so the grace day in
     # backend/tracking/xp.py can be rationed by date rather than by a counter
@@ -2076,6 +2080,52 @@ def save_user(user):
 
 def tasks():
     return read_table('tasks')
+
+
+def reprice_task(username, account_id, task_id, earned, stamp, day, level_for):
+    """Pay a finished task what its new level is worth, in one transaction.
+
+    A task's XP follows its level, and the level can change after the task is
+    done: the rating prompt asks it again. What was already paid is the sum of
+    the ledger's events for the task, so this writes one more event for the
+    difference (`task_level`, counting no task) and moves the account's XP and
+    level by it. Running it twice pays nothing the second time. `day` is the
+    day the task was finished, so the XP stays on the day the work was done.
+    A task with no event at all is left alone (see below).
+
+    Returns the difference paid, which may be negative or zero.
+    """
+    con = connect()
+    try:
+        con.execute('BEGIN IMMEDIATE')
+        try:
+            paid = con.execute('SELECT COUNT(*) AS c, COALESCE(SUM(amount), 0) AS n '
+                               'FROM xp_events WHERE user_id = ? AND task_id = ?',
+                               (username, str(task_id))).fetchone()
+            # No event for the task means it was finished before the ledger
+            # named tasks, or by a route that pays nothing. Either way there's
+            # no record of what it was paid, so nothing is re-paid.
+            delta = int(earned) - int(paid[1] or 0) if int(paid[0] or 0) else 0
+            if delta:
+                con.execute(
+                    'INSERT INTO xp_events (id, user_id, amount, reason, timestamp, '
+                    'date, tasks_completed, task_id) VALUES (?, ?, ?, ?, ?, ?, 0, ?) '
+                    'ON CONFLICT DO NOTHING',
+                    (new_ids('xp_events', 1)[0], username, delta, 'task_level', stamp, day,
+                     str(task_id)))
+                con.execute('UPDATE users SET xp = CASE WHEN COALESCE(xp, 0) + ? < 0 THEN 0 '
+                            'ELSE COALESCE(xp, 0) + ? END WHERE id = ?',
+                            (delta, delta, account_id))
+                total = con.execute('SELECT xp FROM users WHERE id = ?', (account_id,)).fetchone()
+                con.execute('UPDATE users SET level = ? WHERE id = ?',
+                            (level_for(int(total[0] or 0)), account_id))
+            con.execute('COMMIT')
+        except BaseException:
+            con.execute('ROLLBACK')
+            raise
+    finally:
+        con.close()
+    return delta
 
 
 def save_tasks(rows):

@@ -170,9 +170,8 @@ def book_skill_plan(body: BookPlan, username: str = Depends(current_username)):
     if not slot:
         return fail("There's no free {}-minute slot in the next two weeks.".format(minutes))
     start, end = slot
-    xp = session_plan.xp_for(minutes, 3)
     made = create_task(CreateTask(
-        name=found['session_title'], priority=session_plan.priority_for(xp), xp_reward=xp,
+        name=found['session_title'], **session_plan.task_fields(3),
         due_date=end.isoformat(timespec='seconds'), created_at=start.isoformat(timespec='seconds'),
         show_on_calendar=True, subject=found['subject'],
     ), username)

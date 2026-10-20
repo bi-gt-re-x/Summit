@@ -2,18 +2,22 @@
   "_about": "Rules the browser and the server both apply, kept once. Read by backend/config/shared.py and imported in the browser as '@shared/rules.json'. Change a value here and both sides change; never copy one into code. shared/README.md says more.",
 
   "task_xp": {
+    "_about": "How hard a task is, and what it pays. A task's level is one of the seven below, picked from the pill bar when it's made and again when it's rated; its XP is that level's xp. min and max are the ends of the scale. medium_from and hard_from are the levels where the stored priority (low, medium, high) changes. five is the level folded onto the old 1-5 difficulty scale, which the quality math (difficulty x execution) still runs on. from_five maps a rating written on that old scale back to a level. Tasks made before levels existed get the highest level whose xp is at or under their XP. backend/tracking/levels.py and frontend/src/utils/priority.ts read it.",
     "min": 10,
     "max": 250,
-    "medium_from": 80,
-    "hard_from": 160,
-    "bands": [
-      { "from": 10, "label": "Easy" },
-      { "from": 40, "label": "Light" },
-      { "from": 80, "label": "Medium" },
-      { "from": 120, "label": "Intermediate+" },
-      { "from": 160, "label": "Hard" },
-      { "from": 200, "label": "Very Challenging" }
-    ]
+    "default_level": 3,
+    "medium_from": 3,
+    "hard_from": 5,
+    "levels": [
+      { "level": 1, "key": "easy", "label": "Easy", "xp": 10, "five": 1 },
+      { "level": 2, "key": "slightly-easy", "label": "Slightly Easy", "xp": 25, "five": 2 },
+      { "level": 3, "key": "medium", "label": "Medium", "xp": 50, "five": 3 },
+      { "level": 4, "key": "medium-hard", "label": "Medium Hard", "xp": 80, "five": 3 },
+      { "level": 5, "key": "hard", "label": "Hard", "xp": 120, "five": 4 },
+      { "level": 6, "key": "challenging", "label": "Challenging", "xp": 170, "five": 4 },
+      { "level": 7, "key": "grueling", "label": "Grueling", "xp": 250, "five": 5 }
+    ],
+    "from_five": { "1": 1, "2": 2, "3": 3, "4": 5, "5": 7 }
   },
 
   "overdue": {

@@ -44,6 +44,7 @@ import type { GrowthDay, Task } from '@/types';
 import { activeRate, countActiveDays } from './activeDay';
 import { gradeFor as letterFor } from './analyticalScore';
 import type { Subject } from '@/services/subjects';
+import { dayActivity } from '@/utils/activity';
 
 const num = (value: unknown): number => Number(value) || 0;
 
@@ -603,9 +604,9 @@ export interface RecoveryProfile {
  * How the days rank, and what happens after a quiet one.
  *
  * The bands are against the account's own median active day rather than any
- * fixed figure — a "strong day" for someone earning 60 XP a day is not a strong
- * day for someone earning 600, and a threshold in absolute XP would tell one of
- * them a lie.
+ * fixed figure — a "strong day" for someone who finishes two tasks a day is not
+ * a strong day for someone who finishes twelve. A day is measured by
+ * `dayActivity` (utils/activity): tasks and focus time first, XP as one part.
  *
  * **The recovery figure is the point of this panel.** A calendar of missed days
  * is a page of small failures; the same calendar with "you are back within a
@@ -614,12 +615,12 @@ export interface RecoveryProfile {
  */
 export function classifyDays(all: GrowthDay[], tasks: Task[]): Map<string, DayKind> {
   const plans = planIndex(tasks);
-  const active = all.map((day) => num(day.xp_earned)).filter((xp) => xp > 0).sort((a, b) => a - b);
+  const active = all.map((day) => dayActivity(day)).filter((done) => done > 0).sort((a, b) => a - b);
   const median = active.length ? active[Math.floor(active.length / 2)]! : 0;
 
   const kinds = new Map<string, DayKind>();
   all.forEach((day) => {
-    const xp = num(day.xp_earned);
+    const xp = dayActivity(day);
     if (xp <= 0) {
       kinds.set(day.date, 'missed');
       return;

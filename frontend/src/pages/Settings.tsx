@@ -87,6 +87,7 @@ import { useStarter } from '@/hooks/useStarter';
 import { THEMES, ThemeCard } from '@/components/Settings/ThemePicker';
 import { replayTutorial } from '@/components/Tutorial/Tutorial';
 import { FEATURES, STARTER_LEVEL, STARTER_SINCE } from '@/utils/starter';
+import { LevelPills } from '@/components/LevelPills';
 
 const GOAL_MIN = 10;
 const GOAL_MAX = 2000;
@@ -1161,43 +1162,19 @@ export default function Settings() {
         group: 'Productivity',
         items: [
           {
-            id: 'priority',
-            label: 'Default priority',
-            hint: 'The starting priority for new tasks, until you change their XP.',
+            id: 'level',
+            label: 'Default difficulty',
+            hint: 'Where new tasks start. Each level sets the XP a task pays. Applies everywhere you add tasks.',
             control: (
-              <Seg
-                value={prefs.default_priority}
-                busy={busy}
-                onPick={(next) => void savePref({ default_priority: next }, 'Default priority')}
-                options={[
-                  { key: 'low', label: 'Low' },
-                  { key: 'medium', label: 'Medium' },
-                  { key: 'high', label: 'High' },
-                ]}
-              />
-            ),
-          },
-          {
-            id: 'xp',
-            label: 'Default XP',
-            hint: 'What a new task is worth before you change it. Applies everywhere you add tasks.',
-            control: (
-              <input
-                className="st-input is-num"
-                type="number"
-                min={5}
-                max={500}
-                step={5}
-                defaultValue={prefs.default_xp}
-                disabled={busy}
-                onBlur={(event) => {
-                  const next = Number(event.target.value);
-                  if (!Number.isFinite(next) || next === prefs.default_xp) return;
-                  void savePref({ default_xp: next }, 'Default XP');
+              <LevelPills
+                value={prefs.default_level}
+                onChange={(next) => {
+                  if (busy || next === prefs.default_level) return;
+                  void savePref({ default_level: next }, 'Default difficulty');
                 }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') event.currentTarget.blur();
-                }}
+                label="Default difficulty"
+                hideLabel
+                compact
               />
             ),
           },

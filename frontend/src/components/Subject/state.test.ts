@@ -68,7 +68,7 @@ describe('the difficulty curve', () => {
     ]);
 
     expect(curve.threshold?.label).toBe('Hard');
-    expect(curve.holds?.label).toBe('Fair');
+    expect(curve.holds?.label).toBe('Medium');
     expect(curve.drop).toBe(50);
   });
 
@@ -78,7 +78,7 @@ describe('the difficulty curve', () => {
     const curve = difficultyCurve([...rung(5, 2, 4), ...rung(5, 3, 4), ...rung(5, 4, 4)]);
     expect(curve.threshold).toBeNull();
     expect(curve.holds).toBeNull();
-    expect(curve.best?.label).toBe('Easy');
+    expect(curve.best?.label).toBe('Slightly Easy');
   });
 
   it('does not call half a star a cliff', () => {

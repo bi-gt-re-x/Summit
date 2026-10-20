@@ -13,15 +13,17 @@ booked and ticked off the same way, from the same ledger.
                    answer, so the session can say exactly what to redo
   coming_back      what's back in the next few days
   rough_sessions   finished tasks rated 1 or 2 out of 5 lately, and why
+  hard_work        tasks finished lately at Hard or harder, which fade first
+                   and are worth recalling even when nobody rated them
   spaced_recall    work finished about 1, 3, 7, 14 and 30 days ago: the
                    points where recalling something does the most good
   about_the_reader what they told Summit, as the Next sessions brief has it
   previous_recommendations / recommendation_outcomes
                    earlier review sessions and whether they were done
 
-Misses need the reader to mark them, and most accounts haven't. Rough
-sessions and spaced recall come from plain finished tasks, so there's
-something to review on any account that does work.
+Misses need the reader to mark them, and most accounts haven't. Hard work
+and spaced recall come from plain finished tasks and their levels, so
+there's something to review on any account that does work.
 
 ## The three
 
@@ -33,7 +35,7 @@ import re
 from datetime import date, timedelta
 from typing import Any, Dict, List
 
-from backend.tracking import figures, planner
+from backend.tracking import figures, levels, planner
 from backend.tracking import subject_ai
 from backend.tracking.subject_brief import BriefUnavailable, _object
 from backend.tracking.plainwords import plain
@@ -50,6 +52,10 @@ ROUGH_DAYS = 30
 ROUGH_MOST = 8
 #: How many due items go up with their full words.
 DUE_MOST = 10
+#: How far back hard work counts, how many go up, and the lowest level that's hard.
+HARD_DAYS = 21
+HARD_MOST = 8
+HARD_FROM = 5
 
 _WEIGHT_WORD = {'warmup': 'Easy', 'core': 'Medium', 'stretch': 'Hard'}
 
@@ -134,6 +140,36 @@ def rough_lines(tasks, today, name_of, reasons=None):
     return lines
 
 
+def hard_lines(tasks, today, name_of):
+    """Tasks finished lately at Hard or harder, newest first. Rated 1-2 ones
+    are left to <rough_sessions>, so nothing is listed twice."""
+    hard = []
+    for task in tasks:
+        done = _day(task.get('completed_at'))
+        if task.get('status') != 'done' or not done or (today - done).days > HARD_DAYS:
+            continue
+        if 0 < _int(task.get('execution')) <= 2:
+            continue
+        level = levels.level_of(task)
+        if level >= HARD_FROM:
+            hard.append((done, level, task))
+    hard.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    lines, seen = [], set()
+    for done, level, task in hard:
+        key = re.sub(r'\d+', '#', str(task.get('title') or '').strip().lower())
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        rated = _int(task.get('execution'))
+        lines.append('- "{}" ({}), {}, {}{}.'.format(
+            task.get('title') or 'Untitled', name_of(task['subject']) if task.get('subject') else 'no subject',
+            levels.label(level), _ago(done, today),
+            ', went {} out of 5'.format(rated) if rated else ''))
+        if len(lines) >= HARD_MOST:
+            break
+    return lines
+
+
 def recall_lines(tasks, today, name_of):
     """Work finished about 1, 3, 7, 14 and 30 days ago, by day."""
     finished = [(_day(task.get('completed_at')), task) for task in tasks
@@ -150,8 +186,9 @@ def recall_lines(tasks, today, name_of):
                 continue
             seen.add(key)
             rated = _int(task.get('execution'))
-            hits.append('"{}" ({}{})'.format(
+            hits.append('"{}" ({}, {}{})'.format(
                 task.get('title'), name_of(task['subject']) if task.get('subject') else 'no subject',
+                levels.label(levels.level_of(task)),
                 ', rated {} out of 5'.format(rated) if rated else ''))
             if len(hits) >= RECALL_EACH:
                 break
@@ -182,6 +219,7 @@ def state_for(queue, tasks, today, name_of=lambda key: key, reasons=None,
         'misses_due': due_lines(queue, today),
         'coming_back': coming_lines(queue, today),
         'rough_sessions': rough_lines(tasks, today, name_of, reasons),
+        'hard_work': hard_lines(tasks, today, name_of),
         'spaced_recall': recall_lines(tasks, today, name_of),
         'about_the_reader': list(background),
         'previous_recommendations': list(previous),
@@ -191,10 +229,11 @@ def state_for(queue, tasks, today, name_of=lambda key: key, reasons=None,
 
 def has_material(state):
     """Whether there's anything to review at all."""
-    return any(state.get(key) for key in ('misses_due', 'coming_back', 'rough_sessions', 'spaced_recall'))
+    return any(state.get(key) for key in ('misses_due', 'coming_back', 'rough_sessions', 'hard_work',
+                                          'spaced_recall'))
 
 
-SECTIONS = ('review_counts', 'misses_due', 'coming_back', 'rough_sessions', 'spaced_recall',
+SECTIONS = ('review_counts', 'misses_due', 'coming_back', 'rough_sessions', 'hard_work', 'spaced_recall',
             'about_the_reader', 'previous_recommendations', 'recommendation_outcomes')
 
 
@@ -215,8 +254,8 @@ time they have. In this order:
   1. A short one, 10 to 15 minutes: redo the misses in <misses_due> that have \
 waited longest, exactly as written there. With no misses, a quick recall of \
 the oldest work in <spaced_recall>.
-  2. One that fixes the pattern, 20 to 30 minutes: find what the misses or the \
-<rough_sessions> have in common (the same skill, the same kind of slip) and \
+  2. One that fixes the pattern, 20 to 30 minutes: find what the misses, the \
+<rough_sessions> or the <hard_work> have in common (the same skill, the same kind of slip) and \
 drill it with 3 to 5 NEW problems like the missed ones, with different \
 numbers, so it isn't just remembering an answer. WRITE THE PROBLEMS OUT, \
 numbered and short, in the `what` of the plan part where they're solved: \
@@ -228,9 +267,9 @@ exact exercises instead: which bars, which prompt, what to change.
   3. A mixed recall session, 25 to 45 minutes: pull from several days in \
 <spaced_recall> and from the misses, mixed together rather than one block \
 each, answered from memory first and checked after.
-With no misses at all, build all three from <rough_sessions> and \
+With no misses at all, build all three from <rough_sessions>, <hard_work> and \
 <spaced_recall>: retell, re-solve or re-play the work from those days without \
-looking, then check.
+looking, then check. Hard and Grueling work fades fastest, so lean on it.
 
 HOW REVIEW WORKS BEST
   - Recall first, then check. Cover the notes or the worked solution, try, \

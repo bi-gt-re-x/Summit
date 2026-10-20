@@ -328,15 +328,16 @@ describe('time against what it bought', () => {
   it('carries the previous period, so the rate has something to move against', () => {
     const out = timeToProgress({
       days: [
-        ...run(30, { focus_minutes: 60, xp_earned: 60 }),
-        ...run(30, { focus_minutes: 60, xp_earned: 120 }),
+        ...run(30, { focus_minutes: 60, xp_earned: 60, tasks_completed: 1 }),
+        ...run(30, { focus_minutes: 60, xp_earned: 120, tasks_completed: 2 }),
       ],
       finished: [],
       tracks: [],
       windowDays: 30,
     });
-    expect(out.perHour).toBe(120);
-    expect(out.perHourBefore).toBe(60);
+    // Tasks an hour, not XP an hour.
+    expect(out.perHour).toBe(2);
+    expect(out.perHourBefore).toBe(1);
   });
 
   it('refuses a ratio over less than an hour', () => {

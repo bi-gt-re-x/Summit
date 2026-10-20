@@ -1,29 +1,24 @@
 /**
  * The dashboard's "Add New Task" dialog.
  *
- * A task carries an XP reward and, optionally, *either* a timer duration *or*
+ * A task carries a level (Easy to Grueling, which sets its XP) and,
+ * optionally, *either* a timer duration *or*
  * a due date — the two are alternatives, which is why the original put an "OR"
  * between the two dropdown buttons. Opening one closes the other here, so the
  * exclusivity is enforced rather than implied.
  *
- * The XP slider and its number box are two views of one value; the original
- * kept them in step with a pair of `oninput` handlers that each wrote to the
- * other, and this holds the value once and renders both from it.
- *
  * A due date is assembled from four controls (date, hour, minute, AM/PM) and
  * sent as one ISO-ish local string, the way `addTaskFromModal` did it.
  *
- * It opens on the account's default XP and priority (Settings, Tasks), which
- * the tasks page's composer has always honoured and this dialog never did — it
- * started every task at the floor of the scale, so a reader who had set their
- * default to 60 got 10 from one of the app's two Add Task forms and 60 from
- * the other.
+ * It opens on the account's default level (Settings, Tasks), the same one
+ * the tasks page's composer opens on.
  */
 import { useEffect, useState } from 'react';
 import { SubjectPicker } from '@/components/SubjectPicker';
 import { GoalField, MATCH_BY_NAME } from '@/components/Tasks/GoalField';
 import { useSubjects } from '@/hooks/useSubjects';
-import { MAX_TASK_XP, MIN_TASK_XP, xpToPriority } from '@/utils/priority';
+import { LevelPills } from '@/components/LevelPills';
+import { DEFAULT_LEVEL, clampLevel, levelToPriority, levelXp } from '@/utils/priority';
 import type { NewTask } from '@/services/tasks';
 import type { Goal } from '@/types';
 import { Icon } from '@/components/Icon';
@@ -34,18 +29,13 @@ export interface TaskModalProps {
   busy?: boolean;
   /** Whose subjects to offer — the list is ordered by what they use most. */
   username?: string | null;
-  /** What a new task is worth before the reader changes it. From Settings. */
-  defaultXp?: number;
-  /** Used only while the XP slider is untouched — see `submit`. */
-  defaultPriority?: NewTask['priority'];
+  /** How hard a new task starts out, 1-7, before the reader picks. From Settings. */
+  defaultLevel?: number;
   /** The account's goals, for the optional "counts toward" field. */
   goals?: Goal[];
   onClose: () => void;
   onAdd: (task: NewTask & { timer_duration?: number }) => void;
 }
-
-const MIN_XP = MIN_TASK_XP;
-const MAX_XP = MAX_TASK_XP;
 
 type Panel = 'none' | 'timer' | 'due';
 
@@ -66,21 +56,17 @@ export function TaskModal({
   open,
   busy = false,
   username,
-  defaultXp = MIN_TASK_XP,
-  defaultPriority = 'medium',
+  defaultLevel = DEFAULT_LEVEL,
   goals = [],
   onClose,
   onAdd,
 }: TaskModalProps) {
   const subjects = useSubjects(username ?? null);
-  /* Clamped here rather than trusted: the preference is validated on the way
-     into the database, but this dialog's slider has its own floor and ceiling
-     and a value outside them would render a thumb off the end of the track. */
-  const opening = Math.max(MIN_XP, Math.min(MAX_XP, Math.round(defaultXp)));
+  const opening = clampLevel(defaultLevel);
   const [name, setName] = useState('');
   const [subject, setSubject] = useState<string | null>(null);
   const [goalId, setGoalId] = useState(MATCH_BY_NAME);
-  const [xp, setXp] = useState(opening);
+  const [level, setLevel] = useState(opening);
   const [panel, setPanel] = useState<Panel>('none');
   const [hours, setHours] = useState(0);
   const [minutes, setMinutes] = useState(0);
@@ -96,7 +82,7 @@ export function TaskModal({
     setName('');
     setSubject(null);
     setGoalId(MATCH_BY_NAME);
-    setXp(opening);
+    setLevel(opening);
     setPanel('none');
     setHours(0);
     setMinutes(0);
@@ -108,13 +94,6 @@ export function TaskModal({
   }, [open, opening]);
 
   if (!open) return null;
-
-  /** Clamp anything typed into the number box back into range. */
-  function clampXp(value: string) {
-    const n = parseInt(value, 10);
-    if (Number.isNaN(n)) return;
-    setXp(Math.max(MIN_XP, Math.min(MAX_XP, n)));
-  }
 
   /**
    * The four due-date controls as one local datetime string, or null.
@@ -140,15 +119,11 @@ export function TaskModal({
     }
     const task: NewTask & { timer_duration?: number } = {
       name: name.trim(),
-      // This dialog used to send no priority at all, so the backend stored
-      // "medium" for every task made here — a 90 XP task then drew on the
-      // grid in the medium colour and read as Medium on its card. The band
-      // follows the XP, the way it does everywhere else — except while the XP
-      // is still sitting on the account's default, where the account's default
-      // priority is the better answer. The composer on the tasks page draws the
-      // same line, in the same words.
-      priority: xp === opening ? defaultPriority : xpToPriority(xp),
-      xp_reward: xp,
+      // The level decides the XP and the stored priority, the same way the
+      // server and the tasks page's composer work them out.
+      level,
+      priority: levelToPriority(level),
+      xp_reward: levelXp(level),
       due_date: dueDate(),
       // A to-do, and said so out loud. This dialog asks for a name, an XP
       // reward, a subject, and *either* a timer *or* a deadline — never a
@@ -216,41 +191,7 @@ export function TaskModal({
           />
 
           <div style={{ marginTop: '20px', textAlign: 'left' }}>
-            <label
-              style={{ fontSize: '13px', fontWeight: 500, color: '#6C757D' }}
-            >
-              XP:{' '}
-              <span id="xpValue" style={{ color: '#A38A70', fontWeight: 700 }}>
-                {xp}
-              </span>
-            </label>
-            <div
-              style={{
-                display: 'flex',
-                gap: '12px',
-                alignItems: 'center',
-                marginTop: '6px',
-              }}
-            >
-              <input
-                type="range"
-                id="xpSlider"
-                min={MIN_XP}
-                max={MAX_XP}
-                value={xp}
-                style={{ flex: 1, accentColor: '#A38A70' }}
-                onChange={(e) => setXp(Number(e.target.value))}
-              />
-              <input
-                type="number"
-                id="xpInput"
-                className="xp-input-field"
-                min={MIN_XP}
-                max={MAX_XP}
-                value={xp}
-                onChange={(e) => clampXp(e.target.value)}
-              />
-            </div>
+            <LevelPills value={level} onChange={setLevel} label="How hard is it?" compact />
           </div>
 
           <div className="modal-separator" />

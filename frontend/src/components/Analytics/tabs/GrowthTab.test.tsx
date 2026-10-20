@@ -72,7 +72,7 @@ function side(parts: MetricScores, overall: number, moved = 0): PeriodSide {
       productivity: 'C', quality: 'C', consistency: 'C', efficiency: 'C', focus: 'C',
     },
     figures: {
-      productivity: { avg_daily_xp: 200 + moved * 40 },
+      productivity: { avg_daily_xp: 200 + moved * 40, tasks_per_day: 4 + moved, focus_per_day: 40 + moved * 10 },
       quality: {
         basis: 'ratings', avg_quality: 12.5 + moved, max_quality: 25, rated_tasks: 40,
         total_tasks: 60, avg_difficulty: 3.4, avg_execution: 3.6,
@@ -351,13 +351,13 @@ describe('then and now', () => {
 
   it('says which basis a quality score came from rather than assuming ratings', async () => {
     const unrated = side(scores(), 50);
-    unrated.figures.quality = { basis: 'xp', avg_task_xp: 30, rated_tasks: 0, total_tasks: 12 };
+    unrated.figures.quality = { basis: 'levels', avg_task_xp: 30, rated_tasks: 0, total_tasks: 12 };
     serve(payload({ current: unrated, previous: null, change: {
       overall: null, productivity: null, quality: null,
       consistency: null, efficiency: null, focus: null,
     } }));
     draw(<GrowthTab model={fakeModel()} />);
-    expect(await screen.findByText(/no ratings yet, so this uses task XP/)).toBeInTheDocument();
+    expect(await screen.findByText(/no ratings yet, so this uses the levels you picked/)).toBeInTheDocument();
   });
 });
 
@@ -372,7 +372,7 @@ describe('what changed', () => {
       .querySelector('.ax-gp-changes');
     expect(list).not.toBeNull();
     expect(list!.textContent).toContain('% of tasks by their deadline');
-    expect(list!.textContent).toContain('XP a working day');
+    expect(list!.textContent).toContain('tasks a working day');
   });
 
   it('draws nothing to compare when there is no previous period', async () => {

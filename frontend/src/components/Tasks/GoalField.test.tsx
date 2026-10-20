@@ -91,8 +91,7 @@ describe('the composer', () => {
         goals={goals}
         busy={false}
         onAdd={onAdd}
-        defaultXp={10}
-        defaultPriority="medium"
+        defaultLevel={3}
       />,
     );
     return onAdd;

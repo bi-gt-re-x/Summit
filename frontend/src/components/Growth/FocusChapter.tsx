@@ -467,7 +467,7 @@ export function FocusChapter({ all, tasks, subjects, omit = [] }: FocusChapterPr
             <ul className="gr-mix-list">
               {(
                 [
-                  ['perfect', 'Full days: plan done, XP above usual'],
+                  ['perfect', 'Full days: plan done, more than usual done'],
                   ['strong', 'Solid days'],
                   ['partial', 'Light days'],
                   ['missed', 'Rest days'],

@@ -546,7 +546,7 @@ export function standings(done: AnalyticsTask[], curve: DifficultyCurve): Standi
   out.push({
     id: 'breakthrough',
     title: 'Difficulty breakthrough',
-    detail: '10 Hard or Brutal tasks rated Strong or better.',
+    detail: '10 Hard or harder tasks rated Strong or better.',
     reached: hard >= 10,
     progress: pct((hard / 10) * 100),
     at: `${hard} of 10`,

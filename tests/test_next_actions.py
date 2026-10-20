@@ -220,7 +220,8 @@ def test_ordinary_work_is_a_goal_about_getting_it_right():
     lens = goal_lens(lens_goal(), many(2.5))
     assert lens['id'] == 'accuracy'
     assert lens['priorities'][0] == 'quality'
-    assert '2.5/5' in lens['because']
+    # Named as a level, not a mean on the old 1-5 star.
+    assert 'average Medium' in lens['because']
 
 
 def test_hard_work_is_a_goal_about_depth():
@@ -308,7 +309,7 @@ def test_a_fading_subject_is_slipping():
             + [done('chemistry', 3)])
     item = first(plan(rows), 'slipping')
     assert item['title'] == 'Catch up on chemistry'
-    assert '50 XP from 1 task in the last two weeks, down from 250 XP from 5' in item['because']
+    assert '1 task in the last two weeks, down from 5 the two weeks before' in item['because']
 
 
 def test_a_goal_with_nothing_finished_lately_is_named():
@@ -332,8 +333,10 @@ def test_the_daily_goal_says_how_far_off_it_is():
 
 def test_a_slow_week_is_called_out_without_a_daily_goal():
     days = series(list(range(7, 28)), span=28)
-    item = first(plan([done('maths', 9)], days=days), 'xp')
-    assert '0 XP in the last 7 days' in item['because']
+    item = first(plan([done('maths', 9)], days=days), 'pace')
+    # Tasks, not XP: 0 done this week against two a day before it.
+    assert '0 tasks done in the last 7 days' in item['because']
+    assert 'You usually finish 14 in a week' in item['because']
 
 
 def test_the_shuffle_changes_by_day_but_never_lifts_soft_rows_over_overdue_work():

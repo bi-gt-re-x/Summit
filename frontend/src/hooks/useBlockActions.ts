@@ -28,6 +28,7 @@
 import { useCallback, useState } from 'react';
 import { tasks as taskService } from '@/services';
 import { xpToPriority, type TaskDraft } from '@/components/Calendar/TaskModal';
+import { levelToPriority } from '@/utils/priority';
 import type { EventDraft, Scope, UseCalendarStore } from './useCalendarStore';
 import type { TaskPatch } from './useCalendarTasks';
 import { monthKey, type CalendarSection, type RecurrenceType } from '@/utils/calendarStore';
@@ -202,6 +203,7 @@ function localTask(
     title: string;
     priority: Task['priority'];
     xp: number;
+    level?: number;
     createdAt: string;
     dueDate: string;
     subject?: string | null;
@@ -215,6 +217,7 @@ function localTask(
     priority: fields.priority,
     status: 'todo',
     xp_value: fields.xp,
+    ...(fields.level ? { level: fields.level } : {}),
     due_date: fields.dueDate,
     show_on_calendar: true,
     created_at: fields.createdAt,
@@ -259,7 +262,7 @@ export function useBlockActions(
       if (!dialog || !username) return;
       if (dialog.type !== 'add-task' && dialog.type !== 'edit-task') return;
 
-      const priority = xpToPriority(draft.xp);
+      const priority = levelToPriority(draft.level);
       const steps: Array<() => Promise<ApiResult<unknown>>> = [];
 
       // An edit replaces: the old rows go, and the new ones are written from
@@ -306,6 +309,7 @@ export function useBlockActions(
               id,
               name: draft.name,
               priority,
+              level: draft.level,
               xp_reward: draft.xp,
               created_at: createdAt,
               due_date: dueDate,
@@ -322,6 +326,7 @@ export function useBlockActions(
                     title: draft.name,
                     priority,
                     xp: draft.xp,
+                    level: draft.level,
                     createdAt,
                     dueDate,
                     subject: draft.subject,
@@ -406,6 +411,7 @@ export function useBlockActions(
               id: newId,
               name: task.title || '',
               priority,
+              ...(task.level ? { level: task.level } : {}),
               xp_reward: xp,
               created_at: createdAt,
               due_date: dueDate,

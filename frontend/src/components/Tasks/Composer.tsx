@@ -16,8 +16,9 @@ import { SubjectPicker } from '@/components';
 import { GoalField, MATCH_BY_NAME } from './GoalField';
 import type { Subject } from '@/services/subjects';
 import type { NewTask } from '@/services/tasks';
-import type { Goal, Task } from '@/types';
-import { MAX_TASK_XP, MIN_TASK_XP, XP_BANDS, xpToBand, xpToPriority } from '@/utils/priority';
+import type { Goal } from '@/types';
+import { LevelPills } from '@/components/LevelPills';
+import { clampLevel, levelToPriority, levelXp } from '@/utils/priority';
 
 export interface ComposerProps {
   subjects: Subject[];
@@ -25,17 +26,13 @@ export interface ComposerProps {
   goals: Goal[];
   busy: boolean;
   onAdd: (task: NewTask) => void;
-  /** What a new task is worth before the reader changes it. From Settings. */
-  defaultXp: number;
-  /** Only used when the reader has not moved the XP field off its default:
-      priority is otherwise derived from what the task is worth, and a stored
-      preference should not override a number the reader just typed. */
-  defaultPriority: Task['priority'];
+  /** How hard a new task starts out, 1-7, before the reader picks. From Settings. */
+  defaultLevel: number;
 }
 
-export function Composer({ subjects, goals, busy, onAdd, defaultXp, defaultPriority }: ComposerProps) {
+export function Composer({ subjects, goals, busy, onAdd, defaultLevel }: ComposerProps) {
   const [name, setName] = useState('');
-  const [xp, setXp] = useState(defaultXp);
+  const [level, setLevel] = useState(clampLevel(defaultLevel));
   const [due, setDue] = useState('');
   const [subject, setSubject] = useState<string | null>(null);
   const [goalId, setGoalId] = useState(MATCH_BY_NAME);
@@ -43,34 +40,30 @@ export function Composer({ subjects, goals, busy, onAdd, defaultXp, defaultPrior
   const field = useRef<HTMLInputElement>(null);
 
   /* The preferences are read near the root and land a moment after the page
-     does, so the form is often built before the account's default XP is known.
-     Following it until the reader touches the field is what makes the
+     does, so the form is often built before the account's default level is
+     known. Following it until the reader picks one is what makes the
      preference true here rather than true-if-you-reload — and stopping there
-     is what stops it from resetting a number they just typed. */
+     is what stops it from undoing a pick they just made. */
   const touched = useRef(false);
   useEffect(() => {
-    if (!touched.current) setXp(defaultXp);
-  }, [defaultXp]);
+    if (!touched.current) setLevel(clampLevel(defaultLevel));
+  }, [defaultLevel]);
 
-  const chooseXp = (value: number) => {
+  const chooseLevel = (value: number) => {
     touched.current = true;
-    setXp(value);
+    setLevel(value);
   };
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     const title = name.trim();
     if (!title || busy) return;
-    // Clamped on the way out, the way both task dialogs do it. `min` and `max`
-    // on a number input are advice to the spinner, not a limit on what can be
-    // typed into it.
-    const worth = Math.max(MIN_TASK_XP, Math.min(MAX_TASK_XP, Number(xp) || defaultXp));
     onAdd({
       name: title,
-      // The preference stands while the XP field is untouched; past that the
-      // number the reader typed is the better answer and decides it.
-      priority: worth === defaultXp ? defaultPriority : xpToPriority(worth),
-      xp_reward: worth,
+      // The level decides both; the server works them out the same way.
+      level,
+      priority: levelToPriority(level),
+      xp_reward: levelXp(level),
       due_date: due || null,
       subject,
       // Absent rather than empty when the reader left it alone: the backend
@@ -112,52 +105,11 @@ export function Composer({ subjects, goals, busy, onAdd, defaultXp, defaultPrior
 
       {open && (
         <div className="tk-composer-more">
-          {/* Difficulty, not priority.
-              This was a Priority select of High/Medium/Low sitting beside an
-              XP box, and the two were free to disagree — the form opened on
-              "Medium" and 10 XP, which is to say on a task the page would file
-              as medium priority and label Easy, from the same row of controls.
-              Every other surface in the app derives the band from the XP and
-              says so; this was the one place that asked twice and believed
-              both answers.
-
-              So it asks once. The select is the six bands, it moves the XP box
-              to the band's floor, and the XP box moves it back — one value,
-              two grains. The stored priority is computed from the number on
-              the way out, exactly as the two task dialogs do it. */}
-          <label className="tk-field">
-            <span>Difficulty</span>
-            <select
-              className="tk-select"
-              value={xpToBand(xp)}
-              onChange={(event) => {
-                const band = XP_BANDS.find((entry) => entry.label === event.target.value);
-                if (band) chooseXp(band.from);
-              }}
-            >
-              {XP_BANDS.map((band) => (
-                <option key={band.label} value={band.label}>
-                  {band.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="tk-field">
-            <span>XP</span>
-            <input
-              className="tk-input"
-              type="number"
-              /* The same floor and ceiling the two task dialogs use. This box
-                 accepted 0 to 999, so the one form on the Tasks page could
-                 write a task worth nothing, or worth four times the top of the
-                 scale every other surface bands against. */
-              min={MIN_TASK_XP}
-              max={MAX_TASK_XP}
-              value={xp}
-              onChange={(event) => chooseXp(Number(event.target.value))}
-            />
-          </label>
+          {/* One question for how hard it is, and the XP follows from it. The
+              stored priority is folded from the level on the way out. */}
+          <div className="tk-field tk-field-level">
+            <LevelPills value={level} onChange={chooseLevel} label="How hard is it?" compact />
+          </div>
 
           <label className="tk-field">
             <span>Due</span>

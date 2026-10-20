@@ -73,7 +73,7 @@ describe('the browser reads its values from the shared file', () => {
   it('uses the shared grade bands, XP range and reasons', () => {
     expect(GRADE_BANDS.map(([floor, letter]) => [floor, letter])).toEqual(RULES.grade_bands);
     expect(MIN_TASK_XP).toBe(RULES.task_xp.min);
-    expect(XP_BANDS).toEqual(RULES.task_xp.bands);
+    expect(XP_BANDS.map((band) => band.label)).toEqual(RULES.task_xp.levels.map((entry) => entry.label));
     expect(STRUGGLE_REASONS.map((reason) => reason.key)).toEqual(
       RULES.task_reasons.struggle.map((reason) => reason.key),
     );

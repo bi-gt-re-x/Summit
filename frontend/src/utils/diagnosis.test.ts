@@ -74,8 +74,8 @@ describe('more focus, same results, says where the time went', () => {
     (row) => row.id === 'time-without-return',
   )!;
 
-  it('gives XP per hour before and after', () => {
-    expect(item.points[0]).toBe("That's 50 XP an hour of focus, down from 100.");
+  it('gives tasks per hour before and after', () => {
+    expect(item.points[0]).toBe("That's 1.0 tasks an hour of focus, down from 2.0.");
   });
 
   it('does not compare against a timer that was barely used', () => {
@@ -87,9 +87,9 @@ describe('more focus, same results, says where the time went', () => {
     expect(row.points[0]).toContain("wasn't being tracked yet");
   });
 
-  it('names the subject that took the extra time and the one that pays best', () => {
+  it('names the subject that took the extra time and the one that goes quickest', () => {
     expect(item.points.join(' ')).toContain('The extra time went mostly to Chemistry');
-    expect(item.points.join(' ')).toContain('Math earns the most per hour');
+    expect(item.points.join(' ')).toContain('Math goes quickest');
     expect(item.action).toBe('Cap Chemistry sessions at 45 min and give the time back to Math.');
   });
 });

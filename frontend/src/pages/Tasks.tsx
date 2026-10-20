@@ -83,6 +83,11 @@ import { isoStamp } from '@/utils/calendarGrid';
 import { useConfirm } from '@/components/ui';
 import '@/styles/tasks.css';
 import { announceStatsChanged } from '@/utils/statsBus';
+import { clampLevel, levelToPriority, levelXp } from '@/utils/priority';
+import { announceXpChange, ratingTarget, withRating, type RatingTarget } from '@/utils/rated';
+
+/** The level Quick Add's priority button stands for, when it isn't the default's. */
+const QUICK_LEVEL = { low: 2, medium: 3, high: 5 } as const;
 
 /**
  * How many rows a heading draws before it asks.
@@ -399,7 +404,7 @@ export default function Tasks() {
         // unless the reader has turned the questions off in Settings. How many
         // are asked is that same preference: see components/Tasks/RatePrompt.
         if (ask && prefs.rating_depth !== 'none') {
-          setReviews([{ id: String(task.id), name: task.title }]);
+          setReviews([ratingTarget(task, String(task.id))]);
         }
         return true;
       });
@@ -472,7 +477,7 @@ export default function Tasks() {
    * after another rather than each replacing the last. A single completion puts
    * exactly one thing in it, which is what it always did.
    */
-  const [reviews, setReviews] = useState<{ id: string; name: string }[]>([]);
+  const [reviews, setReviews] = useState<RatingTarget[]>([]);
   const rating = reviews[0] ?? null;
 
   /** Done with the head, however it was dismissed. */
@@ -490,9 +495,10 @@ export default function Tasks() {
         mutate((current) => ({
           ...current,
           tasks: current.tasks.map((entry) =>
-            String(entry.id) === target.id ? { ...entry, ...values } : entry,
+            String(entry.id) === target.id ? withRating(entry, values, result) : entry,
           ),
         }));
+        announceXpChange(result);
       });
     },
     [mutate, nextReview, rating, username],
@@ -656,6 +662,7 @@ export default function Tasks() {
                 priority: draft.priority ?? 'medium',
                 status: 'todo' as const,
                 xp_value: Number(draft.xp_reward) || 0,
+                ...(draft.level ? { level: draft.level } : {}),
                 due_date: draft.due_date ?? undefined,
                 show_on_calendar: draft.show_on_calendar ?? false,
                 created_at: isoStamp(new Date()),
@@ -757,7 +764,7 @@ export default function Tasks() {
     setSaving(false);
     const first = done[0];
     if (first && prefs.rating_depth !== 'none') {
-      setReviews([{ id: String(first.id), name: first.title }]);
+      setReviews([ratingTarget(first, String(first.id))]);
     }
     reload();
   }, [chosen, completeMany, prefs.rating_depth, reload]);
@@ -779,7 +786,7 @@ export default function Tasks() {
       const todo = dayTasks;
       if (todo.length === 0) return;
       setSaving(true);
-      const done = (await completeMany(todo)).map((task) => ({ id: String(task.id), name: task.title }));
+      const done = (await completeMany(todo)).map((task) => ratingTarget(task, String(task.id)));
       setSaving(false);
       if (review && prefs.rating_depth !== 'none' && done.length > 0) setReviews(done);
       reload();
@@ -934,14 +941,16 @@ export default function Tasks() {
   }, [opening, prefs.task_group]);
 
   /** Quick Add's three fields, through the same create the full form uses.
-   *  The XP is the account's default rather than a number picked here: this
-   *  form does not ask for one, and 25 was a third answer to a question the
-   *  composer and both task dialogs already agreed on. */
+   *  Its priority button picks a level: the account's default when the
+   *  priority is the default's, else the plain level for that priority. */
   const quickAdd = useCallback(
     (name: string, due: string | null, priority: 'high' | 'medium' | 'low') => {
-      add({ name, priority, due_date: due, xp_reward: prefs.default_xp });
+      const level = levelToPriority(prefs.default_level) === priority
+        ? clampLevel(prefs.default_level)
+        : QUICK_LEVEL[priority];
+      add({ name, priority, level, xp_reward: levelXp(level), due_date: due });
     },
-    [add, prefs.default_xp],
+    [add, prefs.default_level],
   );
 
   // ---- The shell ----------------------------------------------------------
@@ -1061,8 +1070,7 @@ export default function Tasks() {
                 goals={linkable}
                 busy={saving}
                 onAdd={add}
-                defaultXp={prefs.default_xp}
-                defaultPriority={prefs.default_priority}
+                defaultLevel={prefs.default_level}
               />
             )}
 
@@ -1202,7 +1210,7 @@ export default function Tasks() {
             upcoming={nextUp}
             streaks={runs}
             busy={saving}
-            defaultPriority={prefs.default_priority}
+            defaultPriority={levelToPriority(prefs.default_level)}
             subjectName={subjectName}
             onAdd={quickAdd}
             onOpenFull={() => setComposing(true)}
@@ -1221,6 +1229,7 @@ export default function Tasks() {
       {rating && (
         <RatePrompt
           taskName={rating.name}
+          level={rating.level}
           depth={prefs.rating_depth}
           onSubmit={saveRating}
           onClose={nextReview}

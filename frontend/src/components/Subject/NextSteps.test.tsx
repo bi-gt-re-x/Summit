@@ -188,7 +188,7 @@ describe('the words around a step', () => {
   it('puts the kind, subject, difficulty and time on the shut row', () => {
     const { container } = draw([step(1, { difficulty: 4, minutes: 120 })]);
     expect(container.querySelector('.sx-step-meta')).toHaveTextContent('Targeted practice · Calculus');
-    expect(container.querySelector('.sx-step-facts')).toHaveTextContent('Difficulty: Hard · 4/5Time: 120 min');
+    expect(container.querySelector('.sx-step-facts')).toHaveTextContent('Level: Hard · 120 XPTime: 120 min');
   });
 
   it('does not repeat the length as a pace', () => {

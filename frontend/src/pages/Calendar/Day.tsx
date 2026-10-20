@@ -730,6 +730,7 @@ export default function Day() {
       {rating && (
         <RatePrompt
           taskName={rating.name}
+          level={rating.level}
           depth={ratingDepth}
           onSubmit={saveRating}
           onClose={closeRating}

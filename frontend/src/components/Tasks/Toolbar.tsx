@@ -502,26 +502,26 @@ export function Toolbar({
           ))}
         </div>
 
-        {/* The six difficulty bands, by name. They are a row of chips rather
+        {/* The seven levels, by name. They are a row of chips rather
             than a menu for the same reason priority is: a reader working
             through a list cuts by "what is big" over and over, and a control
             they have to open to read the state of is one they open to find out
             what they already chose. */}
         <div className="tk-chip-set">
-          <span className="tk-chip-label">XP</span>
+          <span className="tk-chip-label">Level</span>
           <button
             type="button"
             className={`tk-chip${query.bands.length === 0 ? ' is-on' : ''}`}
             onClick={() => toggleBand(null)}
           >
-            Any XP
+            Any level
           </button>
           {XP_BANDS.map((band) => (
             <button
               key={band.label}
               type="button"
               className={`tk-chip is-band${query.bands.includes(band.label) ? ' is-on' : ''}`}
-              title={`${band.from} XP and up`}
+              title={`${band.from} XP`}
               onClick={() => toggleBand(band.label)}
             >
               {band.label}

@@ -9,6 +9,7 @@
 import type { Task } from '@/types';
 import type { SkillCard } from './growthSkills';
 import { secondsSpent } from './timeSpent';
+import { difficultyName } from '@/utils/priority';
 
 /** Days without a finished task before a subject reads as cooling off. */
 export const COOLING_DAYS = 14;
@@ -492,7 +493,7 @@ export function subjectInsights(
       ],
       figures: [
         { label: 'Went Strong or better', value: `${strongShare}%` },
-        { label: 'Rated Hard or Brutal', value: `${hardShare(mine)}% (others ${hardShare(others)}%)` },
+        { label: 'Rated Hard or harder', value: `${hardShare(mine)}% (others ${hardShare(others)}%)` },
       ],
     });
   } else if (Math.abs(hardGap) >= 0.4) {
@@ -500,17 +501,17 @@ export function subjectInsights(
       key: 'ratings',
       tone: 'note',
       head: hardGap > 0 ? 'Harder than the rest' : 'Easier than the rest',
-      detail: `You rate it ${outOf5(hardHere!)} out of 5 for difficulty vs. ${outOf5(
+      detail: `You rate it ${difficultyName(hardHere!)} on average. Your other work averages ${difficultyName(
         hardElse!,
-      )} for your other work. How it went is ${
+      )}. How it went is ${
         Math.abs(execGap) < 0.2 ? 'about the same' : execGap > 0 ? 'a bit better here' : 'a bit worse here'
       }.`,
       bars: [
-        { label: 'Here', value: hardHere!, text: `${outOf5(hardHere!)} / 5`, lit: true },
-        { label: 'Elsewhere', value: hardElse!, text: `${outOf5(hardElse!)} / 5` },
+        { label: 'Here', value: hardHere!, text: difficultyName(hardHere!), lit: true },
+        { label: 'Elsewhere', value: hardElse!, text: difficultyName(hardElse!) },
       ],
       figures: [
-        { label: 'Rated Hard or Brutal', value: `${hardShare(mine)}% (others ${hardShare(others)}%)` },
+        { label: 'Rated Hard or harder', value: `${hardShare(mine)}% (others ${hardShare(others)}%)` },
         { label: 'Went Strong or better', value: `${strongShare}%` },
       ],
     });
@@ -565,15 +566,15 @@ export function subjectInsights(
           : drop <= -0.3
             ? 'Hard tasks go better here'
             : 'Hard tasks go just as well here',
-        detail: `When you rate a task Hard or Brutal, it goes ${outOf5(hardGoes)} out of 5. Easier ones go ${outOf5(
+        detail: `When you rate a task Hard or harder, it goes ${outOf5(hardGoes)} out of 5. Easier ones go ${outOf5(
           easyGoes,
-        )}. ${share(hardOnes.length, bothRated.length)}% of your rated tasks here were Hard or Brutal.`,
+        )}. ${share(hardOnes.length, bothRated.length)}% of your rated tasks here were Hard or harder.`,
         bars: [
-          { label: 'Hard or Brutal', value: hardGoes, text: `${outOf5(hardGoes)} / 5`, lit: true },
+          { label: 'Hard or harder', value: hardGoes, text: `${outOf5(hardGoes)} / 5`, lit: true },
           { label: 'Easier', value: easyGoes, text: `${outOf5(easyGoes)} / 5` },
         ],
         figures: [
-          { label: 'Hard or Brutal tasks', value: hardOnes.length.toLocaleString() },
+          { label: 'Hard or harder tasks', value: hardOnes.length.toLocaleString() },
           { label: 'Easier tasks', value: easyOnes.length.toLocaleString() },
         ],
       });

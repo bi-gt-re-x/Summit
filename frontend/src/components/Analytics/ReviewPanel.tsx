@@ -68,7 +68,22 @@ function DueMisses({ queue, onAnswered }: { queue: ReviewQueue; onAnswered: (ite
   /* Keys answered on this visit. */
   const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set());
   const { due, later, due_count: dueCount, sitting, minutes, cleared_lately: cleared, next_due: nextDue } = queue;
-  if (dueCount === 0 && later.length === 0 && cleared === 0) return null;
+  if (dueCount === 0 && later.length === 0 && cleared === 0) {
+    /* Empty because nothing's been marked yet, which is most accounts. Say
+       what fills it rather than leaving a gap under the sessions. */
+    return (
+      <div className="rv-misses is-empty">
+        <div className="rv-misses-head">
+          <h3>Redo what you missed</h3>
+          <p className="rv-misses-note">Nothing to redo yet.</p>
+        </div>
+        <p className="rq-note">
+          Misses land here when you add a score to a finished task and get some wrong, or mark a skill tree
+          problem Missed it. Each one comes back until it sticks.
+        </p>
+      </div>
+    );
+  }
   const left = Math.max(0, dueCount - answered.size);
   const sittingLeft = due.slice(0, sitting).filter((item) => !answered.has(item.key));
   const minutesLeft = sittingLeft.reduce((sum, item) => sum + item.minutes, 0);

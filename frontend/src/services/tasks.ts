@@ -123,6 +123,8 @@ export function listTasks(): Promise<ApiResult<{ tasks: Task[] }>> {
 export interface NewTask {
   name: string;
   priority?: Task['priority'];
+  /** How hard it is, 1-7 (utils/priority). Sets the XP on the server. */
+  level?: number;
   xp_reward?: number;
   due_date?: string | null;
   show_on_calendar?: boolean;
@@ -164,6 +166,8 @@ export function createTask(
 export interface TaskEdit {
   name?: string;
   priority?: Task['priority'];
+  /** How hard it is, 1-7. Sets the XP and priority on the server. */
+  level?: number;
   xp_reward?: number;
   timer_duration?: number;
   due_date?: string | null;
@@ -359,6 +363,10 @@ export async function completeTasks(
 
 export interface TaskRating {
   task_id: string;
+  level?: number | null;
+  /** What the task pays now, and what changed on the account for it. */
+  xp_value?: number;
+  xp_change?: number;
   difficulty?: number;
   execution?: number;
   /** Null when the answer was taken back, absent when it was never asked. */
@@ -383,6 +391,8 @@ export interface TaskRating {
  * ("how many did you get right?"). Every part is optional and independent.
  */
 export interface RatingAnswers {
+  /** How hard it was, 1-7. Re-prices the task's XP on the server. */
+  level?: number;
   difficulty?: number;
   execution?: number;
   reason?: string;

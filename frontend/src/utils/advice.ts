@@ -33,6 +33,7 @@ import type {
 } from './behaviour';
 import { REASON_FLOOR, type RatingSummary, type ReasonSummary } from './ratings';
 import type { Ratings } from '@/types';
+import { difficultyName } from '@/utils/priority';
 
 export type AdviceKind = 'frequency' | 'timing' | 'depth' | 'balance' | 'quality' | 'load';
 
@@ -203,7 +204,7 @@ const REASON_ACTIONS: Record<string, { action: string; effort: number }> = {
     effort: 1,
   },
   underestimated: {
-    action: 'Split any task you expect to rate 4 or 5 for difficulty into two before you start.',
+    action: "Split any task you'd call Hard or harder into two before you start.",
     effort: 2,
   },
   'no-time': {
@@ -478,9 +479,9 @@ export function recommendations(input: AdviceInput): Advice[] {
       kind: 'load',
       category: 'Subjects',
       title: `Drop a step in ${overreaching.name}`,
-      because: `${overreaching.name} rates ${overreaching.difficulty!.toFixed(1)}/5 for difficulty but only ${overreaching.execution!.toFixed(1)}/5 for how it went. The jump may be too big.`,
+      because: `${overreaching.name} averages ${difficultyName(overreaching.difficulty!)} but only goes ${overreaching.execution!.toFixed(1)}/5. The jump may be too big.`,
       action: `Spend one session on easier material and finish it well.`,
-      evidence: `${overreaching.rated} rated ${overreaching.name} tasks: ${overreaching.difficulty!.toFixed(1)} for how hard, ${overreaching.execution!.toFixed(1)} for how well.`,
+      evidence: `${overreaching.rated} rated ${overreaching.name} tasks: ${difficultyName(overreaching.difficulty!)} on average, ${overreaching.execution!.toFixed(1)}/5 for how well.`,
       impact: 0,
       workings: "This one doesn't change your XP.",
       effort: 2,
@@ -636,9 +637,9 @@ export function recommendations(input: AdviceInput): Advice[] {
       kind: 'quality',
       category: 'Quality',
       title: 'Your tasks are all easy',
-      because: `Difficulty averages ${(quality.difficulty ?? 0).toFixed(1)}/5 and execution ${(quality.execution ?? 0).toFixed(1)}/5. You're doing well on easy work.`,
+      because: `Your tasks average ${difficultyName(quality.difficulty ?? 1)} and go ${(quality.execution ?? 0).toFixed(1)}/5. You're doing well on easy work.`,
       action: "Add one task you're not sure you can finish.",
-      evidence: `${quality.rated} rated tasks: ${(quality.difficulty ?? 0).toFixed(1)}/5 for how hard, ${(quality.execution ?? 0).toFixed(1)}/5 for how well.`,
+      evidence: `${quality.rated} rated tasks: ${difficultyName(quality.difficulty ?? 1)} on average, ${(quality.execution ?? 0).toFixed(1)}/5 for how well.`,
       impact: 0,
       workings: "This one doesn't change your XP.",
       effort: 4,
@@ -883,11 +884,11 @@ function fallbacks(
       title: behind ? 'Focus on doing it well' : 'Take on harder tasks',
       because: behind
         ? `Your tasks are hard (${quality.difficulty.toFixed(1)}/5) and aren't going well (${quality.execution.toFixed(1)}/5).`
-        : `Your tasks go well (${quality.execution.toFixed(1)}/5) but aren't very hard (${quality.difficulty.toFixed(1)}/5).`,
+        : `Your tasks go well (${quality.execution.toFixed(1)}/5) but aren't very hard (${difficultyName(quality.difficulty)} on average).`,
       action: behind
         ? 'Finish one task properly before starting the next.'
         : 'Add one harder task each week.',
-      evidence: `${quality.rated} rated tasks: ${quality.difficulty.toFixed(1)}/5 for how hard, ${quality.execution.toFixed(1)}/5 for how well.`,
+      evidence: `${quality.rated} rated tasks: ${difficultyName(quality.difficulty)} on average, ${quality.execution.toFixed(1)}/5 for how well.`,
       impact: 0,
       workings: "This one doesn't change your XP.",
       effort: 2,

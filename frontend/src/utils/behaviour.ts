@@ -33,6 +33,8 @@ export interface WeekdayStat {
   label: string;
   /** XP per occurrence of this weekday, not summed. */
   avgXp: number;
+  /** Tasks finished per occurrence of this weekday. What best and worst go by. */
+  avgTasks: number;
   avgFocusMinutes: number;
   /** Share of this weekday that had anything on it, 0-100. */
   activeRate: number;
@@ -48,12 +50,13 @@ export interface WeekdayStat {
  * about the day and not about the calendar.
  */
 export function weekdayProfile(days: GrowthDay[]): WeekdayStat[] {
-  const buckets = Array.from({ length: 7 }, () => ({ xp: 0, focus: 0, active: 0, days: 0 }));
+  const buckets = Array.from({ length: 7 }, () => ({ xp: 0, tasks: 0, focus: 0, active: 0, days: 0 }));
 
   days.forEach((day) => {
     const at = new Date(`${day.date}T00:00:00`).getDay();
     const bucket = buckets[at]!;
     bucket.xp += num(day.xp_earned);
+    bucket.tasks += num(day.tasks_completed);
     bucket.focus += num(day.focus_minutes);
     bucket.days += 1;
     if (isActiveDay(day)) bucket.active += 1;
@@ -63,6 +66,7 @@ export function weekdayProfile(days: GrowthDay[]): WeekdayStat[] {
     index,
     label: WEEKDAYS[index]!,
     avgXp: bucket.days ? bucket.xp / bucket.days : 0,
+    avgTasks: bucket.days ? bucket.tasks / bucket.days : 0,
     avgFocusMinutes: bucket.days ? bucket.focus / bucket.days : 0,
     activeRate: bucket.days ? (bucket.active / bucket.days) * 100 : 0,
     days: bucket.days,
@@ -86,14 +90,16 @@ export function weekShape(days: GrowthDay[]): WeekShape {
     return { stats, best: null, worst: null, weekendGap: null, spread: 1 };
   }
 
-  const best = withDays.reduce((a, b) => (b.avgXp > a.avgXp ? b : a));
-  const worst = withDays.reduce((a, b) => (b.avgXp < a.avgXp ? b : a));
-  const mean = withDays.reduce((sum, stat) => sum + stat.avgXp, 0) / withDays.length;
+  // By tasks finished, not XP: a weekday that gets more done is the better
+  // day, whatever the levels of the tasks on it.
+  const best = withDays.reduce((a, b) => (b.avgTasks > a.avgTasks ? b : a));
+  const worst = withDays.reduce((a, b) => (b.avgTasks < a.avgTasks ? b : a));
+  const mean = withDays.reduce((sum, stat) => sum + stat.avgTasks, 0) / withDays.length;
 
   const pick = (indices: number[]) => {
     const chosen = stats.filter((stat) => indices.includes(stat.index) && stat.days > 0);
     if (chosen.length === 0) return null;
-    return chosen.reduce((sum, stat) => sum + stat.avgXp, 0) / chosen.length;
+    return chosen.reduce((sum, stat) => sum + stat.avgTasks, 0) / chosen.length;
   };
   const weekend = pick([0, 6]);
   const weekday = pick([1, 2, 3, 4, 5]);
@@ -106,7 +112,7 @@ export function weekShape(days: GrowthDay[]): WeekShape {
       weekend !== null && weekday !== null && weekday > 0
         ? Math.round(((weekend - weekday) / weekday) * 100)
         : null,
-    spread: mean > 0 ? best.avgXp / mean : 1,
+    spread: mean > 0 ? best.avgTasks / mean : 1,
   };
 }
 

@@ -16,6 +16,7 @@ import { Link } from 'react-router-dom';
 import type { Goal, Task } from '@/types';
 import { dueLine, spellDuration } from './board';
 import { daysLate, earnedXp, isOverdue, lateXp } from '@/utils/overdue';
+import { levelLabel, levelOf } from '@/utils/priority';
 
 export interface TaskRowProps {
   task: Task;
@@ -191,8 +192,11 @@ export function TaskRow({
               {task.title}
             </span>
           )}
-          <span className={`tk-tag is-${task.priority}`}>
-            {task.priority[0]!.toUpperCase() + task.priority.slice(1)}
+          {/* The task's level, Easy to Grueling, in its priority's color. It
+              used to print the priority word, which read as a second
+              difficulty beside the level ("Medium" next to "Easy"). */}
+          <span className={`tk-tag is-${task.priority}`} title={`Priority: ${task.priority}`}>
+            {levelLabel(levelOf(task))}
           </span>
           {subject && <span className="tk-tag is-subject">{subject}</span>}
           {overdue && (

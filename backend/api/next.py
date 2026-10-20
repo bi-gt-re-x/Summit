@@ -122,7 +122,6 @@ def book_for_goal(username, goal, read, count, now):
     (backend/api/forecast.py).
     """
     minutes = next_actions.SESSION_MINUTES
-    xp = session_plan.xp_for(minutes, 3)
     title = read['next_step'] or read['checkpoint'] or '{}: practice'.format(goal.get('title') or 'Goal')
     busy = session_plan.busy_spans(
         db.columns_for('tasks', username, ('show_on_calendar', 'created_at', 'due_date')),
@@ -134,7 +133,7 @@ def book_for_goal(username, goal, read, count, now):
             break
         start, end = slot
         made = create_task(CreateTask(
-            name=title, priority=session_plan.priority_for(xp), xp_reward=xp,
+            name=title, **session_plan.task_fields(3),
             due_date=end.isoformat(timespec='seconds'), created_at=start.isoformat(timespec='seconds'),
             show_on_calendar=True, subject=(read['subjects'] or [None])[0],
             goal_id=str(goal.get('id')), milestone_id=read['checkpoint_id'],

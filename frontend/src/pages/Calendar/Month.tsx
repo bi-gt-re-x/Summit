@@ -585,6 +585,7 @@ export default function Month() {
       {rating && (
         <RatePrompt
           taskName={rating.name}
+          level={rating.level}
           depth={ratingDepth}
           onSubmit={saveRating}
           onClose={closeRating}

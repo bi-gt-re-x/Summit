@@ -35,12 +35,15 @@
  */
 import type { Task } from '@/types';
 import { RULES } from '@/utils/sharedRules';
+import { difficultyName, fiveToLevel, levelLabel } from '@/utils/priority';
 
 /** The best a single task can score: 5 for difficulty times 5 for execution. */
 export const QUALITY_MAX = 25;
 
-/** The five stars, in words. Shared with the prompt that collects them. */
-export const DIFFICULTY_WORDS = ['Trivial', 'Easy', 'Fair', 'Hard', 'Brutal'];
+/** The five points of the old difficulty star, named as the level each one
+ *  maps to (utils/priority `fiveToLevel`): Easy, Slightly Easy, Medium, Hard,
+ *  Grueling. The averages still run on five; these are the words for them. */
+export const DIFFICULTY_WORDS: string[] = [1, 2, 3, 4, 5].map((five) => levelLabel(fiveToLevel(five) ?? five));
 export const EXECUTION_WORDS = ['Poor', 'Patchy', 'Solid', 'Strong', 'Excellent'];
 
 // --------------------------------------------------------------------------
@@ -339,19 +342,19 @@ export function ratingFindings(summary: RatingSummary, rated: RatedTask[]): Rati
         ? {
             tone: 'watch',
             headline: 'Your tasks may be too easy.',
-            hint: `Execution ${execution.toFixed(1)}, difficulty ${difficulty.toFixed(1)}. Try harder tasks.`,
+            hint: `They go ${execution.toFixed(1)} out of 5 and average ${difficultyName(difficulty)}. Try harder ones.`,
           }
         : {
             tone: 'watch',
             headline: 'Your tasks may be too hard.',
-            hint: `Difficulty ${difficulty.toFixed(1)}, execution ${execution.toFixed(1)}. Fine for now, but keep an eye on it.`,
+            hint: `They average ${difficultyName(difficulty)} and go ${execution.toFixed(1)} out of 5. Fine for now, but keep an eye on it.`,
           },
     );
   } else {
     out.push({
       tone: 'good',
       headline: 'Your tasks are the right difficulty.',
-      hint: `Difficulty ${difficulty.toFixed(1)}, execution ${execution.toFixed(1)}. You're challenged but still doing well.`,
+      hint: `They average ${difficultyName(difficulty)} and go ${execution.toFixed(1)} out of 5. You're pushed but still doing well.`,
     });
   }
 
@@ -363,7 +366,7 @@ export function ratingFindings(summary: RatingSummary, rated: RatedTask[]): Rati
     out.push({
       tone: share >= 60 ? 'good' : 'watch',
       headline: `${share}% of your hardest tasks went well.`,
-      hint: `${hardWell} of ${hard.length} hard tasks (4-5 difficulty) rated 3+ for execution.`,
+      hint: `${hardWell} of ${hard.length} Hard or harder tasks went 3 out of 5 or better.`,
     });
   }
 

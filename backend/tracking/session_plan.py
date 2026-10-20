@@ -12,9 +12,9 @@ the step's difficulty — an approximation, and labelled as one on the page.
 
 ## What it is worth
 
-Scaled to the account's own calendar, where a ninety-minute seminar is worth
-about fifty: roughly half an XP a minute at middling difficulty, more for
-harder work, rounded to five and held inside the 10-250 the dialogs allow.
+Its level, from the step's 1-5 difficulty (backend/tracking/levels.py), and
+that level's XP. The same seven levels every task dialog offers, so a booked
+session pays what the same task typed in by hand would.
 
 ## When
 
@@ -28,19 +28,12 @@ stored.
 """
 from datetime import datetime, timedelta
 import math
-from backend.config.shared import RULES
+from backend.tracking import levels
 
 #: Minutes when the step gave none, by its 1-5 difficulty.
 MINUTES_BY_DIFFICULTY = {1: 20, 2: 30, 3: 45, 4: 60, 5: 75}
 MIN_MINUTES = 10
 MAX_MINUTES = 180
-
-#: The XP range every task dialog allows, and where XP folds onto the stored
-#: three-value priority — shared/rules.json, which the browser reads too.
-MIN_XP = RULES['task_xp']['min']
-MAX_XP = RULES['task_xp']['max']
-MEDIUM_FROM = RULES['task_xp']['medium_from']
-HARD_FROM = RULES['task_xp']['hard_from']
 
 #: The hours a session may be booked into, local time.
 DAY_START = 8
@@ -69,19 +62,16 @@ def estimate_minutes(minutes, difficulty) -> int:
     return int(math.ceil(given / 5.0) * 5)
 
 
-def xp_for(minutes: int, difficulty) -> int:
-    """What finishing it is worth."""
-    rate = 0.3 + 0.1 * _level(difficulty)
-    raw = int(round(minutes * rate / 5.0) * 5)
-    return max(MIN_XP, min(MAX_XP, raw))
+def level_for(difficulty) -> int:
+    """The task level for a step's 1-5 difficulty. Medium when it gave none."""
+    return levels.from_five(_level(difficulty)) or levels.DEFAULT
 
 
-def priority_for(xp: int) -> str:
-    if xp >= HARD_FROM:
-        return 'high'
-    if xp >= MEDIUM_FROM:
-        return 'medium'
-    return 'low'
+def task_fields(difficulty) -> dict:
+    """What a booked session is worth: its level, XP and stored priority."""
+    level = level_for(difficulty)
+    return {'level': level, 'xp_reward': levels.xp_for(level),
+            'priority': levels.priority_for(level)}
 
 
 def _level(difficulty) -> int:

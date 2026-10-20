@@ -55,7 +55,8 @@ html[data-theme="dark"] .tk-rate-backdrop {
 }
 
 .tk-rate-popup {
-    width: min(420px, 100%);
+    /* Wide enough for the seven level pills on one row. */
+    width: min(560px, 100%);
     background: var(--rt-surface);
     border: 1px solid var(--rt-line);
     border-radius: var(--radius-lg);
@@ -305,3 +306,10 @@ html[data-theme="dark"] .tk-rate-backdrop {
     cursor: pointer;
 }
 .tk-rate-add-score:hover { text-decoration: underline; }
+
+/* The line under the level pills when the pick moves the task's XP. */
+.tk-rate-moved {
+    margin: var(--space-2) 0 0;
+    font-size: var(--text-sm);
+    color: var(--rt-ink-soft);
+}

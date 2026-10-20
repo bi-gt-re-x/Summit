@@ -1,7 +1,7 @@
 /**
  * Add or edit a task, from the calendar rather than the dashboard.
  *
- * The same layout as the event dialog with XP in place of nothing, because a
+ * The same layout as the event dialog with a level in place of nothing, because a
  * task on the grid is a real task: it is created in the database with
  * `show_on_calendar`, it is worth XP, and finishing it from the grid awards
  * that XP exactly as ticking it off on the dashboard does.
@@ -10,9 +10,8 @@
  * end — the grid draws the block between them — which is why the dialog asks
  * for both and why editing one moves the block rather than nudging a deadline.
  *
- * Difficulty is not asked for. It follows from XP — Easy through Very
- * Challenging across 10-250, see utils/priority.ts — so asking again would be
- * inviting the two to disagree.
+ * XP is not asked for. It follows from the level picked on the pill bar,
+ * Easy through Grueling (utils/priority.ts).
  */
 import { useEffect, useState } from 'react';
 import { RecurrencePicker } from './RecurrencePicker';
@@ -21,7 +20,8 @@ import { SubjectPicker } from '@/components/SubjectPicker';
 import { useSubjects } from '@/hooks/useSubjects';
 import { useLinkableGoals } from '@/hooks/useLinkableGoals';
 import { GoalField, MATCH_BY_NAME } from '@/components/Tasks/GoalField';
-import { MAX_TASK_XP, MIN_TASK_XP } from '@/utils/priority';
+import { LevelPills } from '@/components/LevelPills';
+import { DEFAULT_LEVEL, levelXp, xpToLevel } from '@/utils/priority';
 import type { Scope } from '@/hooks/useCalendarStore';
 import type { RecurrenceType } from '@/utils/calendarStore';
 
@@ -33,7 +33,10 @@ export interface TaskDraft {
   name: string;
   startTime: string;
   endTime: string;
+  /** What the level pays. Kept beside it so callers that write XP still can. */
   xp: number;
+  /** How hard it is, 1-7. */
+  level: number;
   /** The chosen subject's id, or null. Optional on every task. */
   subject: string | null;
   /**
@@ -52,6 +55,7 @@ export interface TaskModalProps {
     startTime: string;
     endTime: string;
     xp: number;
+    level?: number | null;
     subject?: string | null;
   };
   /** Whose subjects to offer — the list is ordered by what they use most. */
@@ -89,7 +93,9 @@ export function TaskModal({
   const [goalId, setGoalId] = useState(MATCH_BY_NAME);
   const [startTime, setStartTime] = useState(initial?.startTime ?? defaults?.startTime ?? '');
   const [endTime, setEndTime] = useState(initial?.endTime ?? defaults?.endTime ?? '');
-  const [xp, setXp] = useState(initial?.xp ?? MIN_TASK_XP);
+  const [level, setLevel] = useState(
+    initial?.level ?? (initial ? xpToLevel(initial.xp) : DEFAULT_LEVEL),
+  );
   const [recurrence, setRecurrence] = useState<RecurrenceType>(pattern?.type ?? 'none');
   const [days, setDays] = useState<number[]>(pattern?.days ?? []);
   const [scope, setScope] = useState<Scope>('one');
@@ -111,9 +117,6 @@ export function TaskModal({
   const missingName = !name.trim();
   const missingDays = showRepeat && recurrence !== 'none' && days.length === 0;
 
-  const setClampedXp = (value: number) =>
-    setXp(Math.max(MIN_TASK_XP, Math.min(MAX_TASK_XP, Math.round(value) || MIN_TASK_XP)));
-
   const save = () => {
     if (missingName || !startTime || !endTime || missingDays) {
       setShowErrors(true);
@@ -124,7 +127,8 @@ export function TaskModal({
         name: name.trim(),
         startTime,
         endTime,
-        xp,
+        xp: levelXp(level),
+        level,
         subject,
         goalId,
         recurrence: showRepeat ? recurrence : 'none',
@@ -200,28 +204,7 @@ export function TaskModal({
           )}
 
           <div className="form-group">
-            <label htmlFor="taskXpSlider">
-              XP <span className="xp-value">{xp}</span>
-            </label>
-            <div className="xp-slider-row">
-              <input
-                id="taskXpSlider"
-                type="range"
-                min={MIN_TASK_XP}
-                max={MAX_TASK_XP}
-                value={xp}
-                style={{ flex: 1, accentColor: '#A38A70' }}
-                onChange={(event) => setClampedXp(Number(event.target.value))}
-              />
-              <input
-                type="number"
-                className="xp-input-field"
-                min={MIN_TASK_XP}
-                max={MAX_TASK_XP}
-                value={xp}
-                onChange={(event) => setClampedXp(Number(event.target.value))}
-              />
-            </div>
+            <LevelPills value={level} onChange={setLevel} label="How hard is it?" compact />
           </div>
 
           {editing && recurring && (

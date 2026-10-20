@@ -21,21 +21,21 @@ import type { ClockShape, WeekShape } from '@/utils/behaviour';
 export function WeekPanel({ week }: { week: WeekShape }) {
   const columns: Column[] = week.stats.map((stat) => ({
     label: WEEKDAYS_SHORT[stat.index]!,
-    value: stat.avgXp,
-    text: Math.round(stat.avgXp).toLocaleString(),
+    value: stat.avgTasks,
+    text: stat.avgTasks.toFixed(1),
     peak: week.best?.index === stat.index,
   }));
 
   return (
-    <Panel title="When you do your best work" note="Average XP per weekday">
-      <Columns columns={columns} label="Average XP per weekday" />
+    <Panel title="When you do your best work" note="Tasks finished on each weekday">
+      <Columns columns={columns} label="Tasks finished on each weekday" />
       <p className="ax-prose">
         {week.best && week.worst && week.best.index !== week.worst.index ? (
           <>
             {week.best.label} outproduces {week.worst.label} by{' '}
             <strong>
-              {week.worst.avgXp > 0
-                ? `${Math.round((week.best.avgXp / week.worst.avgXp - 1) * 100)}%`
+              {week.worst.avgTasks > 0
+                ? `${Math.round((week.best.avgTasks / week.worst.avgTasks - 1) * 100)}%`
                 : 'a wide margin'}
             </strong>
             . {week.spread > 1.6

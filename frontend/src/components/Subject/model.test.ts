@@ -569,7 +569,7 @@ describe('the verdict at the top of the page', () => {
       ...Array.from({ length: 4 }, () => done({ difficulty: 5, execution: 2 })),
     ];
     const model = subjectModel(tasks, 'maths', '30d', TODAY);
-    expect(model.headline.verdict).toContain('Brutal');
+    expect(model.headline.verdict).toContain('Grueling');
     // Short enough to set in large bold type without wrapping into a paragraph.
     expect(model.headline.verdict.length).toBeLessThan(110);
   });

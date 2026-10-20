@@ -143,10 +143,11 @@ const mean = (list: number[]) =>
  * What is behind the way the last stretch went.
  *
  * The first finding is arithmetic rather than inference and is stated as such:
- * a period's XP is its active days times its XP per active day, so a change in
- * the total decomposes exactly into those two, and whichever moved more is
- * *the* reason in a sense that needs no hedging. Everything after it is a
- * correlation and is hedged.
+ * a period's tasks finished are its working days times its tasks per working
+ * day, so a change in the total decomposes exactly into those two, and
+ * whichever moved more is *the* reason in a sense that needs no hedging.
+ * Everything after it is a correlation and is hedged. Tasks rather than XP:
+ * how much got done is the activity, and XP is only what it paid.
  */
 export function whyFindings(days: GrowthDay[], window = 30): Finding[] {
   const out: Finding[] = [];
@@ -154,13 +155,14 @@ export function whyFindings(days: GrowthDay[], window = 30): Finding[] {
   const before = days.slice(-window * 2, -window);
   if (now.length < 7 || before.length !== now.length) return out;
 
-  /* Days that *earned*, not days worked — narrower than `isActiveDay` on
-     purpose. The finding below states an identity: a period's total is working
-     days times XP on a working day. That only holds if the days counted are
-     the ones the XP came from, so a focus-only day does not belong in this
-     particular denominator. See utils/activeDay. */
-  const activeOf = (rows: GrowthDay[]) => rows.filter((day) => num(day.xp_earned) > 0);
-  const sum = (rows: GrowthDay[]) => rows.reduce((total, day) => total + num(day.xp_earned), 0);
+  /* Days that finished something, not days worked — narrower than
+     `isActiveDay` on purpose. The finding below states an identity: a
+     period's total is working days times tasks on a working day. That only
+     holds if the days counted are the ones the tasks came from, so a
+     focus-only day does not belong in this particular denominator. */
+  const activeOf = (rows: GrowthDay[]) => rows.filter((day) => num(day.tasks_completed) > 0);
+  const sum = (rows: GrowthDay[]) => rows.reduce((total, day) => total + num(day.tasks_completed), 0);
+  const focusOf = (rows: GrowthDay[]) => rows.reduce((total, day) => total + num(day.focus_minutes), 0);
 
   const nowActive = activeOf(now);
   const wasActive = activeOf(before);
@@ -174,20 +176,24 @@ export function whyFindings(days: GrowthDay[], window = 30): Finding[] {
   const perDayWas = wasTotal / wasActive.length;
   const perDayChange = ((perDayNow - perDayWas) / perDayWas) * 100;
 
+  const focusNow = focusOf(now);
+  const focusWas = focusOf(before);
+  const focusLine =
+    focusWas >= 60 || focusNow >= 60
+      ? ` Focus time went from ${Math.round(focusWas / 60)} to ${Math.round(focusNow / 60)} hours.`
+      : '';
   if (Math.abs(totalChange) >= 8) {
     const byDays = Math.abs(daysChange) >= Math.abs(perDayChange);
     out.push({
       id: 'why-decomposition',
-      headline: `Your XP ${totalChange > 0 ? 'rose' : 'fell'} ${pct(totalChange)} in the last ${window} days, mostly because of ${
+      headline: `You finished ${pct(totalChange)} ${totalChange > 0 ? 'more' : 'fewer'} tasks in the last ${window} days, mostly because of ${
         byDays ? 'how often you worked' : 'how much you did each day'
       }`,
       detail: `Days worked went ${daysChange >= 0 ? 'up' : 'down'} ${pct(daysChange)} (${
         wasActive.length
-      } → ${nowActive.length}) and XP per day went ${
+      } → ${nowActive.length}) and tasks a day went ${
         perDayChange >= 0 ? 'up' : 'down'
-      } ${pct(perDayChange)} (${Math.round(perDayWas).toLocaleString()} → ${Math.round(
-        perDayNow,
-      ).toLocaleString()}).`,
+      } ${pct(perDayChange)} (${perDayWas.toFixed(1)} → ${perDayNow.toFixed(1)}).${focusLine}`,
       strength: 'strong',
       tone: totalChange > 0 ? 'green' : 'amber',
     });
@@ -208,7 +214,7 @@ export function whyFindings(days: GrowthDay[], window = 30): Finding[] {
     out.push({
       id: 'why-weekend',
       headline: `You're doing ${shareNow > shareWas ? 'more' : 'less'} on weekends`,
-      detail: `Weekends made up ${Math.round(shareNow)}% of your XP in the last ${window} days, compared with ${Math.round(
+      detail: `Weekends made up ${Math.round(shareNow)}% of your finished tasks in the last ${window} days, compared with ${Math.round(
         shareWas,
       )}% before.`,
       strength: now.length >= 28 ? 'likely' : 'weak',
@@ -218,7 +224,7 @@ export function whyFindings(days: GrowthDay[], window = 30): Finding[] {
 
   // ---- steadiness ---------------------------------------------------------
   const spread = (rows: GrowthDay[]) => {
-    const active = activeOf(rows).map((day) => num(day.xp_earned));
+    const active = activeOf(rows).map((day) => num(day.tasks_completed));
     if (active.length < 5) return null;
     const average = mean(active);
     const variance = mean(active.map((value) => (value - average) ** 2));
@@ -231,7 +237,7 @@ export function whyFindings(days: GrowthDay[], window = 30): Finding[] {
     out.push({
       id: 'why-variance',
       headline: steadier ? 'Your days are more consistent' : 'Your days are less consistent',
-      detail: `Your daily XP is ${steadier ? 'more even' : 'more up and down'} than before. ${steadier ? 'You have a steadier routine.' : "You're working in bursts."}`,
+      detail: `How many tasks you finish a day is ${steadier ? 'more even' : 'more up and down'} than before. ${steadier ? 'You have a steadier routine.' : "You're working in bursts."}`,
       strength: 'likely',
       tone: steadier ? 'green' : 'amber',
     });
@@ -263,32 +269,32 @@ export function howFindings(
   /* Both, and an `&&` rather than the usual `||`: this finding correlates one
      against the other, so a day missing either has no point to plot. Not the
      shared "day worked" test — see utils/activeDay. */
-  const focusDays = days.filter((day) => num(day.focus_minutes) > 0 && num(day.xp_earned) > 0);
+  const focusDays = days.filter((day) => num(day.focus_minutes) > 0 && num(day.tasks_completed) > 0);
   if (focusDays.length >= 12) {
     const sorted = [...focusDays].sort((a, b) => num(a.focus_minutes) - num(b.focus_minutes));
     const third = Math.max(1, Math.floor(sorted.length / 3));
     const short = sorted.slice(0, third);
     const long = sorted.slice(-third);
     const perMinute = (rows: GrowthDay[]) =>
-      mean(rows.map((day) => num(day.xp_earned) / Math.max(1, num(day.focus_minutes))));
+      mean(rows.map((day) => num(day.tasks_completed) / Math.max(1, num(day.focus_minutes))));
     const shortRate = perMinute(short);
     const longRate = perMinute(long);
     const bestBand = longRate >= shortRate ? long : short;
     const bandLow = Math.round(num(bestBand[0]?.focus_minutes));
     const bandHigh = Math.round(num(bestBand[bestBand.length - 1]?.focus_minutes));
     const { r, n } = correlate(
-      focusDays.map((day) => [num(day.focus_minutes), num(day.xp_earned)] as [number, number]),
+      focusDays.map((day) => [num(day.focus_minutes), num(day.tasks_completed)] as [number, number]),
     );
     out.push({
       id: 'how-session',
       headline: `You work best in ${bandLow} to ${bandHigh} minute sessions`,
       detail: `Over ${focusDays.length} days, your ${
         longRate >= shortRate ? 'longest' : 'shortest'
-      } sessions earned ${pct(
+      } sessions finished ${pct(
         ((Math.max(longRate, shortRate) - Math.min(longRate, shortRate)) /
           Math.max(0.0001, Math.min(longRate, shortRate))) *
           100,
-      )} more XP per minute than your ${longRate >= shortRate ? 'shortest' : 'longest'}.`,
+      )} more tasks per hour than your ${longRate >= shortRate ? 'shortest' : 'longest'}.`,
       strength: strengthOf(r, n),
       tone: 'green',
     });
@@ -520,19 +526,19 @@ export function relationships(days: GrowthDay[], tasks: Task[], week: WeekShape)
     });
   };
 
-  /* Days that earned, because XP is an axis on every chart below and a day
-     with none of it is a point at zero rather than a point. Narrower than
-     `isActiveDay` on purpose; see utils/activeDay. */
-  const active = days.filter((day) => num(day.xp_earned) > 0);
+  /* Days that finished something, because tasks are an axis on every chart
+     below and a day with none is a point at zero rather than a point.
+     Narrower than `isActiveDay` on purpose; see utils/activeDay. */
+  const active = days.filter((day) => num(day.tasks_completed) > 0);
 
   add(
     'rel-focus-xp',
-    'Focus time and XP',
+    'Focus time and tasks finished',
     active
       .filter((day) => num(day.focus_minutes) > 0)
-      .map((day) => [num(day.focus_minutes), num(day.xp_earned)] as [number, number]),
-    'More focus time means more XP.',
-    "More focus time isn't bringing more XP. Some of it isn't turning into finished tasks.",
+      .map((day) => [num(day.focus_minutes), num(day.tasks_completed)] as [number, number]),
+    'More focus time means more tasks finished.',
+    "More focus time isn't bringing more finished tasks. Some of it isn't turning into done work.",
     'green',
   );
 
@@ -547,12 +553,12 @@ export function relationships(days: GrowthDay[], tasks: Task[], week: WeekShape)
 
   add(
     'rel-session-quality',
-    'Session length and task size',
+    'Session length and task difficulty',
     active
       .filter((day) => num(day.focus_minutes) > 0 && num(day.avg_task_xp) > 0)
       .map((day) => [num(day.focus_minutes), num(day.avg_task_xp)] as [number, number]),
-    'Longer sessions go with bigger tasks.',
-    'Longer sessions go with many small tasks.',
+    'Longer sessions go with harder tasks.',
+    'Longer sessions go with lots of easier tasks.',
     'blue',
   );
 
@@ -560,7 +566,7 @@ export function relationships(days: GrowthDay[], tasks: Task[], week: WeekShape)
   // never enough for a coefficient to mean much, so it is stated as a spread.
   const weekPairs = week.stats
     .filter((stat) => stat.days > 0)
-    .map((stat) => [stat.index, stat.avgXp] as [number, number]);
+    .map((stat) => [stat.index, stat.avgTasks] as [number, number]);
   if (weekPairs.length >= 5) {
     const values = weekPairs.map(([, xp]) => xp);
     const top = Math.max(...values);

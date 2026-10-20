@@ -11,11 +11,11 @@ def test_minutes_come_from_the_step_or_its_difficulty():
     assert plan.estimate_minutes(900, 5) == 75
 
 
-def test_xp_scales_with_length_and_difficulty_inside_the_dialog_range():
-    assert plan.xp_for(45, 3) == 25
-    assert plan.xp_for(90, 5) > plan.xp_for(90, 2)
-    assert plan.xp_for(5, 1) == plan.MIN_XP
-    assert plan.xp_for(10_000, 5) == plan.MAX_XP
+def test_a_session_pays_its_level_from_the_step_difficulty():
+    assert plan.task_fields(3) == {'level': 3, 'xp_reward': 50, 'priority': 'medium'}
+    assert plan.task_fields(5)['level'] == 7
+    assert plan.task_fields(None)['level'] == 3
+    assert plan.task_fields(5)['xp_reward'] > plan.task_fields(2)['xp_reward']
 
 
 def test_the_slot_skips_tasks_and_events_in_the_way():

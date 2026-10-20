@@ -62,6 +62,7 @@ const KIND_LABEL: Record<ActionKind, string> = {
   slipping: 'Slipping',
   'goal-quiet': 'Goal',
   xp: 'XP',
+  pace: 'Pace',
   skill: 'Skill tree',
 };
 
@@ -84,6 +85,7 @@ const KIND_TONE: Record<ActionKind, string> = {
   slipping: 'amber',
   'goal-quiet': 'violet',
   xp: 'blue',
+  pace: 'blue',
   skill: 'green',
 };
 

@@ -481,8 +481,8 @@ or a search page.
   - `focus`: the area from the vocabulary it is about, or the subject itself.
   - `type`: one of targeted_practice, mixed_practice, timed_set, review, \
 concept, project.
-  - `difficulty`: 1 to 5 on Summit's own scale — 1 Trivial, 2 Easy, 3 Fair, \
-4 Hard, 5 Brutal. Choose it against the difficulty curve you were given: the \
+  - `difficulty`: 1 to 5 on Summit's own scale — 1 Easy, 2 Slightly Easy, \
+3 Medium, 4 Hard, 5 Grueling. Choose it against the difficulty curve you were given: the \
 level to work is normally the one at or just below where execution starts to \
 fall, not the one above it.
   - `duration_minutes`: a real sitting, 10 to 120, or 0 when no set time \
@@ -847,8 +847,8 @@ def brief_from(state: Dict[str, Any]) -> str:
     curve = state.get('curve') or {}
     rungs = curve.get('rungs') or []
     if rungs:
-        lines = ['Summit rates difficulty 1-5: 1 Trivial, 2 Easy, 3 Fair, '
-                 '4 Hard, 5 Brutal. Execution and quality are 0-100.']
+        lines = ['Summit rates difficulty 1-5: 1 Easy, 2 Slightly Easy, 3 Medium, '
+                 '4 Hard, 5 Grueling. Execution and quality are 0-100.']
         for rung in rungs:
             if not rung.get('done'):
                 continue
@@ -951,13 +951,18 @@ def brief_from(state: Dict[str, Any]) -> str:
     if work:
         lines = ['The reader\'s own most recently finished tasks here, newest '
                  'first, as they titled them. Titles and notes are what they '
-                 'wrote, not measurements. Difficulty and execution are the '
-                 'two 1-5 rows they answered on finishing; "reason" is the '
-                 'one they picked from the fixed list.']
+                 'wrote, not measurements. "Level" is how hard the task is on '
+                 'the app\'s seven levels (Easy, Slightly Easy, Medium, Medium '
+                 'Hard, Hard, Challenging, Grueling), picked when it was made '
+                 'or rated. Difficulty and execution are the two 1-5 rows they '
+                 'answered on finishing; "reason" is the one they picked from '
+                 'the fixed list.']
         for entry in work:
             said = ['"{}"'.format(entry.get('title'))]
             if entry.get('on'):
                 said.append(entry['on'])
+            if entry.get('level'):
+                said.append('level {}'.format(entry['level']))
             if entry.get('difficulty') and entry.get('execution'):
                 said.append('difficulty {}, execution {}'.format(
                     entry['difficulty'], entry['execution']))
@@ -989,6 +994,8 @@ def brief_from(state: Dict[str, Any]) -> str:
             if entry.get('examples'):
                 said.append('e.g. ' + '; '.join(
                     '"{}"'.format(title) for title in entry['examples']))
+            if entry.get('level'):
+                said.append('usually {}'.format(entry['level']))
             if entry.get('difficulty') is not None:
                 said.append('avg difficulty {}, avg execution {}'.format(
                     entry.get('difficulty'), entry.get('execution')))
@@ -1559,8 +1566,8 @@ arXiv numbers, ISBNs or problem numbers; name a paper by its title instead.
   - `focus`: the area of the subject it is about.
   - `type`: one of targeted_practice, mixed_practice, timed_set, review, \
 concept, project.
-  - `difficulty`: 1-5 on the app's scale (1 Trivial, 2 Easy, 3 Fair, 4 Hard, \
-5 Brutal).
+  - `difficulty`: 1-5 on the app's scale (1 Easy, 2 Slightly Easy, 3 Medium, \
+4 Hard, 5 Grueling).
   - `duration_minutes`: the whole sitting, 10-120, or 0 when no set time \
 helps.
   - `reason`: one sentence, to the reader, on why this session and why now, \

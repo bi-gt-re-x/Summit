@@ -30,6 +30,7 @@ export type ActionKind =
   | 'streak'
   | 'slipping'
   | 'goal-quiet'
+  | 'pace'
   | 'xp'
   /** The strongest suggestion from a skill tree. See backend/tracking/skill_plan.py. */
   | 'skill';

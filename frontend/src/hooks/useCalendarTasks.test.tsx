@@ -80,10 +80,12 @@ describe('finishing a task from the calendar', () => {
 
     act(() => result.current.complete('task-on-the-grid'));
     await waitFor(() => expect(result.current.rating).not.toBeNull());
-    expect(result.current.rating).toEqual({
+    expect(result.current.rating).toMatchObject({
       id: 'task-on-the-grid',
       name: 'Read two chapters',
     });
+    // The prompt's level pills open on the task's own level.
+    expect(result.current.rating!.level).toBeGreaterThanOrEqual(1);
   });
 
   it('says nothing when the account has turned the questions off', async () => {

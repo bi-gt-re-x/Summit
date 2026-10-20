@@ -43,6 +43,7 @@
 import type { Grade, Ratings } from '@/types';
 import type { MetricName } from '@/types';
 import { RULES } from '@/utils/sharedRules';
+import { productivityRaw } from '@/utils/activity';
 
 /**
  * The bands, high to low, as [floor, letter].
@@ -149,7 +150,7 @@ export function analyticalScore(ratings: Ratings | null): AnalyticalScore {
       name: 'productivity',
       label: LABELS.productivity,
       score: m.productivity.score,
-      raw: `${Math.round(m.productivity.avg_daily_xp).toLocaleString()} XP a day`,
+      raw: productivityRaw(m.productivity),
     },
     {
       name: 'quality',
@@ -161,7 +162,7 @@ export function analyticalScore(ratings: Ratings | null): AnalyticalScore {
       raw:
         m.quality.basis === 'ratings'
           ? `${m.quality.avg_quality.toFixed(1)} of ${m.quality.max_quality} across ${m.quality.rated_tasks} rated tasks`
-          : 'nothing rated yet, so this uses XP per task',
+          : 'nothing rated yet, so this uses the levels you picked',
     },
     {
       name: 'consistency',

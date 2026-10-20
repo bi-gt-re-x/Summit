@@ -132,11 +132,12 @@ describe('ReviewPanel', () => {
     expect(screen.getByText('Coming back (1)')).toBeInTheDocument();
   });
 
-  it('with no misses ever, still offers review sessions but no misses list', async () => {
+  it('with no misses ever, still offers review sessions and says what fills the list', async () => {
     vi.mocked(reviewQueue).mockResolvedValue({ success: true, ...queue({ due: [], due_count: 0, sitting: 0, minutes: 0 }) });
     draw(<ReviewPanel />);
     expect(await screen.findByRole('button', { name: 'Suggest 3 review sessions' })).toBeInTheDocument();
-    expect(screen.queryByText('Redo what you missed')).not.toBeInTheDocument();
+    expect(screen.getByText('Nothing to redo yet.')).toBeInTheDocument();
+    expect(screen.getByText(/add a score to a finished task/)).toBeInTheDocument();
   });
 });
 
