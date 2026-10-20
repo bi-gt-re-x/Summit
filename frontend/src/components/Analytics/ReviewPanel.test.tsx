@@ -1,12 +1,20 @@
 /**
- * The review panel and the skill trees panel on Recommendations.
+ * Review sessions and the skill trees panel on Recommendations.
  * See ./ReviewPanel, ./SkillTreesPanel.
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { renderWithProviders } from '@/test/render';
 import { skillAttempts } from '@/services';
-import { reviewQueue, type ReviewItem, type ReviewQueue } from '@/services/review';
+import { planSession, takeRecommendation, type SuggestedSession } from '@/services/analytics';
+import {
+  reviewQueue,
+  reviewSessions,
+  suggestReviewSessions,
+  type ReviewItem,
+  type ReviewQueue,
+} from '@/services/review';
 import { skillTrees } from '@/services/skillPlan';
 import { ReviewPanel, dayWord } from './ReviewPanel';
 import { SkillTreesPanel } from './SkillTreesPanel';
@@ -17,7 +25,11 @@ vi.mock('@/services', async (importOriginal) => {
 });
 vi.mock('@/services/review', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/services/review')>();
-  return { ...actual, reviewQueue: vi.fn() };
+  return { ...actual, reviewQueue: vi.fn(), reviewSessions: vi.fn(), suggestReviewSessions: vi.fn() };
+});
+vi.mock('@/services/analytics', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/analytics')>();
+  return { ...actual, planSession: vi.fn(), takeRecommendation: vi.fn() };
 });
 vi.mock('@/services/skillPlan', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/services/skillPlan')>();
@@ -37,28 +49,70 @@ const queue = (over: Partial<ReviewQueue> = {}): ReviewQueue => ({
   cleared_lately: 0, minutes: 6, sitting: 2, ...over,
 });
 
-const draw = (node: React.ReactNode) => render(<MemoryRouter>{node}</MemoryRouter>);
+const session = (n: number): SuggestedSession => ({
+  id: `r${n}`, title: `Review option ${n}`, focus: 'Mathematics', type: 'review', difficulty: 2,
+  minutes: 15 * n, reason: `Reason ${n}`, signal: '', drills: [], state: 'open', task: null,
+});
+
+const draw = (node: React.ReactNode) => renderWithProviders(<>{node}</>, { route: '/recommendations' });
 
 describe('ReviewPanel', () => {
   beforeEach(() => {
     vi.mocked(reviewQueue).mockReset();
+    vi.mocked(reviewSessions).mockReset();
+    vi.mocked(suggestReviewSessions).mockReset();
+    vi.mocked(planSession).mockReset();
+    vi.mocked(takeRecommendation).mockReset();
     vi.mocked(skillAttempts.add).mockReset();
+    vi.mocked(reviewQueue).mockResolvedValue({ success: true, ...queue() });
+    vi.mocked(reviewSessions).mockResolvedValue({ success: true, steps: [], available: true });
   });
 
-  it('lists what is due with how long it takes', async () => {
-    vi.mocked(reviewQueue).mockResolvedValue({ success: true, ...queue() });
+  it('reads like next sessions, with three review options to ask for', async () => {
     draw(<ReviewPanel />);
-    expect(await screen.findByText('Redo what you missed')).toBeInTheDocument();
-    expect(screen.getByText('2 due · about 6 min')).toBeInTheDocument();
-    expect(screen.getByText('Prompt a')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Review sessions' })).toBeInTheDocument();
+    expect(screen.getByText(/a quick redo, a drill on what keeps going wrong, and a mixed recall session/)).toBeInTheDocument();
+    vi.mocked(suggestReviewSessions).mockResolvedValue({ success: true, steps: [session(1), session(2), session(3)] });
+    fireEvent.click(screen.getByRole('button', { name: 'Suggest 3 review sessions' }));
+    expect(await screen.findByText('Review option 1')).toBeInTheDocument();
+    expect(screen.getByText('Review option 3')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Plan all 3' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Suggest 3 different ones' })).toBeInTheDocument();
   });
 
-  it('counts down as you answer, without reading again', async () => {
-    vi.mocked(reviewQueue).mockResolvedValue({ success: true, ...queue() });
+  it('plans all three, one after another', async () => {
+    vi.mocked(reviewSessions).mockResolvedValue({ success: true, steps: [session(1), session(2), session(3)], available: true });
+    let slot = 0;
+    vi.mocked(planSession).mockImplementation(async (id: string) => {
+      slot += 1;
+      return { success: true, id, minutes: 15, task: { id: `t-${id}`, start: `2026-10-20T1${slot}:00:00`, end: `2026-10-20T1${slot}:15:00`, xp: 10, subject: 'mathematics' } };
+    });
+    draw(<ReviewPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Plan all 3' }));
+    await waitFor(() => expect(planSession).toHaveBeenCalledTimes(3));
+    expect(vi.mocked(planSession).mock.calls.map((call) => call[0])).toEqual(['r1', 'r2', 'r3']);
+  });
+
+  it('says what went wrong when it cannot suggest', async () => {
+    vi.mocked(suggestReviewSessions).mockResolvedValue({ success: false, message: "There's nothing to review yet." });
+    draw(<ReviewPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Suggest 3 review sessions' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent("There's nothing to review yet.");
+  });
+
+  it('says it needs a key when there is no model', async () => {
+    vi.mocked(reviewSessions).mockResolvedValue({ success: true, steps: [], available: false });
+    draw(<ReviewPanel />);
+    expect(await screen.findByText(/Suggestions need an AI key/)).toBeInTheDocument();
+  });
+
+  it('lists the misses that are due, redone in place, counting down', async () => {
     vi.mocked(skillAttempts.add).mockResolvedValue({ success: true, attempt: {} as never, levels: {} });
     const onChanged = vi.fn();
     draw(<ReviewPanel onChanged={onChanged} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Show answer' }));
+    expect(await screen.findByText('Redo what you missed')).toBeInTheDocument();
+    expect(screen.getByText('2 due · about 6 min')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Show answer' }));
     fireEvent.click(screen.getByRole('button', { name: 'Got it' }));
     expect(await screen.findByText('1 due · about 3 min')).toBeInTheDocument();
     expect(onChanged).toHaveBeenCalledTimes(1);
@@ -78,11 +132,11 @@ describe('ReviewPanel', () => {
     expect(screen.getByText('Coming back (1)')).toBeInTheDocument();
   });
 
-  it('draws nothing for an account that has never missed anything', async () => {
+  it('with no misses ever, still offers review sessions but no misses list', async () => {
     vi.mocked(reviewQueue).mockResolvedValue({ success: true, ...queue({ due: [], due_count: 0, sitting: 0, minutes: 0 }) });
-    const { container } = draw(<ReviewPanel />);
-    await waitFor(() => expect(reviewQueue).toHaveBeenCalled());
-    expect(container.innerHTML).toBe('');
+    draw(<ReviewPanel />);
+    expect(await screen.findByRole('button', { name: 'Suggest 3 review sessions' })).toBeInTheDocument();
+    expect(screen.queryByText('Redo what you missed')).not.toBeInTheDocument();
   });
 });
 
@@ -94,6 +148,8 @@ describe('dayWord', () => {
     expect(dayWord('2026-11-02', today)).toBe('Nov 2');
   });
 });
+
+const plain = (node: React.ReactNode) => render(<MemoryRouter>{node}</MemoryRouter>);
 
 describe('SkillTreesPanel', () => {
   it('lists each practiced tree with what to do next, linked to the skill', async () => {
@@ -108,7 +164,7 @@ describe('SkillTreesPanel', () => {
         },
       }],
     });
-    draw(<SkillTreesPanel />);
+    plain(<SkillTreesPanel />);
     expect(await screen.findByText('Algebra: try Hard problems on Factoring')).toBeInTheDocument();
     expect(screen.getByText('Move up')).toBeInTheDocument();
     expect(screen.getByText('6 of 40 skills practiced · 3 solid · 2 to redo · practiced yesterday')).toBeInTheDocument();
@@ -117,7 +173,7 @@ describe('SkillTreesPanel', () => {
 
   it('draws nothing with no practice', async () => {
     vi.mocked(skillTrees).mockResolvedValue({ success: true, trees: [] });
-    const { container } = draw(<SkillTreesPanel />);
+    const { container } = plain(<SkillTreesPanel />);
     await waitFor(() => expect(skillTrees).toHaveBeenCalled());
     expect(container.innerHTML).toBe('');
   });

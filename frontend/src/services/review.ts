@@ -8,6 +8,7 @@
 import { get, post } from './api';
 import type { ApiResult } from '@/types';
 import type { Tier } from './skillAttempts';
+import type { SuggestedSession } from './analytics';
 
 export type ReviewKind = 'problem' | 'step' | 'set';
 
@@ -90,4 +91,23 @@ export function reviewQueue(): Promise<ApiResult<ReviewQueue>> {
 /** Mark a set or a step as redone. A problem is answered through skillAttempts. */
 export function markReview(item: string, result: 'right' | 'missed'): Promise<ApiResult<ReviewQueue>> {
   return post<ReviewQueue>('/api/review_queue/mark', { item, result });
+}
+
+/**
+ * Review sessions: three ways to go back over your work, written by the same
+ * model and in the same shape as Next sessions (backend/tracking/review_ai.py).
+ * Planned and ticked off with planSession and takeRecommendation, like those.
+ */
+export interface ReviewSessions {
+  steps: SuggestedSession[];
+}
+
+/** The ones already suggested, and whether a model is there to suggest more. Reads only. */
+export function reviewSessions(): Promise<ApiResult<ReviewSessions & { available: boolean }>> {
+  return get<ReviewSessions & { available: boolean }>('/api/review_sessions');
+}
+
+/** Three new ones, replacing those on screen. Costs a model call. */
+export function suggestReviewSessions(): Promise<ApiResult<ReviewSessions>> {
+  return post<ReviewSessions>('/api/review_sessions', {});
 }

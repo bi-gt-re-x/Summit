@@ -33,7 +33,7 @@ Everything else the model produced is prose over figures already on screen,
 and storing prose would mean a page that quotes yesterday's numbers.
 """
 import json
-from datetime import datetime
+from datetime import date, datetime
 from hashlib import sha1
 from typing import Any, Dict, List, Optional
 
@@ -52,6 +52,7 @@ from backend.tracking import next_sessions
 from backend.tracking import session_plan
 from backend.tracking import session_timing
 from backend.tracking import subject_ai
+from backend.tracking import review_ai
 from backend.tracking import background as about_you
 from backend.tracking import journal
 from backend.api import background as background_api
@@ -871,7 +872,8 @@ def plan_session(body: PlanSession, username: str = Depends(current_username)):
     # A session planned across every subject names its subject in `focus`
     # (subject_ai.OVERALL_NOTE); file it there when the page had none to send.
     subject_id = _text(body.subject_id, 64)
-    if not subject_id and row.get('subject') == next_sessions.OVERALL:
+    by_focus = row.get('subject') in (next_sessions.OVERALL, review_ai.SUBJECT)
+    if not subject_id and by_focus:
         subject_id = next_sessions.subject_named(row.get('focus'), _subject_names(username)) or ''
 
     # When: the best opening for this reader (session_timing), spaced from the
@@ -913,13 +915,19 @@ def plan_session(body: PlanSession, username: str = Depends(current_username)):
     if step:
         step = _guarded(username, [step],
                         _catalog_id(username, subject_id, row.get('focus')
-                                    if row.get('subject') == next_sessions.OVERALL
-                                    else row.get('subject') or ''))[0]
+                                    if by_focus else row.get('subject') or ''))[0]
     link = next(iter(step.get('resources') or []), None)
     where = '{}: {}'.format(_text(link.get('name'), 120), link['url']) if link else ''
     note = ' · '.join(part for part in
                       [_text(step.get(key), 200) for key in ('problems', 'pace')]
                       + [where or _text(step.get('resource'), 200)] if part)
+    # A review session's plan is the work itself (the new problems and their
+    # answers), so it goes on the task too, where it is when the time comes.
+    if row.get('subject') == review_ai.SUBJECT and step.get('plan'):
+        parts = '\n'.join('{}{}: {}'.format(
+            part.get('label') or 'Step', ' ({} min)'.format(part['minutes']) if part.get('minutes') else '',
+            part.get('what')) for part in step['plan'] if part.get('what'))
+        note = '\n'.join(one for one in (note, parts) if one)
     if note:
         db.update_row('tasks', task_id, {'description': note}, user_id=username)
 
@@ -1037,6 +1045,9 @@ def _steps_with_state(username: str, subject: str) -> list:
     if subject == next_sessions.OVERALL:
         steps = [next_sessions.unbracket(step) for step in steps]
         steps = _guarded(username, steps)
+    elif subject == review_ai.SUBJECT:
+        # Review sessions name their subject in `focus`, like the overall ones.
+        steps = _guarded(username, steps)
     else:
         steps = _guarded(username, steps, _catalog_id(username, '', subject))
     states = _sync(username, _history(username, subject), persist=False)
@@ -1140,3 +1151,59 @@ def suggest_next_sessions(body: NextSessionsBody, username: str = Depends(curren
                   now, state['span'])
     return ok(subject=subject, subject_id=subject_id,
               steps=[{**step, 'state': 'open', 'task': None} for step in kept])
+
+
+# --------------------------------------------------------------------------
+# Review sessions
+# --------------------------------------------------------------------------
+# Three ways to go back over your work, written by the same model and in the
+# same shape as the next sessions above, and filed in the same ledger under
+# review_ai.SUBJECT, so planning, booking and "did it" work unchanged. The
+# brief is backend/tracking/review_ai.py: the review queue, rough sessions and
+# work from 1 to 30 days ago.
+REVIEW_TASK_COLUMNS = ('id', 'title', 'status', 'subject', 'completed_at', 'execution', 'reason',
+                       'score_got', 'score_of')
+
+
+@router.get('/api/review_sessions')
+def list_review_sessions(username: str = Depends(current_username)):
+    """The review sessions already suggested, and whether a model is there to
+    suggest more. Reads only."""
+    _, user = load_user(username)
+    if not user:
+        return fail('User not found')
+    return ok(steps=_steps_with_state(username, review_ai.SUBJECT), available=subject_ai.configured())
+
+
+@router.post('/api/review_sessions')
+def suggest_review_sessions(username: str = Depends(current_username)):
+    """Three new review sessions, replacing the ones on screen. Costs a model call."""
+    from backend.api.review import read_queue  # it imports backend/api/next, which is heavier
+    _, user = load_user(username)
+    if not user:
+        return fail('User not found')
+    names = _subject_names(username)
+    today = date.today()
+    tasks = db.columns_for('tasks', username, REVIEW_TASK_COLUMNS)
+    history = _history(username, review_ai.SUBJECT)
+    _sync(username, history)
+    previous = ['- "{}" ({} min), suggested {}{}.'.format(
+        row.get('title'), row.get('minutes') or '?', (row.get('given_at') or '')[:10],
+        ', done' if row.get('taken_at') else '') for row in history[:6]]
+    outcomes = ['- {} suggested, {} done.'.format(entry['given'], entry['taken'])
+                for entry in _outcomes(history, None)]
+    reasons = {row['key']: row['label'].lower() for row in RULES['task_reasons']['struggle']}
+    state = review_ai.state_for(
+        read_queue(username, today=today), tasks, today,
+        name_of=lambda key: names.get(key, key), reasons=reasons,
+        background=_background(username, None, names), previous=previous, outcomes=outcomes)
+    try:
+        steps = review_ai.plan(state)
+    except subject_ai.BriefUnavailable as exc:
+        return fail(str(exc))
+    steps = _guarded(username, steps, '', names)
+    now = datetime.now().isoformat(timespec='seconds')
+    kept = _record(username, review_ai.SUBJECT, steps[:subject_ai.NEXT_STEPS], now)
+    _keep_reading(username, review_ai.SUBJECT,
+                  {**_saved_reading(username, review_ai.SUBJECT), 'next_steps': kept}, now, '30')
+    return ok(steps=[{**step, 'state': 'open', 'task': None} for step in kept])

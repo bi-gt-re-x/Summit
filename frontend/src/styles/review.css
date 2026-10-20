@@ -248,3 +248,16 @@
     .tp-more li { grid-template-columns: minmax(0, 1fr); }
     .tp-more li .tp-tag { justify-self: start; }
 }
+
+/* ---- Review sessions: components/Analytics/ReviewPanel.tsx --------------
+   The panel itself is the Next sessions panel (`ns-` in next-sessions.css);
+   these are only the misses list under its sessions. */
+.rv-misses {
+    display: grid;
+    gap: var(--space-3);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--color-line);
+}
+.rv-misses-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
+.rv-misses-head h3 { margin: 0; font-size: var(--text-md); font-weight: 700; }
+.rv-misses-note { margin: 0; font-size: var(--text-xs); color: var(--color-ink-muted); }
