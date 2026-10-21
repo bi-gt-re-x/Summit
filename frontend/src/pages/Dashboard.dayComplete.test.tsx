@@ -47,6 +47,10 @@ vi.mock('@/hooks/useSubjects', () => ({
 
 import Dashboard from './Dashboard';
 
+/* Self-loading panels this suite isn't about. Each fetches on mount, and an
+   unmocked fetch under jsdom rejects unhandled against whichever test runs. */
+vi.mock('@/components/NextSessions/NextSessions', () => ({ NextSessionsPanel: () => null }));
+
 /**
  * A `YYYY-MM-DD` a given number of days from today, local.
  *

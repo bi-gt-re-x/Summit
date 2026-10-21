@@ -23,10 +23,16 @@
  * that the figures underneath do not move with the setting.
  */
 import { screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { RecommendationsTab } from './RecommendationsTab';
 import { draw, fakeData, fakeModel } from './fixtures';
 import { DETAIL_RULES, detailRows } from '@/utils/analyticsPrefs';
+
+/* Self-loading panels this suite isn't about. Each fetches on mount, and an
+   unmocked fetch under jsdom rejects unhandled against whichever test runs. */
+vi.mock('@/components/NextSessions/NextSessions', () => ({ NextSessionsPanel: () => null }));
+vi.mock('@/components/Analytics/GoalForecast', () => ({ GoalForecast: () => null }));
+vi.mock('@/components/Analytics/SkillTreesPanel', () => ({ SkillTreesPanel: () => null }));
 
 describe('Recommendations reads what you type after a task', () => {
   const reasons = {

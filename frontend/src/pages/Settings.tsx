@@ -1164,6 +1164,8 @@ export default function Settings() {
           {
             id: 'level',
             label: 'Default difficulty',
+            // Seven pills need the row's full width, not the control column.
+            wide: true,
             hint: 'Where new tasks start. Each level sets the XP a task pays. Applies everywhere you add tasks.',
             control: (
               <LevelPills

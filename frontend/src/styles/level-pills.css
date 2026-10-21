@@ -124,6 +124,5 @@
     font-size: 12px;
 }
 
-/* In a settings row the control column shrinks to fit, which would squeeze
-   the grid to one pill a row; give the bar its own width there. */
-.st-row-control > .lv-pills { width: min(100%, 460px); }
+/* In a settings row (a wide one, under its label) the bar takes the width. */
+.st-row-control > .lv-pills { width: 100%; max-width: 640px; }

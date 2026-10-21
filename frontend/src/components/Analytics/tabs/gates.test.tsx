@@ -18,7 +18,7 @@
  * model would mean fabricating a year of day series to move one number.
  */
 import { screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { RecommendationsTab } from './RecommendationsTab';
 import { SubjectsTab } from './SubjectsTab';
 /* The model these are driven from — see ./fixtures, which gates.test.tsx used
@@ -26,6 +26,12 @@ import { SubjectsTab } from './SubjectsTab';
 import { draw, fakeData, fakeModel } from './fixtures';
 import { reviewAdopted, summarise } from '@/utils/followup';
 import { days } from '@/test/factories';
+
+/* Self-loading panels this suite isn't about. Each fetches on mount, and an
+   unmocked fetch under jsdom rejects unhandled against whichever test runs. */
+vi.mock('@/components/NextSessions/NextSessions', () => ({ NextSessionsPanel: () => null }));
+vi.mock('@/components/Analytics/GoalForecast', () => ({ GoalForecast: () => null }));
+vi.mock('@/components/Analytics/SkillTreesPanel', () => ({ SkillTreesPanel: () => null }));
 
 describe('Recommendations', () => {
   it('no longer ranks changes by a year of XP, or projects five years out', () => {

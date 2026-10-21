@@ -51,6 +51,10 @@ vi.mock('@/hooks/useSubjects', () => ({
 
 import Dashboard from './Dashboard';
 
+/* Self-loading panels this suite isn't about. Each fetches on mount, and an
+   unmocked fetch under jsdom rejects unhandled against whichever test runs. */
+vi.mock('@/components/NextSessions/NextSessions', () => ({ NextSessionsPanel: () => null }));
+
 function show() {
   return renderWithProviders(<Dashboard />, {
     route: '/dashboard',

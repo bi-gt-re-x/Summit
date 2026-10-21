@@ -7,12 +7,18 @@
  * the card Recommendations carried was taken off with that tab's goal rows.
  */
 import { screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { OverviewTab } from './OverviewTab';
 import { RecommendationsTab } from './RecommendationsTab';
 import { SubjectsTab } from './SubjectsTab';
 import { draw, fakeData, fakeModel, matureOverview } from './fixtures';
 import type { GoalLimiter } from '@/utils/goalLimiter';
+
+/* Self-loading panels this suite isn't about. Each fetches on mount, and an
+   unmocked fetch under jsdom rejects unhandled against whichever test runs. */
+vi.mock('@/components/NextSessions/NextSessions', () => ({ NextSessionsPanel: () => null }));
+vi.mock('@/components/Analytics/GoalForecast', () => ({ GoalForecast: () => null }));
+vi.mock('@/components/Analytics/SkillTreesPanel', () => ({ SkillTreesPanel: () => null }));
 
 /** What `goalLimiter` produces for the goal the whole feature was written for. */
 const AMC8: GoalLimiter = {
