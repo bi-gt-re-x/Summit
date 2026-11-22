@@ -7,9 +7,10 @@
  * than at three different periods.
  */
 import type { CSSProperties } from 'react';
+import { Link } from 'react-router-dom';
 import { Panel, Radar, TONES, toneVar, type RadarAxis, PanelNote } from './charts';
 import { HEAT_WEEKDAYS, type HeatRow } from '@/utils/growthSummary';
-import type { SubjectXpRow } from '@/utils/subjectXp';
+import { OTHER_KEY, type SubjectXpRow } from '@/utils/subjectXp';
 import type { BalanceShape } from '@/utils/behaviour';
 
 /** `HEAT_WEEKDAYS` spelled out. Same order — Sunday first — or the rows lie. */
@@ -27,6 +28,11 @@ export interface SubjectPanelProps {
   previous: Map<string, number>;
   /** The concentration reading, where the tab has one. */
   balance?: BalanceShape;
+  /**
+   * Whether each subject's name opens its own page. On the Subjects tab, where
+   * the list of skill trees that used to carry those links went.
+   */
+  linked?: boolean;
 }
 
 /**
@@ -51,7 +57,7 @@ export interface SubjectPanelProps {
  * came across whole and sits under the legend. The duplicated half — a second
  * enumeration of the subjects — is what went.
  */
-export function SubjectPanel({ rows, previous, balance }: SubjectPanelProps) {
+export function SubjectPanel({ rows, previous, balance, linked = false }: SubjectPanelProps) {
   const peak = Math.max(...rows.map((row) => row.xp), 1);
   const axes: RadarAxis[] = rows.map((row) => ({
     label: row.label,
@@ -59,9 +65,9 @@ export function SubjectPanel({ rows, previous, balance }: SubjectPanelProps) {
   }));
 
   return (
-    <Panel title="Subject Growth (XP Earned)" note="Where the XP actually goes">
+    <Panel title="XP by subject" note="Where your XP goes">
       {rows.length === 0 ? (
-        <p className="ax-empty">No finished tasks carry a subject in this window yet.</p>
+        <p className="ax-empty">None of your finished tasks in this window have a subject yet.</p>
       ) : (
         <div className="ax-subject">
           <Radar axes={axes} label="XP earned by subject" />
@@ -75,9 +81,19 @@ export function SubjectPanel({ rows, previous, balance }: SubjectPanelProps) {
                     className="ax-dot"
                     style={{ background: toneVar(TONES[index % TONES.length]!) }}
                   />
-                  <span className="ax-subject-name" title={row.name ?? row.label}>
-                    {row.label}
-                  </span>
+                  {linked && row.key !== OTHER_KEY ? (
+                    <Link
+                      className="ax-subject-name"
+                      title={row.name ?? row.label}
+                      to={`/analytics/subject/${encodeURIComponent(row.key)}`}
+                    >
+                      {row.label}
+                    </Link>
+                  ) : (
+                    <span className="ax-subject-name" title={row.name ?? row.label}>
+                      {row.label}
+                    </span>
+                  )}
                   <span className="ax-subject-xp">{Math.round(row.xp).toLocaleString()} XP</span>
                   {delta === null ? (
                     <span className="ax-delta ax-delta-none">new</span>
@@ -114,30 +130,29 @@ function BalanceReading({ balance }: { balance: BalanceShape }) {
         style={{ '--share': `${balance.concentration}%` } as CSSProperties}
       >
         <strong>{balance.concentration}%</strong>
-        <span className="ax-muted ax-small">on {balance.leader ?? '—'}</span>
+        <span className="ax-muted ax-small">on {balance.leader ?? '-'}</span>
       </div>
       <div>
         <p className="ax-prose">
           {balance.leader === null ? (
-            'No finished task carries a subject yet.'
+            'None of your finished tasks have a subject yet.'
           ) : balance.concentration >= 45 ? (
             <>
-              Nearly half your effort goes to <strong>{balance.leader}</strong>. That is depth, and
-              a single point of failure.
+              Nearly half your work goes to <strong>{balance.leader}</strong>. Great for depth.
+              Risky if it stalls.
             </>
           ) : (
             <>
-              <strong>{balance.leader}</strong> leads, but nothing dominates — your effort is
-              spread across <strong>{balance.carrying} subjects</strong>. Balanced, and a slower
-              route to depth.
+              <strong>{balance.leader}</strong> leads, but your work is spread across{' '}
+              <strong>{balance.carrying} subjects</strong>. Nicely balanced. Depth just takes
+              longer.
             </>
           )}
         </p>
         {balance.fading.length > 0 && (
           <p className="ax-prose">
-            <strong>{balance.fading.join(', ')}</strong> had real work early in this range and{' '}
-            {balance.fading.length === 1 ? 'has' : 'have'} had none since. A total would still
-            count it.
+            <strong>{balance.fading.join(', ')}</strong> got work early on and nothing since.
+            The total above still counts it.
           </p>
         )}
       </div>
@@ -149,10 +164,7 @@ function BalanceReading({ balance }: { balance: BalanceShape }) {
 // Consistency
 // --------------------------------------------------------------------------
 export interface ConsistencyPanelProps {
-  rate: number;
-  previousRate: number | null;
   rows: HeatRow[];
-  compareLabel: string;
 }
 
 /**
@@ -162,28 +174,21 @@ export interface ConsistencyPanelProps {
  * case for the window and blanks any square outside it — so the rectangle is
  * the same rectangle whatever weekday the window opens on. That constancy is
  * why the panel can sit in a fixed-height row without the layout moving.
+ *
+ * No rate in the title line. The share of days worked is the Consistency tile
+ * at the top of the tab, and this used to print it a second time; the calendar
+ * is the part only this panel can show.
  */
-export function ConsistencyPanel({ rate, previousRate, rows, compareLabel }: ConsistencyPanelProps) {
-  const delta =
-    previousRate === null || previousRate === 0 ? null : Math.round(rate - previousRate);
-
+export function ConsistencyPanel({ rows }: ConsistencyPanelProps) {
   return (
     <Panel
-      title="Consistency Over Time"
-      claim={
-        <>
-          You worked on <strong>{rate}%</strong> of days
-          {delta === null
-            ? '.'
-            : delta === 0
-              ? `, unchanged ${compareLabel}.`
-              : `, ${delta > 0 ? 'up' : 'down'} ${Math.abs(delta)} points ${compareLabel}.`}
-        </>
-      }
+      title="Consistency over time"
       footer={
-        <PanelNote label="What moves this">
-          The share of days with <strong>any</strong> work on them. A fifteen-minute day and a
-          six-hour day count the same — this measures showing up, nothing else.
+        <PanelNote label="How this works">
+          <ul className="ax-tips">
+            <li><b>Any work counts:</b> A day with any work on it is a day worked.</li>
+            <li><b>Size doesn't matter:</b> 15 minutes counts the same as 6 hours.</li>
+          </ul>
         </PanelNote>
       }
     >
@@ -208,7 +213,7 @@ export function ConsistencyPanel({ rate, previousRate, rows, compareLabel }: Con
               <span key={index}>{row.label.slice(0, 1)}</span>
             ))}
           </div>
-          <div className="ax-heat-grid" role="img" aria-label={`${rate}% of days worked`}>
+          <div className="ax-heat-grid" role="img" aria-label="Days worked, one square a day">
             {rows.map((row, index) => (
               <div className="ax-heat-week" key={index}>
                 {row.days.map((cell, cellIndex) => (

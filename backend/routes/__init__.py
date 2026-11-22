@@ -33,10 +33,20 @@ API_MODULES = (
     'quote',
     'subjects',
     'notes',
+    'journal',
+    'spaces',
     'records',
     'settings',
     'achievements',
     'notifications',
+    'skillsteps',
+    'skillattempts',
+    'next',
+    'background',
+    'quests',
+    'forecast',
+    'review',
+    'skill_plan',
 )
 
 SHARED_MODULES = (

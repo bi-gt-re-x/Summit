@@ -63,8 +63,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     difficulty          INTEGER CHECK (difficulty BETWEEN 1 AND 5),
     execution           INTEGER CHECK (execution BETWEEN 1 AND 5),
 
-    -- The third question, asked only when the account has turned it on
-    -- (rating_depth 'reasons'): the one thing that made the difference. One of
+    -- The third question: the one thing that made the difference. Asked when
+    -- the account has turned it on (rating_depth 'reasons'), and whenever a
+    -- task is rated 1-2 for execution, because "why did that go badly" is the
+    -- answer the plan can act on (backend/tracking/record.py `stuck`). One of
     -- the twelve words in REASONS in backend/api/tasks.py — six for a task
     -- that went badly, six for one that went well — and which side it came
     -- from is recoverable from the word itself.
@@ -74,11 +76,37 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- than a table, and an answer that cannot be counted alongside other
     -- answers is not worth the question. Null is the ordinary state — it means
     -- the question was not asked or not answered.
-    reason              TEXT
+    reason              TEXT,
+
+    -- What the goal matcher concluded about this task, and which version of
+    -- it did: 'matched', 'ambiguous', 'unmatched' or 'pending', and an integer
+    -- that goes up when the matching rules change. Null on a task that has
+    -- never been through it, which is different from 'unmatched' — that one
+    -- was looked at and belongs to no goal. The goals themselves are rows of
+    -- task_goal_matches (data/sql/goals.sql). No CHECK, for the reason the
+    -- ratings above give; backend/goal_matcher narrows the values.
+    goal_match_status   TEXT,
+    goal_match_version  INTEGER,
+
+    -- "How many did you get right?": score_got of score_of, asked after a
+    -- task whose title names a count of problems ("#1-10", "12 problems") or
+    -- when the reader adds a score. Null when not asked. The one measure here
+    -- that is not the reader grading themselves, which is why the plan reads
+    -- it for what went wrong (backend/tracking/record.py `misses`).
+    score_got           INTEGER,
+    score_of            INTEGER,
+
+    -- How hard the task is, Easy (1) to Grueling (7), picked from the pill bar
+    -- when it's made and again when it's rated. Its XP is this level's
+    -- (shared/rules.json task_xp). Null on tasks made before levels existed;
+    -- backend/tracking/levels.py reads those off their old rating or XP.
+    level               INTEGER CHECK (level BETWEEN 1 AND 7)
 );
 
 CREATE INDEX IF NOT EXISTS tasks_user_status_idx ON tasks (user_id, status);
 CREATE INDEX IF NOT EXISTS tasks_user_completed_idx ON tasks (user_id, completed_at DESC);
+-- What the goal matcher has not reached yet, or reached with an older version.
+CREATE INDEX IF NOT EXISTS tasks_user_match_idx ON tasks (user_id, goal_match_version);
 
 -- ---- rows: tasks ----
 INSERT INTO tasks (id, user_id, title, description, priority, status, xp_value, due_date, show_on_calendar, timer_duration, timer_expired, created_at, completed_at, completion_seconds, met_deadline) VALUES ('1781399054116', 'demo', '1', '1', 'low', 'done', 10, '2026-06-15T11:00:00', NULL, NULL, NULL, '2026-06-13T20:04:14.120090', NULL, NULL, NULL);

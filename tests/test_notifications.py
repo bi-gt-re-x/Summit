@@ -41,7 +41,7 @@ def _task(username, title, due, status='todo'):
 
 
 def _list(client, day=DAY, at='09:00'):
-    reply = client.get('/api/notifications', params={'day': day, 'at': at}).json()
+    reply = client.post('/api/notifications', params={'day': day, 'at': at}).json()
     assert reply['success'], reply
     return reply['notifications']
 
@@ -189,7 +189,7 @@ def test_the_master_switch_stops_everything(overdue):
     assert _list(overdue)
     overdue.post('/api/settings', json={'values': {'notifications_enabled': False}})
 
-    reply = overdue.get('/api/notifications', params={'day': DAY}).json()
+    reply = overdue.post('/api/notifications', params={'day': DAY}).json()
     assert reply['success'] and reply['enabled'] is False
     assert reply['notifications'] == []
 
@@ -213,9 +213,9 @@ def test_a_channel_that_is_off_is_neither_written_nor_shown(client):
 
 
 def test_popups_are_reported_with_the_list(overdue):
-    assert overdue.get('/api/notifications', params={'day': DAY}).json()['popups'] is True
+    assert overdue.post('/api/notifications', params={'day': DAY}).json()['popups'] is True
     overdue.post('/api/settings', json={'values': {'notify_popups': False}})
-    assert overdue.get('/api/notifications', params={'day': DAY}).json()['popups'] is False
+    assert overdue.post('/api/notifications', params={'day': DAY}).json()['popups'] is False
 
 
 # --------------------------------------------------------------------------
@@ -281,6 +281,108 @@ def test_a_streak_with_work_on_it_is_not_at_risk(app, client):
         user_id='busy')
 
     assert 'streak-risk:%s' % DAY not in _prints(_list(sign_in(app, 'busy')))
+
+
+def _risk(rows):
+    return next(row for row in rows if row['fingerprint'] == 'streak-risk:%s' % DAY)
+
+
+def test_the_warning_only_says_midnight_when_midnight_ends_the_run(app, client):
+    """A run with a grace day to spend survives an empty day, so says so."""
+    yesterday = (date.fromisoformat(DAY) - timedelta(days=1)).isoformat()
+    db.update_row('users', 'tester', {'current_streak': 12, 'last_task_date': yesterday},
+                  key='username')
+    covered = _risk(_list(client))
+    assert 'midnight' not in covered['body']
+    assert 'grace day covers it' in covered['body']
+    assert covered['tone'] == 'warn'
+
+    # The same run with its grace spent last week: midnight is the truth.
+    make_account('spent')
+    db.update_row('users', 'spent', {
+        'current_streak': 12, 'last_task_date': yesterday,
+        'streak_grace_day': (date.fromisoformat(DAY) - timedelta(days=7)).isoformat(),
+    }, key='username')
+    bare = _risk(_list(sign_in(app, 'spent')))
+    assert bare['body'] == 'Anything finished today keeps it. It resets at midnight.'
+    assert bare['tone'] == 'urgent'
+
+
+def _day(offset):
+    return (date.fromisoformat(DAY) + timedelta(days=offset)).isoformat()
+
+
+def _streak_rows(rows):
+    return {row['fingerprint']: row for row in rows if row['channel'] == 'streak'}
+
+
+def test_a_grace_day_that_saved_the_run_is_announced_once(app, client):
+    """Worked two days ago, missed yesterday, nothing yet today: saved, and said."""
+    # An account's first sweep files what is already true as read, so it runs
+    # on an ordinary day first.
+    db.update_row('users', 'tester', {'current_streak': 11, 'last_task_date': _day(-3)},
+                  key='username')
+    _list(client, day=_day(-2))
+    db.update_row('users', 'tester', {'current_streak': 12, 'last_task_date': _day(-2)},
+                  key='username')
+    rows = _streak_rows(_list(client))
+
+    # The row as stored was never refreshed by a page load — the sweep worked
+    # out the save on a copy, and found it.
+    saved = rows['grace-saved:%s' % _day(-1)]
+    assert saved['tone'] == 'good'
+    assert saved['title'] == 'Your grace day saved your 12-day streak'
+    assert 'You missed Monday' in saved['body']
+    assert 'Finish something today' in saved['body']
+    assert 'September 29' in saved['body']  # 31 Aug + 29: see grace_back_on
+    # And today's warning is honest about it: grace is spent, midnight is real.
+    assert rows['streak-risk:%s' % DAY]['body'].endswith('It resets at midnight.')
+
+    again = [row for row in _list(client) if row['fingerprint'] == 'grace-saved:%s' % _day(-1)]
+    assert len(again) == 1
+
+
+def test_a_run_that_ended_overnight_is_neither_warned_nor_congratulated(client):
+    db.update_row('users', 'tester', {'current_streak': 12, 'last_task_date': _day(-3)},
+                  key='username')
+    assert not _streak_rows(_list(client))
+
+
+def test_a_vacation_day_has_no_warning(client):
+    db.update_row('users', 'tester', {
+        'current_streak': 4, 'last_task_date': _day(-1),
+        'streak_vacations': [[DAY, _day(3)]]}, key='username')
+    assert 'streak-risk:%s' % DAY not in _prints(_list(client))
+
+
+def test_the_first_day_back_gets_a_welcome_instead_of_a_warning(client):
+    db.update_row('users', 'tester', {
+        'current_streak': 4, 'last_task_date': _day(-6),
+        'streak_vacations': [[_day(-5), _day(-1)]]}, key='username')
+    rows = _streak_rows(_list(client))
+    assert 'streak-risk:%s' % DAY not in rows
+    back = rows['vacation-over:%s' % _day(-1)]
+    assert back['title'] == 'Welcome back! Your 4-day streak is back on'
+    assert back['body'].endswith('It resets at midnight.')
+
+
+def test_the_seventh_day_says_a_grace_day_was_earned(app, client):
+    db.update_row('users', 'tester', {'current_streak': 3, 'last_task_date': DAY},
+                  key='username')
+    _list(client)
+    db.update_row('users', 'tester', {'current_streak': 7, 'last_task_date': DAY},
+                  key='username')
+    milestone = _streak_rows(_list(client))['streak-milestone:7']
+    assert 'earned a grace day' in milestone['body']
+
+
+def test_the_warning_is_withdrawn_once_a_vacation_starts(client):
+    db.update_row('users', 'tester', {'current_streak': 4, 'last_task_date': _day(-1)},
+                  key='username')
+    assert 'streak-risk:%s' % DAY in _prints(_list(client))
+
+    db.update_row('users', 'tester', {'streak_vacations': [[DAY, _day(4)]]}, key='username')
+    assert 'streak-risk:%s' % DAY not in _prints(_list(client))
 
 
 def test_a_goal_past_its_date_is_raised_once_a_day(client):

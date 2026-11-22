@@ -44,6 +44,7 @@ import type { GrowthDay, Task } from '@/types';
 import { activeRate, countActiveDays } from './activeDay';
 import { gradeFor as letterFor } from './analyticalScore';
 import type { Subject } from '@/services/subjects';
+import { dayActivity } from '@/utils/activity';
 
 const num = (value: unknown): number => Number(value) || 0;
 
@@ -410,9 +411,9 @@ export function focusMix(all: GrowthDay[], days = 90): FocusMix {
 
   const bands: FocusBand[] = (
     [
-      ['deep', `Deep — ${DEEP_MINUTES}m or more`],
-      ['steady', `Steady — ${STEADY_MINUTES}–${DEEP_MINUTES}m`],
-      ['light', `Light — under ${STEADY_MINUTES}m`],
+      ['deep', `Deep: ${DEEP_MINUTES}m or more`],
+      ['steady', `Steady: ${STEADY_MINUTES} to ${DEEP_MINUTES}m`],
+      ['light', `Light: under ${STEADY_MINUTES}m`],
     ] as const
   ).map(([key, label]) => {
     const share = shareOf(now.counts[key], now.total);
@@ -475,7 +476,7 @@ const HABIT_TREND_DAYS = 30;
  * **The rate and the bar cover the whole account, not the last thirty days.**
  * A habit is a claim about months, and a thirty-day window makes it a claim
  * about the last one: a subject worked steadily for half a year and left alone
- * in July read as a dead habit, and a subject picked up a fortnight ago read as
+ * in July read as a dead habit, and a subject picked up two weeks ago read as
  * the reader's strongest. Counted from the account's first day, the bar is the
  * share of this account's whole life that has had this subject in it, which is
  * the thing the panel is called after. `spanDays` is how many days that is, and
@@ -603,9 +604,9 @@ export interface RecoveryProfile {
  * How the days rank, and what happens after a quiet one.
  *
  * The bands are against the account's own median active day rather than any
- * fixed figure — a "strong day" for someone earning 60 XP a day is not a strong
- * day for someone earning 600, and a threshold in absolute XP would tell one of
- * them a lie.
+ * fixed figure — a "strong day" for someone who finishes two tasks a day is not
+ * a strong day for someone who finishes twelve. A day is measured by
+ * `dayActivity` (utils/activity): tasks and focus time first, XP as one part.
  *
  * **The recovery figure is the point of this panel.** A calendar of missed days
  * is a page of small failures; the same calendar with "you are back within a
@@ -614,12 +615,12 @@ export interface RecoveryProfile {
  */
 export function classifyDays(all: GrowthDay[], tasks: Task[]): Map<string, DayKind> {
   const plans = planIndex(tasks);
-  const active = all.map((day) => num(day.xp_earned)).filter((xp) => xp > 0).sort((a, b) => a - b);
+  const active = all.map((day) => dayActivity(day)).filter((done) => done > 0).sort((a, b) => a - b);
   const median = active.length ? active[Math.floor(active.length / 2)]! : 0;
 
   const kinds = new Map<string, DayKind>();
   all.forEach((day) => {
-    const xp = num(day.xp_earned);
+    const xp = dayActivity(day);
     if (xp <= 0) {
       kinds.set(day.date, 'missed');
       return;
@@ -799,12 +800,12 @@ export function scoreCards(all: GrowthDay[], tasks: Task[], days = 30): ScoreCar
 
   return [
     build('consistency', 'Consistency', 'flame', '', consistencyScore, (value) =>
-      value === null ? 'no days yet' : `${active} of ${now.length} days had work on them`,
+      value === null ? 'no days yet' : `You worked ${active} of ${now.length} days`,
     ),
     build('focus', 'Focus', 'clock', '', focusScore, (value) =>
       value === null
         ? 'no days yet'
-        : `${Math.round(minutes / Math.max(1, now.length))} min a day against a ${FOCUS_REFERENCE_MINUTES}-min day`,
+        : `${Math.round(minutes / Math.max(1, now.length))} min a day vs. a ${FOCUS_REFERENCE_MINUTES}-min day`,
     ),
     build(
       'follow',
@@ -815,7 +816,7 @@ export function scoreCards(all: GrowthDay[], tasks: Task[], days = 30): ScoreCar
       (value) => (value === null ? 'nothing was planned for these days' : `${met} of ${planned} planned tasks done`),
     ),
     build('stability', 'Stability', 'target', '', stabilityScore, (value) =>
-      value === null ? 'needs two full weeks' : 'how alike your weeks are',
+      value === null ? 'needs two full weeks' : 'how similar your weeks are',
     ),
   ];
 }

@@ -31,11 +31,12 @@ export type { RouteStripProps } from './RouteStrip';
 /** Map · Path · Progress — three readings of one lattice. See ./ModeSwitch. */
 export { ModeSwitch, TREE_MODES } from './ModeSwitch';
 export type { ModeSwitchProps, TreeMode } from './ModeSwitch';
-export { NextUp } from './NextUp';
-export type { NextUpProps } from './NextUp';
 /** The card a tile raises under the pointer. See ./TilePeek. */
 export { TilePeek } from './TilePeek';
 export type { PeekRect, TilePeekProps } from './TilePeek';
+/** The open tree's next session, from your answers. See ./TreePlan. */
+export { TreePlan } from './TreePlan';
+export type { TreePlanProps } from './TreePlan';
 /** What a line between two tiles means. See ./EdgeCard. */
 export { EdgeCard } from './EdgeCard';
 export type { EdgeCardProps } from './EdgeCard';

@@ -166,7 +166,7 @@ export interface SparklineProps {
  * A tile's own days, with no axis and no scale.
  *
  * The tile states one figure for the whole window, which cannot tell a period
- * that climbed steadily from one that did everything in its last fortnight.
+ * that climbed steadily from one that did everything in its last two weeks.
  * This is the shape of the arriving, and it is deliberately unlabelled — a
  * sparkline that invites a reading off its y-axis has stopped being one.
  */
@@ -425,7 +425,7 @@ export function AreaChart({
       : `${rows[active]!.label}. ${rows[active]!.values
           .map((value, index) =>
             value === null
-              ? `${readout!.names[index] ?? `Series ${index + 1}`}: no reading`
+              ? `${readout!.names[index] ?? `Series ${index + 1}`}: no data`
               : `${readout!.names[index] ?? `Series ${index + 1}`}: ${write(value)}`,
           )
           .join('. ')}`;
@@ -717,35 +717,49 @@ export function AreaChart({
           a sighted reader gets from the tooltip — and the table carries the
           whole series, for a reader who wants the shape rather than one point
           of it. Both are `.ax-sr`: this is the same chart, said twice for two
-          ways of reading, not a second chart. */}
+          ways of reading, not a second chart.
+
+          The table is *inside* an `.ax-sr` box rather than carrying the class
+          itself, and that is the whitespace under every analytics tab. A table
+          does not honour `height: 1px` — a table's height is a minimum, and it
+          lays out as tall as its rows — and `overflow: hidden` does not apply
+          to one either; `clip` only stops it painting. So the class put an
+          invisible table as tall as the series at the chart's position, and
+          being absolutely positioned it still counted toward the page's
+          scrollable height: a year by week is 53 rows, about 1,150px, and the
+          page scrolled that far past its last card into nothing. A div does
+          honour both, so the table is clipped to its one pixel and the
+          document ends where the content does. */}
       {readout && (
         <>
           <div className="ax-sr" aria-live="polite">
             {spoken}
           </div>
-          <table className="ax-sr">
-            <caption>{label}</caption>
-            <thead>
-              <tr>
-                <th scope="col">Point</th>
-                {readout.names.map((name, index) => (
-                  <th scope="col" key={index}>
-                    {name}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, index) => (
-                <tr key={index}>
-                  <th scope="row">{row.label}</th>
-                  {row.values.map((value, column) => (
-                    <td key={column}>{value === null ? 'No reading' : write(value)}</td>
+          <div className="ax-sr">
+            <table>
+              <caption>{label}</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Point</th>
+                  {readout.names.map((name, index) => (
+                    <th scope="col" key={index}>
+                      {name}
+                    </th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((row, index) => (
+                  <tr key={index}>
+                    <th scope="row">{row.label}</th>
+                    {row.values.map((value, column) => (
+                      <td key={column}>{value === null ? 'No data' : write(value)}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
     </div>
@@ -942,7 +956,9 @@ export function Columns({
         .join(', ')}.`}
     >
       {columns.map((column) => (
-        <div className="ax-column" key={column.label}>
+        // `name` before `label`: a chart that blanks most of its labels (the
+        // hour-of-day one prints every third) would key every blank the same.
+        <div className="ax-column" key={column.name ?? column.label}>
           <span className="ax-column-value">{column.text}</span>
           <div className="ax-column-track">
             <div
@@ -1005,7 +1021,7 @@ export interface PanelProps {
 const HeadingLevel = createContext(2);
 
 /** A heading at whatever depth the surrounding groups have reached. */
-function Heading({ className, children }: { className?: string; children: ReactNode }) {
+export function Heading({ className, children }: { className?: string; children: ReactNode }) {
   const level = useContext(HeadingLevel);
   // Capped at 6 because there is no h7; nothing here nests that far, and a tag
   // the browser does not know is worse than a heading one level too shallow.
@@ -1020,7 +1036,7 @@ function Heading({ className, children }: { className?: string; children: ReactN
  * panel drawn from invented figures. Both the chip and the figures behind it
  * are gone — a panel on this page is now always this account's own record, so
  * there is nothing left to disclaim. A tab that cannot be filled says so as a
- * whole rather than shipping placeholder panels with a footnote; see `Locked`.
+ * whole rather than shipping placeholder panels with a footnote; see `Building`.
  */
 export function Panel({
   title,
@@ -1042,8 +1058,7 @@ export function Panel({
       {note && <p className="ax-panel-note">{note}</p>}
       {/* No wrapper around `children` when there is a claim: the claim is a
           sibling of the content, not a lid on it, and `.ax-panel`'s rules for
-          what may grow into the panel's slack — `.ax-heat`, `.ax-standing`,
-          `.ax-timeline` — are direct-child selectors that a wrapper would
+          what may grow into the panel's slack — `.ax-heat`, `.ax-timeline` — are direct-child selectors that a wrapper would
           have cut off from the content they are meant to size. */}
       {claim && <p className="ax-claim">{claim}</p>}
       {children}
@@ -1244,9 +1259,7 @@ export function Scatter({ points, tone, xLabel, yLabel, trend }: ScatterProps) {
       <svg
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={`${xLabel} against ${yLabel}. ${points.length} ${
-          points.length === 1 ? 'observation' : 'observations'
-        }${trend ? ', with a line of best fit' : ', with no line of fit drawn'}.`}
+        aria-label={`${xLabel} vs. ${yLabel}. ${points.length} ${points.length === 1 ? 'point' : 'points'}${trend ? ', with a trend line' : ''}.`}
       >
         {[0.25, 0.5, 0.75].map((ratio) => (
           <line

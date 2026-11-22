@@ -50,6 +50,8 @@ const DONE = {
   xp_required: 200,
   current_streak: 2,
   best_streak: 4,
+  last_task_date: null,
+  streak_grace_day: null,
   task_id: 'task-on-the-grid',
   completion_status: 'done' as const,
 };
@@ -78,10 +80,12 @@ describe('finishing a task from the calendar', () => {
 
     act(() => result.current.complete('task-on-the-grid'));
     await waitFor(() => expect(result.current.rating).not.toBeNull());
-    expect(result.current.rating).toEqual({
+    expect(result.current.rating).toMatchObject({
       id: 'task-on-the-grid',
       name: 'Read two chapters',
     });
+    // The prompt's level pills open on the task's own level.
+    expect(result.current.rating!.level).toBeGreaterThanOrEqual(1);
   });
 
   it('says nothing when the account has turned the questions off', async () => {

@@ -24,6 +24,7 @@ import type { SettingsValue } from '@/context/contexts';
 import type { AnalyticsData } from './useAnalyticsData';
 import type { SubjectIndex } from '@/hooks/useSubjects';
 import type { Subject } from '@/services/subjects';
+import { NO_PLAN } from '@/services/next';
 import {
   AFTER,
   BEFORE,
@@ -96,8 +97,14 @@ function seedData(): AnalyticsData {
     scoreLog: answered({ metric: 'overall', points: seedScoreLog() }),
     gradedLog: answered({ histories: {} }),
     adopted: answered({ adopted: [] }),
-    standing: answered(null),
     baseline: answered({ baseline: null }),
+    // No About you answers: no head start, so every gate reads the record alone.
+    background: answered(null),
+    // The plan is decided on the server; see backend/tracking/next_actions.py.
+    next: answered({ plan: NO_PLAN, lens: null }),
+    setBudget: () => {},
+    setNudge: () => {},
+    nudge: 0,
     username: 'seed',
   } as unknown as AnalyticsData;
 }
@@ -246,14 +253,6 @@ describe('the score', () => {
     // `growthScore` is out of ten and `analyticalScore` out of a hundred, and
     // they are one calculation shown twice. Ten times one is the other.
     expect(result.current.analytical.value).toBeCloseTo(result.current.score! * 10, 0);
-  });
-
-  it('draws its line from its own readings and nothing else', () => {
-    const { result } = drive();
-    expect(result.current.scoreLine).toHaveLength(seedScoreLog().length);
-    expect(result.current.scoreDates).toHaveLength(seedScoreLog().length);
-    // Recorded out of 100 and drawn out of 10.
-    expect(result.current.scoreLine[0]).toBeCloseTo(5.8, 5);
   });
 });
 

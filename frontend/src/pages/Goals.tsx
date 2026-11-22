@@ -42,11 +42,11 @@
  * when the last thing rendering them did. New goals are outcomes; the counters
  * are kept, not extended.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   ActiveGoalCard,
   Band,
-  ConfirmModal,
   GoalDetail,
   GoalInsights,
   GoalModal,
@@ -77,8 +77,9 @@ import {
   planGoal,
 } from '@/components/Goals';
 import type { MilestoneDraftRequest } from '@/components/Goals';
-import { Ambient, ErrorState, Loading, PageHero, RefreshButton } from '@/components';
+import { ErrorState, Loading, PageHero, RefreshButton } from '@/components';
 import {
+  forgetLinkableGoals,
   useAuth,
   useDocumentTitle,
   usePageEntrance,
@@ -92,7 +93,11 @@ import type { Goal, Milestone, MilestoneStatus, MilestoneStep, Task } from '@/ty
 import { goalHealth } from '@/utils/goalHealth';
 import type { TabId } from '@/components/Goals';
 import { fromTitles, stepProgress } from '@/utils/milestoneSteps';
+import { ConfirmDialog } from '@/components/ui';
 import '@/styles/goals.css';
+import { announceStatsChanged } from '@/utils/statsBus';
+import { awaitingVerify, withStoneStatus, withSteps } from '@/utils/goalProgress';
+import { GoalCelebration, type Celebration } from '@/components/Goals/GoalCelebration';
 
 /** How often to re-read while a focus goal is running. */
 const FOCUS_POLL_MS = 30_000;
@@ -133,6 +138,36 @@ export default function Goals() {
   const entering = usePageEntrance(!loading);
 
   const [openId, setOpenId] = useState<string | null>(null);
+
+  /**
+   * `?goal=<id>` opens that goal, for a link that came from somewhere else.
+   *
+   * The task board has had `?task=` for as long as the top bar has had a
+   * search, and a note that can link to a task and not to a goal is a note
+   * that has to explain which half of the app it is allowed to point at. This
+   * is the same idea with less work to do: a goal is a panel over this page
+   * rather than a row on a board, so there is no heading to open and no filter
+   * to widen — it either exists on the account or it does not.
+   *
+   * The parameter is cleared once it has been used. It is an instruction
+   * rather than a description of the view: leaving it in the address would
+   * reopen the panel every time the reader closed it.
+   */
+  const [params, setParams] = useSearchParams();
+  const wantedGoal = params.get('goal');
+
+  useEffect(() => {
+    if (!wantedGoal || !list.some((goal) => goal.id === wantedGoal)) return;
+    setOpenId(wantedGoal);
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete('goal');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [list, setParams, wantedGoal]);
   const [wizardOpen, setWizardOpen] = useState(false);
   /** The wizard was opened by "Draft a goal", so it opens on the idea box. */
   const [draftFirst, setDraftFirst] = useState(false);
@@ -158,8 +193,14 @@ export default function Goals() {
   /** Bumped when a deadline passes, so the cards that just went overdue redraw. */
   const [, setTick] = useState(0);
 
+  /* Checklist and checkpoint writes still in flight. Those are drawn the
+     moment they are made (see `quietWrite`), and a re-read that lands while
+     one is still out would put the old figures back for a beat. */
+  const pendingWrites = useRef(0);
+
   const load = useCallback(
     async (quiet = false) => {
+      if (quiet && pendingWrites.current > 0) return;
       if (!username) {
         setLoading(false);
         setError('Sign in to see your goals.');
@@ -167,9 +208,17 @@ export default function Goals() {
       }
       if (!quiet) setLoading(true);
       const result = await goalService.getGoals();
+      if (quiet && pendingWrites.current > 0) return;
       if (result.success) {
         setList(result.goals ?? []);
         setError(null);
+        /* The calendar's dialogs hold their own cached copy of this list, for
+           the "counts toward" field — see hooks/useLinkableGoals. Every create,
+           edit and delete on this page ends in a re-read, so this is the one
+           line that keeps that copy honest without a subscription. Dropped
+           rather than replaced: the cache stores only the linkable subset and
+           rebuilding it here would put that filter in two places. */
+        forgetLinkableGoals();
       } else {
         setError(result.message);
       }
@@ -207,7 +256,7 @@ export default function Goals() {
       try {
         const result = await action();
         if (!result.success) {
-          setError(result.message ?? 'That did not work.');
+          setError(result.message ?? "That didn't work.");
           return false;
         }
         await load(true);
@@ -218,6 +267,41 @@ export default function Goals() {
     },
     [load],
   );
+
+  /**
+   * A write that has already been drawn.
+   *
+   * Ticking a step, closing a checkpoint, reopening one: the page changes the
+   * goal in place first (utils/goalProgress works out its new figures the way
+   * the server will), so the ring, the percentage and the route move on the
+   * click with their own transitions, and the save happens behind it. No
+   * `busy`: the controls stay live, so a run of ticks is a run of ticks. The
+   * re-read waits for the last write of a burst, and then the server's
+   * figures replace the page's — which agree with them.
+   */
+  const quietWrite = useCallback(
+    async (action: () => Promise<{ success: boolean; message?: string }>) => {
+      pendingWrites.current += 1;
+      let saved = false;
+      try {
+        const result = await action();
+        saved = result.success;
+        if (!result.success) setError(result.message ?? "That didn't save.");
+      } catch {
+        setError("That didn't save. Check your connection.");
+      } finally {
+        pendingWrites.current -= 1;
+      }
+      if (pendingWrites.current === 0) await load(true);
+      return saved;
+    },
+    [load],
+  );
+
+  /** Change one goal on screen, before the server has heard about it. */
+  const patchGoal = useCallback((goalId: string, change: (goal: Goal) => Goal) => {
+    setList((goals) => goals.map((goal) => (goal.id === goalId ? change(goal) : goal)));
+  }, []);
 
   const tasks = useMemo(() => account.data?.tasks ?? [], [account.data]);
 
@@ -250,9 +334,12 @@ export default function Goals() {
       const result = await taskService.completeTask(task.id);
       setBusy(false);
       if (!result.success) {
-        setError(result.message ?? 'That task could not be completed.');
+        setError(result.message ?? "That task couldn't be completed.");
         return;
       }
+      // The rail's level and the bell did not hear about completions made
+      // here. See utils/statsBus.
+      announceStatsChanged();
       await Promise.all([load(true), account.reload()]);
     },
     [account, busy, load, username],
@@ -277,7 +364,7 @@ export default function Goals() {
         milestone_id: milestoneId ?? null,
       });
       if (!result.success) {
-        setError(result.message ?? 'That task could not be linked.');
+        setError(result.message ?? "That task couldn't be linked.");
         return;
       }
       await Promise.all([load(true), account.reload()]);
@@ -307,7 +394,7 @@ export default function Goals() {
       if (!username) return;
       const created = await goalService.addGoal(draft);
       if (!created.success) {
-        setError(created.message ?? 'That did not work.');
+        setError(created.message ?? "That didn't work.");
         return;
       }
       setWizardOpen(false);
@@ -342,12 +429,12 @@ export default function Goals() {
    * The wizard's "Draft it all", from one sentence and before any field is
    * filled. Creates nothing — the answer lands in the wizard's own boxes.
    */
-  const draftWholeGoal = useCallback(async (idea: string) => {
-    const result = await goalService.draftGoal(idea);
+  const draftWholeGoal = useCallback(async (idea: string, starting: string) => {
+    const result = await goalService.draftGoal(idea, starting);
     return result.success
       ? { goal: { title: result.title, why: result.why, category: result.category,
                   deadline: result.deadline, milestones: result.milestones ?? [] } }
-      : { problem: result.message ?? 'That could not be drafted.' };
+      : { problem: result.message ?? "That couldn't be drafted." };
   }, []);
 
   /**
@@ -397,6 +484,16 @@ export default function Goals() {
     [username, write],
   );
 
+  /* Which chart a card draws. Written like any other edit, so the card redraws
+     from what the server kept rather than from what was clicked. */
+  const setChart = useCallback(
+    (goal: Goal, chart: string) => {
+      if (!username) return;
+      void write(() => goalService.updateGoal(goal.id, { chart }));
+    },
+    [username, write],
+  );
+
   const confirmDelete = useCallback(async () => {
     if (!username || !pendingDelete) return;
     const gone = pendingDelete.id;
@@ -420,7 +517,7 @@ export default function Goals() {
       if (!username) return;
       const created = await goalService.addMilestone(goal.id, { title });
       if (!created.success) {
-        setError(created.message ?? 'That did not work.');
+        setError(created.message ?? "That didn't work.");
         return;
       }
       await load(true);
@@ -445,9 +542,10 @@ export default function Goals() {
   const setMilestoneStatus = useCallback(
     (milestone: Milestone, status: MilestoneStatus) => {
       if (!username) return;
-      void write(() => goalService.updateMilestone(milestone.id, { status }));
+      patchGoal(milestone.goal_id, (goal) => withStoneStatus(goal, milestone.id, status));
+      void quietWrite(() => goalService.updateMilestone(milestone.id, { status }));
     },
-    [username, write],
+    [patchGoal, quietWrite, username],
   );
 
   /**
@@ -468,31 +566,72 @@ export default function Goals() {
     [username, write],
   );
 
+  /** The celebration on screen, or null. See components/Goals/GoalCelebration. */
+  const [celebrating, setCelebrating] = useState<Celebration | null>(null);
+
   /**
-   * Call the goal itself finished.
+   * The reader's answer to "is this goal really done?".
    *
-   * Only offered once every checkpoint is reached, and it is a request rather
-   * than an assertion: the backend re-derives status from the goal's own truth
-   * on every write, so a milestone goal is already completed by the time this
-   * is reachable and this is the confirmation. What it genuinely decides is
-   * the goals with no target to measure against, which arithmetic cannot
-   * finish and only the reader can. See `_recompute` in backend/api/goals.py.
+   * Asked on the card the moment a goal reaches its target (and on a goal with
+   * no target once every checkpoint is behind it). **Yes** celebrates at once
+   * and moves the goal out of the active list; the server records it, with
+   * the figures it finished on, for the Analytics page, and those figures
+   * join the celebration when they arrive. **Not yet** on a checkpoint goal
+   * reopens its last checkpoint; on any other goal there is nothing to
+   * reopen, so the editor opens on its figures instead. See `verify_goal` in
+   * backend/api/goals.py.
    */
-  const completeGoal = useCallback(
-    (goal: Goal) => {
-      if (!username || goal.status === 'completed') return;
-      void write(() => goalService.updateGoal(goal.id, { status: 'completed' }));
+  const verifyGoal = useCallback(
+    async (goal: Goal, done: boolean) => {
+      if (!username) return;
+      const stones = goal.milestones ?? [];
+      if (!done) {
+        if (measureOf(goal) !== 'milestones' || !stones.some((stone) => stone.status === 'done')) {
+          setEditing(goal);
+          setModalOpen(true);
+          return;
+        }
+        const last = [...stones]
+          .filter((stone) => stone.status === 'done')
+          .sort((a, b) => (a.completed_at ?? '').localeCompare(b.completed_at ?? '') || a.position - b.position)
+          .at(-1)!;
+        patchGoal(goal.id, (row) => withStoneStatus(row, last.id, 'active'));
+        void quietWrite(() => goalService.verifyGoal(goal.id, false));
+        return;
+      }
+      patchGoal(goal.id, (row) => ({
+        ...row, status: 'completed', needs_verify: false, verified_at: new Date().toISOString(),
+      }));
+      setCelebrating({ goal, record: null });
+      pendingWrites.current += 1;
+      try {
+        const result = await goalService.verifyGoal(goal.id, true);
+        if (!result.success) {
+          setCelebrating(null);
+          setError(result.message ?? "That goal couldn't be confirmed.");
+        } else if (result.record) {
+          setCelebrating((now) => (now && now.goal.id === goal.id ? { ...now, record: result.record ?? null } : now));
+        }
+      } catch {
+        setCelebrating(null);
+        setError("That goal couldn't be confirmed. Check your connection.");
+      } finally {
+        pendingWrites.current -= 1;
+      }
+      announceStatsChanged();
+      await load(true);
     },
-    [username, write],
+    [load, patchGoal, quietWrite, username],
   );
 
   /** The checkpoint's own checklist, written whole. See utils/milestoneSteps. */
   const setMilestoneSteps = useCallback(
     (milestone: Milestone, steps: MilestoneStep[]) => {
       if (!username) return;
-      void write(() => goalService.updateMilestone(milestone.id, { steps }));
+      patchGoal(milestone.goal_id, (goal) => withSteps(goal, milestone.id, steps));
+      void quietWrite(() => goalService.updateMilestone(milestone.id, { steps }));
     },
-    [username, write],
+    [patchGoal, quietWrite, username],
   );
 
   /** When a checkpoint is meant to be reached. Empty string clears it. */
@@ -567,18 +706,18 @@ export default function Goals() {
       try {
         const drafted = await goalService.suggestSteps({ milestoneId: milestone.id });
         if (!drafted.success) {
-          setError(drafted.message ?? 'Those steps could not be drafted.');
+          setError(drafted.message ?? "Those steps couldn't be drafted.");
           return;
         }
         if (!drafted.steps?.length) {
-          setError('The model returned no steps. Try again.');
+          setError("AI didn't return any steps. Try again.");
           return;
         }
         const saved = await goalService.updateMilestone(milestone.id, {
           steps: fromTitles(drafted.steps),
         });
         if (!saved.success) {
-          setError(saved.message ?? 'Those steps could not be saved.');
+          setError(saved.message ?? "Those steps couldn't be saved.");
           return;
         }
         setError(null);
@@ -664,7 +803,8 @@ export default function Goals() {
   const active = useMemo(
     () =>
       list
-        .filter((goal) => goal.status !== 'completed')
+        // A goal waiting on "is it really done?" stays here, where the question is.
+        .filter((goal) => goal.status !== 'completed' || awaitingVerify(goal))
         .sort((a, b) => {
           // Overdue first, then by how much it matters, then by how close the
           // date is — which is the order a reader would put them in themselves.
@@ -689,13 +829,12 @@ export default function Goals() {
    * yet is a goal nobody has begun, which is a different problem with a
    * different answer, and putting it here would fill the reader's one
    * "show me the problem" view with goals whose problem is that they have not
-   * happened. `goalHealth` says why each one is here; see `reasonFor` there.
+   * happened. `goalHealth` says why each one is here; see the reasons there.
    */
   const needsAttention = useMemo(
     () =>
       outcomes.filter((goal) => {
-        const state = goalHealth(goal, tasks).state;
-        return state === 'at-risk' || state === 'off-track';
+        return goalHealth(goal).state === 'behind';
       }),
     [outcomes, tasks],
   );
@@ -711,7 +850,7 @@ export default function Goals() {
   const [attention, setAttention] = useState(false);
 
   /* It clears itself when there is nothing left to show. Ticking the last
-     at-risk goal back into shape while filtered would otherwise leave an empty
+     behind goal back into shape while filtered would otherwise leave an empty
      tab under a header that had just stopped saying anything was wrong. */
   useEffect(() => {
     if (attention && needsAttention.length === 0) setAttention(false);
@@ -749,12 +888,11 @@ export default function Goals() {
 
   const open = list.find((goal) => goal.id === openId) ?? null;
 
-  if (loading) return <Loading label="Reading your goals" />;
+  if (loading) return <Loading label="Loading your goals" />;
   if (error && !list.length) return <ErrorState message={error} onRetry={() => void load()} />;
 
   return (
     <div className="gx-page">
-      <Ambient />
       <div className={`gx-shell page-shell${entering ? ' pg-enter' : ''}`}>
         {/* This header was already a card of its own — a tinted strip with a
             border and a shadow. It keeps its layout and gives up its surface to
@@ -778,7 +916,6 @@ export default function Goals() {
                   header control. See `GoalsState` in components/Goals/Outcome. */}
               <GoalsState
                 goals={outcomes}
-                tasks={tasks}
                 on={attention}
                 onAttention={() => {
                   /* The cards it filters are on the Active tab, so pressing it
@@ -823,7 +960,7 @@ export default function Goals() {
                 </button>
               )}
               <button type="button" className="gx-btn is-primary" onClick={startGoal}>
-                {tab === 'system' ? '+ New System Goal' : '+ New Goal'}
+                {tab === 'system' ? '+ New counter' : '+ New goal'}
               </button>
             </div>
           </header>
@@ -863,8 +1000,7 @@ export default function Goals() {
 
             {shown.length === 0 ? (
               <p className="gx-empty">
-                No outcome goals yet. Something you either reached or did not — reach USACO
-                Gold, ship Summit v2, read 24 books.
+                No goals with a finish line yet. Think: reach USACO Gold, ship Summit v2 or read 24 books.
                 <button type="button" className="gx-link" onClick={() => setWizardOpen(true)}>
                   Set your first
                 </button>
@@ -889,6 +1025,7 @@ export default function Goals() {
                     }
                     onSuggest={suggestMilestones}
                     onRedraftStones={redraftStones}
+                    onFillSteps={(entry) => void draftChecklists(entry.id)}
                     onSuggestSteps={(stone) => void suggestSteps(stone)}
                     /* Only while filtered. The health chip carries its reason
                        as a tooltip everywhere else, which is enough when the
@@ -905,8 +1042,9 @@ export default function Goals() {
                     onFocusMilestone={focusMilestone}
                     onMilestoneSteps={setMilestoneSteps}
                     onMilestoneStatus={setMilestoneStatus}
-                    onCompleteGoal={completeGoal}
+                    onVerify={(entry, done) => void verifyGoal(entry, done)}
                     nameOf={subjectName}
+                    onChart={setChart}
                   />
                 ))}
               </div>
@@ -919,10 +1057,8 @@ export default function Goals() {
                 answer back on screen directly below the question. */}
             {!attention && outcomes.length > LIST_GOALS && (
               <Band
-                title={`Also carrying · ${outcomes.length - LIST_GOALS} ${
-                  outcomes.length - LIST_GOALS === 1 ? 'goal' : 'goals'
-                }`}
-                hint="Still counted, not drawn as cards"
+                title={`Also tracking · ${outcomes.length - LIST_GOALS} ${outcomes.length - LIST_GOALS === 1 ? 'goal' : 'goals'}`}
+                hint="Still tracked, just not shown as cards"
               >
                 {/* Rows, not cards, and that is the whole point of the band:
                     these are the goals that did not make the ladder, and a
@@ -939,7 +1075,7 @@ export default function Goals() {
                 <ul className="gx-rest">
                   {outcomes.slice(LIST_GOALS).map((goal) => {
                     const numbers = goalNumbers(goal);
-                    const health = goalHealth(goal, tasks);
+                    const health = goalHealth(goal);
                     return (
                       <li key={goal.id}>
                         <button type="button" onClick={() => setOpenId(goal.id)}>
@@ -966,7 +1102,7 @@ export default function Goals() {
             widest view of the smallest thing, so it goes last. */}
         {on('timeline') && (
           <>
-            <Band title="Next Milestones" hint="What each goal is on now">
+            <Band title="Next checkpoints" hint="Where each goal is now">
               <NextMilestones goals={list} tasks={tasks} onOpen={(goal) => setOpenId(goal.id)} />
             </Band>
 
@@ -998,8 +1134,8 @@ export default function Goals() {
             )}
 
             <Band
-              title="Milestone Calendar"
-              hint="Darker days carry more"
+              title="Checkpoint calendar"
+              hint="Darker days have more due"
             >
               <MilestoneCalendar goals={list} onOpen={(goal) => setOpenId(goal.id)} />
             </Band>
@@ -1016,7 +1152,7 @@ export default function Goals() {
             above it making the same point more briefly would be the page
             saying it twice and landing it neither time. */}
         {on('system') && (
-          <Band title="System Goals">
+          <Band title="Counters">
             <SystemGoals
               counters={counters}
               onEdit={(goal) => {
@@ -1042,31 +1178,31 @@ export default function Goals() {
                 which is the shape a page takes when it is built out of the
                 components that exist rather than from the question asked. */}
             <Band title="How this is going">
-              <SystemVerdict goals={list} tasks={tasks} />
+              <SystemVerdict goals={list} />
             </Band>
 
             <Band
               title="Where you stand"
-              hint="Counted off your goals"
+              hint="From your goals"
             >
               <GoalStats goals={list} />
-              <OverviewStrip goals={list} tasks={tasks} />
+              <OverviewStrip goals={list} />
             </Band>
 
             <Band
-              title="Your trajectory"
+              title="Your trend"
               hint="How far each one has to go"
             >
               <Trajectory goals={outcomes} onOpen={(goal) => setOpenId(goal.id)} />
             </Band>
 
             <div className="gx-two">
-              <Band title="Goal Insights" hint="From linked work only">
+              <Band title="Goal insights" hint="From linked tasks only">
                 <GoalInsights goals={list} tasks={tasks} onOpen={(goal) => setOpenId(goal.id)} />
               </Band>
 
-              <Band title="Goal Health" hint="Goal by goal, and why">
-                <HealthRing goals={list} tasks={tasks} />
+              <Band title="Goal health" hint="Goal by goal, and why">
+                <HealthRing goals={list} />
                 <HealthBreakdown
                   goals={outcomes}
                   tasks={tasks}
@@ -1077,7 +1213,7 @@ export default function Goals() {
 
             <Band
               title="Growth areas"
-              hint="Where the work you have left is, by subject"
+              hint="What's left, by subject"
             >
               <GrowthAreas
                 goals={outcomes}
@@ -1087,7 +1223,7 @@ export default function Goals() {
             </Band>
 
             <Band
-              title="All Goals"
+              title="All goals"
               hint="Same columns for every goal"
             >
               <GoalTable
@@ -1107,14 +1243,18 @@ export default function Goals() {
             Not a tab of its own: it is one band, and the header button that
             reveals it works from wherever you are. */}
         {showCompleted && (
-          <Band title="Recently Completed" hint="Already behind you">
-            <RecentlyCompleted goals={list} />
+          <Band title="Recently finished" hint="Done">
+            <RecentlyCompleted goals={list.filter((goal) => !awaitingVerify(goal))} />
           </Band>
         )}
 
         <GoalsCta onNew={startGoal} />
         </div>
       </div>
+
+      {celebrating && (
+        <GoalCelebration celebration={celebrating} onClose={() => setCelebrating(null)} />
+      )}
 
 
       {open && (
@@ -1145,6 +1285,13 @@ export default function Goals() {
             );
           }}
           onSuggestSteps={(stone) => void suggestSteps(stone)}
+          /* The two the drawer's own row needs. `redraftStones` confirms where
+             a ladder exists; `draftChecklists` is additive and does not. Both
+             already existed for the card's menu — see the note on
+             `redraftStones` — and the drawer is where a plan is actually
+             built, so it is the door that most wanted them. */
+          onRedraftStones={redraftStones}
+          onFillSteps={(entry) => void draftChecklists(entry.id)}
           planning={
             planning === open.id
             || (open.milestones ?? []).some((stone) => stone.id === planning)
@@ -1184,14 +1331,11 @@ export default function Goals() {
         onSave={saveGoal}
       />
 
-      <ConfirmModal
+      <ConfirmDialog
         open={pendingDraft !== null}
         title="Redraft this goal's checkpoints?"
         body={
-          `The model writes five new ones over the ${(pendingDraft?.milestones ?? []).length} `
-          + 'already here. A rung keeps its place, so anything already reached stays '
-          + 'reached and any task pointed at one keeps its link — it is the wording '
-          + 'that changes. Checklists you have written are left alone.'
+          `AI writes five new ones over the ${(pendingDraft?.milestones ?? []).length} you have. Only the wording changes. Anything you reached stays reached, links stay put and your checklists stay the same.`
         }
         confirmLabel="Redraft"
         busy={busy}
@@ -1199,10 +1343,11 @@ export default function Goals() {
         onConfirm={() => void confirmRedraft()}
       />
 
-      <ConfirmModal
+      <ConfirmDialog
         open={pendingDelete !== null}
+        danger
         title="Delete this goal?"
-        body="Its checkpoints go with it. Any tasks linked to it are kept — they lose the link, not the work."
+        body="Its checkpoints go too. Linked tasks stay."
         confirmLabel="Delete"
         busy={busy}
         onCancel={() => setPendingDelete(null)}

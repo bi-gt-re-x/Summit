@@ -94,13 +94,7 @@ def usage(username: Optional[str]):
     """{subject_id: how many of this user's tasks carry it}."""
     if not username:
         return {}
-    counts = {}
-    for task in db.tasks_for(username):
-        subject_id = task.get('subject')
-        if not subject_id:
-            continue
-        counts[subject_id] = counts.get(subject_id, 0) + 1
-    return counts
+    return db.subject_usage(username)
 
 
 def _custom_entry(row, used):
@@ -185,17 +179,17 @@ def create(body: NewSubject, username: str = Depends(current_username)):
         return fail('That name has no letters or numbers in it')
 
     if catalogue.get(subject_id):
-        return fail('The catalogue already has that one')
+        return fail('The catalog already has that one')
 
     family = body.family
     if family is not None and family not in FAMILIES:
-        return fail('Unknown colour')
+        return fail('Unknown color')
 
     mine = db.rows_for('user_subjects', username)
     if any(r['subject_id'] == subject_id for r in mine):
         return fail('You already have a subject called that')
     if len([r for r in mine if r.get('custom')]) >= MAX_CUSTOM:
-        return fail('That is as many subjects as one account can add')
+        return fail("That's as many subjects as one account can add")
 
     added = db.insert_row('user_subjects', {
         'user_id': username,
@@ -215,7 +209,7 @@ def recolour(subject_id: str, body: Recolour,
 
     family = body.family
     if family is not None and family not in FAMILIES:
-        return fail('Unknown colour')
+        return fail('Unknown color')
 
     known = bool(catalogue.get(subject_id)) or subject_id in own_ids(username)
     if not known:
@@ -255,7 +249,7 @@ def remove(subject_id: str, username: str = Depends(current_username)):
     into the record of work already done.
     """
     if subject_id not in own_ids(username):
-        return fail('That is not one of yours to delete')
+        return fail("That's not one of yours to delete")
 
     db.delete_row('user_subjects', subject_id, user_id=username, key='subject_id')
     return ok(subject_id=subject_id)
@@ -377,7 +371,7 @@ def set_subject_milestones(body: SubjectMilestones,
     cleaned = _clean_milestones(body.milestones or [])
     if cleaned:
         if subject not in everything and len(everything) >= MILESTONE_SUBJECTS:
-            return fail('That is as many subjects as can carry checkpoints.')
+            return fail("That's the most subjects that can have checkpoints.")
         everything[subject] = cleaned
     else:
         everything.pop(subject, None)

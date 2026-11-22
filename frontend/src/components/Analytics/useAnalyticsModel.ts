@@ -11,7 +11,7 @@
  * drift apart the first time one of them is edited.
  *
  * It would also have broken the page. Before rendering a tab, the page has to
- * decide whether that tab has anything to say — the `Locked` gates and the
+ * decide whether that tab has anything to say — the `Building` gates and the
  * opening sentence both read figures belonging to the tab they are gating. A
  * memo that lives inside the tab is a memo the gate cannot see.
  *
@@ -51,12 +51,11 @@
  * recent window" below, which is the single most surprising thing in this file
  * and the comment to read before changing anything in it.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useSettings } from '@/hooks';
 import {
   consistency,
   sliceWindow,
-  pointLabel,
   spanLabel,
   windowOption,
   type Grain,
@@ -92,7 +91,10 @@ import {
   whatsWorking,
   whyFindings,
 } from '@/utils/insight';
+import { CHANGE_WINDOW, whatChanged } from '@/utils/changed';
+import { habitEffects } from '@/utils/habitEffects';
 import { goalActions, goalNotes, goalsOverview } from '@/utils/goalAnalytics';
+import { goalLimiters } from '@/utils/goalLimiter';
 import { goalHealth } from '@/utils/goalHealth';
 import {
   checkpointsByMonth,
@@ -102,6 +104,8 @@ import {
   paceMap,
   suggestGoals,
 } from '@/utils/goalSuggest';
+import { goalWork, linkCoverage } from '@/utils/goalWork';
+import { skillScores } from '@/utils/skillScore';
 import {
   qualityBands,
   qualityGrid,
@@ -112,16 +116,17 @@ import {
   summariseReasons,
 } from '@/utils/ratings';
 import { outlook, recommendations } from '@/utils/advice';
-import { PATTERN_DAYS, RECENT_DAYS, daysUntilNextWeek, recentWindow, weekStamp } from '@/utils/recent';
-import { dataMaturity } from '@/utils/dataMaturity';
+import { PATTERN_DAYS, RECENT_DAYS, daysUntilNextWeek, recentWindow } from '@/utils/recent';
+import { dataMaturity, realDaysTo } from '@/utils/dataMaturity';
 import { detailRules, toneRules } from '@/utils/analyticsPrefs';
 import { diagnose, vitals } from '@/utils/diagnosis';
 import { analyticalScore } from '@/utils/analyticalScore';
 import { discoverPatterns } from '@/utils/patterns';
-import { DEFAULT_BUDGET, buildPlan } from '@/utils/nextActions';
+import { NO_PLAN } from '@/services/next';
 import { reviewAdopted, summarise } from '@/utils/followup';
 import type { AnalyticsData } from './useAnalyticsData';
 import type { SubjectIndex } from '@/hooks/useSubjects';
+import { observations } from '@/utils/observations';
 import type { Task } from '@/types';
 import type { Prefs } from '@/services/settings';
 
@@ -129,32 +134,50 @@ import type { Prefs } from '@/services/settings';
 const RADAR_SUBJECTS = 6;
 
 /** See the note on `waitFor` below for why these are three numbers and not one. */
-export const NEED_DAYS = { habits: 21, insights: 28, recommendations: 14 };
+export const NEED_DAYS = { habits: 14, insights: 18, recommendations: 10 };
 
-export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
+/**
+ * What the model reads while the page is still waiting — the same empty list
+ * every time, so a memo keyed on it does not rerun between renders.
+ */
+const NOTHING: never[] = [];
+
+/**
+ * `hold` is true until every call the page waits for has answered.
+ *
+ * The page shows one spinner until then (pages/Analytics, `firstLoad`), but
+ * the model under it ran on every render regardless — and each of the nine
+ * calls landing is a render. So on an account of twenty thousand tasks the
+ * whole model, habit patterns and goal health and skill trajectories and all,
+ * was worked out five or six times over partial data that nobody was shown,
+ * and the reader waited for every pass. Held, the three roots everything else
+ * hangs off — the day series, the tasks and the goals — read as empty, every
+ * memo below runs over nothing in microseconds, and the real pass happens
+ * once, when the page is about to draw it.
+ */
+export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex, hold = false) {
   const { stats, tasks: taskCall, series, ratings, goals, adopted, gradedLog, scoreLog } = data;
 
   /* Opens on the account's chosen period. Not kept in step with it after
      that: the control on this page is the reader changing their mind for one
      visit, and writing that back would make every glance a preference.
 
-     `ready` is what makes "opens on" true. The preferences are read near the
-     root and arrive a moment after this page mounts, so the initial state
-     below is the built-in default rather than the account's answer as often as
-     not — the page opened on a year for somebody who had chosen thirty days.
-     Following the preference until the reader touches the control fixes that
-     without going back on the paragraph above. */
-  const { prefs, ready, update } = useSettings();
-  const [span, setSpan] = useState<WindowKey>(prefs.analytics_window);
-  const spanChosen = useRef(false);
-  useEffect(() => {
-    if (ready && !spanChosen.current) setSpan(prefs.analytics_window);
-  }, [prefs.analytics_window, ready]);
-
-  const chooseSpan = useCallback((next: WindowKey) => {
-    spanChosen.current = true;
-    setSpan(next);
-  }, []);
+     The preferences arrive a moment after this page mounts, so a copy taken
+     at mount is the built-in default rather than the account's answer as
+     often as not — the page once opened on a year for somebody who had chosen
+     thirty days. Following the preference until the reader touches the
+     control fixes that without going back on the paragraph above, and the
+     page holds the model until the preferences are in (see `hold`), so the
+     first pass is already over the right window. */
+  const { prefs, update } = useSettings();
+  /* The reader's own pick, once they have made one; the preference until then.
+     Read straight through rather than copied into state by an effect: the
+     copy landed one render *after* the preferences did, so on every visit the
+     whole model was worked out for the default window and then again for the
+     account's — on a large account, a second of arithmetic thrown away. */
+  const [chosen, setChosen] = useState<WindowKey | null>(null);
+  const span: WindowKey = chosen ?? prefs.analytics_window;
+  const chooseSpan = useCallback((next: WindowKey) => setChosen(next), []);
 
   /*
    * The four analytics preferences the page reads, resolved once.
@@ -169,7 +192,6 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
   const rules = useMemo(() => toneRules(tone), [tone]);
   const detail = useMemo(() => detailRules(prefs.analytics_detail), [prefs.analytics_detail]);
   const logStyle = prefs.analytics_log_style;
-  const showStanding = prefs.analytics_standing;
   // Productivity rather than total XP, and weekly rather than daily. The pair
   // is one decision: the chart opens on a rate, and a rate at daily grain over
   // a year is scatter. See METRICS in components/Analytics/data.
@@ -178,7 +200,10 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
   const [subject, setSubject] = useState('');
   const [category, setCategory] = useState('');
 
-  const all = useMemo(() => series.data?.growth_data ?? [], [series.data]);
+  const all = useMemo(
+    () => (hold ? NOTHING : series.data?.growth_data ?? NOTHING),
+    [hold, series.data],
+  );
   const slice = useMemo(() => sliceWindow(all, span), [all, span]);
   const option = windowOption(span);
   const spanText = spanLabel(slice.current);
@@ -186,7 +211,10 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
   /* The sixteen columns, not the whole row. Assignable to `Task`, which is why
      nothing downstream of here changed — see `AnalyticsTask` in
      services/analytics. */
-  const tasks: Task[] = useMemo(() => taskCall.data?.tasks ?? [], [taskCall.data]);
+  const tasks: Task[] = useMemo(
+    () => (hold ? NOTHING : taskCall.data?.tasks ?? NOTHING),
+    [hold, taskCall.data],
+  );
   const fromIso = slice.current[0]?.date ?? '';
   const toIso = slice.current[slice.current.length - 1]?.date ?? '';
   const wasFrom = slice.previous[0]?.date ?? '';
@@ -257,33 +285,26 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
    * hundred — so they cannot disagree. See utils/analyticalScore.
    */
   const analytical = useMemo(() => analyticalScore(ratings.data ?? null), [ratings.data]);
-  /**
-   * The score's line: its own recorded readings, and nothing else.
-   *
-   * This used to fall back to `scoreHistory` — a generated climb with the real
-   * score pinned on the last point — on the grounds that a panel titled "over
-   * time" with one point in it is worse than one with a shape. It is not. That
-   * curve was the last invented figure on the page, and it sat on the one tab
-   * that never wore a chip, which made it the least honest thing here rather
-   * than the most forgivable. An account with fewer than two readings gets no
-   * line and a sentence saying why; see `ScorePanel`.
-   */
+  /** The score's own recorded readings — what `scoreMovement` reads. */
   const recorded = scoreLog.data?.points ?? [];
-  const scoreLine = useMemo(() => recorded.map((point) => point.score / 10), [recorded]);
-  const scoreMarks = useMemo(
-    () => (recorded.length >= 2 ? ['First reading', '', '', 'Now'] : []),
-    [recorded],
-  );
-  /* When each reading was taken, for the chart's readout. `scoreMarks` cannot
-     serve: it is four labels for however many readings there are, two of them
-     deliberately blank. See `dates` on `ScorePanelProps`. */
-  const scoreDates = useMemo(() => recorded.map((point) => pointLabel(point.date)), [recorded]);
 
 
   const breakdown = useMemo(
     () => subjectXp(bySubject, subjects, fromIso, toIso, RADAR_SUBJECTS),
     [bySubject, fromIso, subjects, toIso],
   );
+
+  /*
+   * What can honestly be said about this reader as a tendency, strongest
+   * first — see the note at the top of utils/observations for the floors.
+   *
+   * Here rather than in the tabs that draw it, for the reason at the top of
+   * this file: four tabs want it now (Overview at its early stages, and the
+   * three gated ones, which show the strongest finding while they are still
+   * filling) and four call sites would be four chances to pass a different
+   * task list and print a different finding on each.
+   */
+  const observed = useMemo(() => observations(tasks), [tasks]);
 
   /** The same subjects over the period before, keyed for the per-row change. */
   const previousBySubject = useMemo(() => {
@@ -353,34 +374,14 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
    * moved. What to do this week has to come from the weeks either side of it.
    *
    * So Next Actions, the diagnosis, the patterns and the recommendations all
-   * read a fixed recent window from utils/recent — a fortnight for the things
+   * read a fixed recent window from utils/recent — two weeks for the things
    * that say what to do, a month for the things that claim a pattern, because
-   * splitting a fortnight in two leaves a week on each side and a week is not
+   * splitting two weeks in two leaves a week on each side and a week is not
    * enough to tell a real difference from a good Tuesday.
    */
   const recent = useMemo(() => recentWindow(all, RECENT_DAYS), [all]);
   const patternWindow = useMemo(() => recentWindow(all, PATTERN_DAYS), [all]);
 
-  /**
-   * The week this advice belongs to, and the button that re-reads it.
-   *
-   * `stamp` is the ISO week. Anything keyed on it holds still for seven days
-   * and then moves on its own — which is the point: advice that reshuffles on
-   * every page load cannot be acted on, because the thing you decided to do
-   * this morning is gone by lunchtime.
-   *
-   * `nudge` is what the plan's own refresh button bumps, and it exists for the
-   * half of the problem a re-fetch does not solve. Re-fetching brings in tasks
-   * finished since the page opened, and the memos below recompute on their own
-   * when it lands. But the plan also reads the *clock* — what is overdue, what
-   * is due today, whether anything is logged yet — and none of that changes
-   * just because the data did. Bumping the nudge is what re-asks the clock.
-   *
-   * Neither is a re-roll. Within one week the same record gives the same
-   * answer, because the answer is derived rather than shuffled.
-   */
-  const [nudge, setNudge] = useState(0);
-  const stamp = useMemo(() => weekStamp(new Date()), []);
   const weekLeft = useMemo(() => daysUntilNextWeek(new Date()), []);
 
   /* Tasks finished inside the recent window, and inside the pattern window.
@@ -404,7 +405,7 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
   );
 
   /* The same behavioural shapes the picker-scoped tabs read, taken over the
-     fortnight instead. Recommendations reads these; Habits and Insights keep
+     two weeks instead. Recommendations reads these; Habits and Insights keep
      the picker-scoped ones above, because those tabs report rather than
      advise. */
   const recentWeek = useMemo(() => weekShape(recent.current), [recent]);
@@ -429,7 +430,7 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
 
   // ---- Growth diagnosis ---------------------------------------------------
   /**
-   * The fortnight against the one before it, as tensions rather than scores.
+   * The two weeks against the one before it, as tensions rather than scores.
    *
    * Both halves read the same task list so every comparison is like against
    * like, and both recompute on their own when a re-read brings new tasks in —
@@ -438,14 +439,14 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
   const nowVitals = useMemo(() => vitals(recent.current, tasks), [recent, tasks]);
   const beforeVitals = useMemo(() => vitals(recent.previous, tasks), [recent, tasks]);
   const diagnoses = useMemo(
-    () => diagnose(nowVitals, beforeVitals),
-    [beforeVitals, nowVitals],
+    () => diagnose(nowVitals, beforeVitals, nameOf),
+    [beforeVitals, nameOf, nowVitals],
   );
 
   /* How many of them the tab actually draws. `diagnoses` stays whole because
      the export writes all of them — a downloaded report is read once, at
      leisure, and is the wrong place to be protecting somebody from the third
-     tension in their own fortnight. The screen is where the cap belongs. */
+     tension in their own two weeks. The screen is where the cap belongs. */
   const shownDiagnoses = useMemo(
     () => diagnoses.slice(0, rules.diagnoses),
     [diagnoses, rules.diagnoses],
@@ -462,23 +463,25 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
     [nameOf, patternFinished, patternWindow],
   );
 
-  // ---- What to do next ----------------------------------------------------
-  const [budget, setBudget] = useState<number>(DEFAULT_BUDGET);
-  const plan = useMemo(
-    () =>
-      buildPlan({
-        tasks,
-        goals: goals.data?.goals ?? [],
-        days: recent.current,
-        nameOf,
-        budget,
-        stamp,
-      }),
-    // `nudge` re-reads the plan against the clock: a task finished since the
-    // page opened should leave it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [budget, goals.data, nameOf, recent, stamp, tasks, nudge],
+  /* Declared here rather than down in the Goals block because `lens` below is
+     its first reader, and the plan under that reads the lens. */
+  const liveGoals = useMemo(
+    () => (hold ? NOTHING : goals.data?.goals ?? NOTHING),
+    [hold, goals.data],
   );
+
+  /**
+   * What to do next, and the goal lens it was ordered through.
+   *
+   * Both come from the server (backend/tracking/next_actions.py) — the same
+   * list the dashboard's top line reads — fetched in ./useAnalyticsData, which
+   * also holds the minute budget and the refresh that re-reads it against the
+   * clock. Within one week the same record gives the same answer: the server
+   * breaks ties on the ISO week, so advice does not reshuffle on every visit.
+   */
+  const plan = data.next.data?.plan ?? NO_PLAN;
+  const lens = data.next.data?.lens ?? null;
+  const { setBudget, nudge, setNudge } = data;
 
   // ---- Habits -------------------------------------------------------------
   const habits = useMemo(
@@ -498,6 +501,19 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
     [bySubject, fromIso, habits, toIso],
   );
   const shifts = useMemo(() => habitShifts(habits, toIso), [habits, toIso]);
+  /**
+   * What each habit is worth — the consequence line on its card.
+   *
+   * Separate from `buildHabits` so that building the habits stays a function of
+   * the task list alone: this needs the day series too, for the focus bands and
+   * for the days-with-against-days-without fallback. Keyed by the habit's
+   * bucketing key rather than merged onto the habit, so a surface that draws the
+   * cards without the consequence block does not pay for the comparison.
+   */
+  const effects = useMemo(
+    () => habitEffects({ habits, tasks, days: all, toIso }),
+    [all, habits, tasks, toIso],
+  );
   const summary = useMemo(() => habitSummary(habits, slice.current), [habits, slice]);
 
   // ---- Insights -----------------------------------------------------------
@@ -516,11 +532,92 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
     [balance, rhythm, slice, week],
   );
 
+  /**
+   * The last 7 days against the 7 before them, in XP, as a signed percentage.
+   *
+   * Read off `all` rather than the picker's window, and that is the one figure
+   * on the page which ignores it deliberately: "this week" is a fixed question
+   * with a fixed answer, and a reader who moves the window to a year does not
+   * mean to be told how this year compares with last year under a tile
+   * labelled `This week`. Every other comparison on the page follows the
+   * window; this one follows the calendar.
+   *
+   * Null when there is no complete previous week to compare with, which the
+   * tile draws as nothing rather than as a rise from zero.
+   */
+  const weekChange = useMemo(() => {
+    if (all.length < 14) return null;
+    const sum = (rows: typeof all) =>
+      rows.reduce((total, day) => total + (Number(day.xp_earned) || 0), 0);
+    const now = sum(all.slice(-7));
+    const was = sum(all.slice(-14, -7));
+    if (was <= 0) return null;
+    return ((now - was) / was) * 100;
+  }, [all]);
+
+  /**
+   * What changed lately — the Insights tab's opening claim, assembled.
+   *
+   * Reads the three finders rather than adding a fourth: `wins`, the whole
+   * `diagnoses` list and `discovered`. The uncapped diagnosis list is the right
+   * one here because `whatChanged` draws one card per kind per round and does
+   * its own ranking — handing it the tone-capped list would cap problems twice
+   * and let a gentle setting silence the lane rather than shorten it. The cap
+   * that matters is applied where the tab draws them.
+   *
+   * The pattern window, not the picker's, for the task half: the same reason
+   * `discovered` reads it — a split of tasks needs a stretch long enough to
+   * have two sides and short enough to still be about now.
+   */
+  /**
+   * The same subject figures `SubjectPanel` draws, as a movement per subject.
+   *
+   * Read from `breakdown` and `previousBySubject` rather than counted again:
+   * those two are already this window against the one before it, and a second
+   * count here would be a second answer to a question the panel further down
+   * the tab has already given.
+   */
+  const subjectMoves = useMemo(
+    () =>
+      breakdown.rows
+        .filter((row) => row.key !== 'other')
+        .map((row) => ({
+          key: row.key,
+          name: row.name ?? nameOf(row.key),
+          now: row.xp,
+          before: previousBySubject.get(row.key) ?? 0,
+        })),
+    [breakdown.rows, nameOf, previousBySubject],
+  );
+
+  const changes = useMemo(
+    () =>
+      whatChanged({
+        days: all,
+        finished: patternFinished,
+        wins,
+        diagnoses,
+        patterns: discovered,
+        subjects: subjectMoves,
+        nameOf,
+        /* Every task, not the finished half: the overdue card is about what is
+           still owed, which is the one thing in this section that cannot be
+           read from work that is already done. */
+        open: tasks,
+        todayIso: toIso,
+      }),
+    [
+      all, diagnoses, discovered, nameOf, patternFinished,
+      subjectMoves, tasks, toIso, wins,
+    ],
+  );
+
   // ---- Goals --------------------------------------------------------------
-  /* All four read the goals fetched for the Records tab, so this tab costs no
-     request of its own — the same rule the rest of the page follows. */
-  const liveGoals = useMemo(() => goals.data?.goals ?? [], [goals.data]);
-  const goalSet = useMemo(() => goalsOverview(liveGoals, tasks), [liveGoals, tasks]);
+  /* All of these read the goals fetched for the Records tab, so this tab costs
+     no request of its own — the same rule the rest of the page follows.
+     `liveGoals` itself is declared above, beside `lens`, which is its first
+     reader and runs before this block. */
+  const goalSet = useMemo(() => goalsOverview(liveGoals), [liveGoals]);
   const goalRows = useMemo(() => goalNotes(liveGoals, tasks), [liveGoals, tasks]);
   const goalIdeas = useMemo(
     () =>
@@ -570,6 +667,25 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
       .slice(0, 2);
   }, [liveGoals, tasks]);
 
+  /**
+   * What is most holding each goal up, and where to go about it.
+   *
+   * The one goal reading on this page that names a *subject* rather than a
+   * signal: `goalAdvice` above says the pace is short or the goal has gone
+   * quiet, and neither sentence can tell a reader which part of the work to
+   * open. Five tabs print this, at two sizes — see ./Limiter — and all five
+   * read the same array, so none of them can quietly disagree about which
+   * subject is the limiter.
+   *
+   * Empty on most accounts, and that is the design rather than a gap in it:
+   * utils/goalLimiter will not name a culprit off a pile too small to have
+   * one.
+   */
+  const goalLimits = useMemo(
+    () => goalLimiters(liveGoals, tasks, nameOf, (id) => subjects.get(id)?.group),
+    [liveGoals, nameOf, subjects, tasks],
+  );
+
   /** Subject ids some live goal names, for the line on the Subjects tab. */
   const goalSubjects = useMemo(
     () =>
@@ -589,11 +705,26 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
   /* The three charts. All arithmetic over `liveGoals` and `tasks`, both of
      which the page already had — no tab on this page fetches for itself. */
   const goalPace = useMemo(
-    () => paceMap(liveGoals, (goal) => goalHealth(goal, tasks).state),
+    () => paceMap(liveGoals, (goal) => goalHealth(goal).state),
     [liveGoals, tasks],
   );
   const goalEffort = useMemo(() => effortAgainstPriority(liveGoals, tasks), [liveGoals, tasks]);
   const goalCheckpoints = useMemo(() => checkpointsByMonth(liveGoals), [liveGoals]);
+
+  /* What was actually done toward each goal, and how the counting reached it.
+     Unwindowed, like the effort figures beside them: "what have I done toward
+     this" is a question about the goal's whole run, and a goal set eight
+     months ago would otherwise read as untouched every time the reader picked
+     the 30-day lens. */
+  const goalWorkRows = useMemo(() => goalWork(liveGoals, tasks), [liveGoals, tasks]);
+  const goalCoverage = useMemo(() => linkCoverage(tasks), [tasks]);
+
+  /* The skill model — see utils/skillScore. Over the whole record rather than
+     the chosen window, for the same reason the goal figures are: "how good am
+     I at this" is a question about everything the reader has done, and the
+     model already decays old work on its own rather than needing a window to
+     do it. Read by the Subjects tab's scored list and the Growth tab. */
+  const skills = useMemo(() => skillScores(tasks), [tasks]);
 
   /**
    * The dozen words at the head of the tab.
@@ -607,7 +738,7 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
     const leads = top !== undefined && breakdown.total > 0 && top.xp / breakdown.total >= 0.3;
     return goalHeadline({
       active: goalSet.active,
-      behind: goalSet.atRisk + goalSet.offTrack,
+      behind: goalSet.behind,
       completed: goalSet.completed,
       focusSubject: leads && top ? (top.name ?? top.label) : null,
       aimedShare: aimedShare ? aimedShare.share : null,
@@ -626,10 +757,10 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
   }, [breakdown, goalSubjects]);
 
   // ---- Recommendations ----------------------------------------------------
-  const advice = useMemo(
+  const habitAdvice = useMemo(
     () =>
       recommendations({
-        // The fortnight, not the picker — see "The recent window" above.
+        // The two weeks, not the picker — see "The recent window" above.
         days: recent.current,
         week: recentWeek,
         clock: recentClock,
@@ -659,12 +790,14 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
     ],
   );
 
+  const advice = habitAdvice;
+
   const banked = Number(all[all.length - 1]?.cumulative_xp) || 0;
-  /* The same fortnight the advice came from, not the picker's window. Both
+  /* The same two weeks the advice came from, not the picker's window. Both
      halves of this chart have to describe one stretch of time: the baseline is
      "XP a year at the pace you are going" and the gain is the impacts of the
      items below, each of which was already scaled to a year *from the
-     fortnight*. Feeding a 90-day baseline into a fortnight's gains draws a gap
+     two weeks*. Feeding a 90-day baseline into two weeks' gains draws a gap
      between two different accounts. */
   const projection = useMemo(
     () => outlook(recent.current, advice, banked),
@@ -713,7 +846,7 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
    * projecting from. Stated here rather than buried in each tab so the three
    * can be read against each other and raised together.
    *
-   * `recommendations` is 14 because that is the floor the rules themselves
+   * `recommendations` is 10 because that is the floor the rules themselves
    * apply — see the guard at the top of `recommendations` in utils/advice. The
    * number lives in both places on purpose: the rule enforces it, and this is
    * what the page counts down to, and a page counting to a different number
@@ -728,7 +861,11 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
    * telling somebody with four months of data that they need eleven more days
    * because they happened to be looking at a week.
    */
-  const maturity = useMemo(() => dataMaturity(all), [all]);
+  /* What the account said about itself at sign-up, and the head start its
+     detail earns. See utils/background and backend/tracking/background.py. */
+  const background = data.background.data ?? null;
+  const headStart = background?.detail.head_start ?? 0;
+  const maturity = useMemo(() => dataMaturity(all, headStart), [all, headStart]);
 
   /**
    * The figure every gate on this page reads.
@@ -745,19 +882,19 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
    * direction: the gates exist because a slope through four points is not a
    * trend, and four points do not become a trend by being spread over a month.
    */
-  const historyDays = maturity.activeDays;
+  const historyDays = maturity.activeDays + (maturity.credit ?? 0);
 
   /**
    * Days still needed for a tab, or 0 once the record is long enough.
    *
    * Days with work on them, now that `historyDays` counts those — which is why
-   * `Locked` no longer names the date a tab opens on. It cannot: the answer
+   * `Building` no longer names the date a tab opens on. It cannot: the answer
    * depends on how often the reader turns up, and a date computed as if every
    * day from here were a working one is a promise to break.
    */
   const waitFor = useCallback(
-    (key: keyof typeof NEED_DAYS) => Math.max(0, NEED_DAYS[key] - historyDays),
-    [historyDays],
+    (key: keyof typeof NEED_DAYS) => realDaysTo(NEED_DAYS[key], maturity.activeDays, headStart),
+    [headStart, maturity.activeDays],
   );
 
   /** The streak, which three of the chapters read and none of them fetch. */
@@ -769,12 +906,14 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
     toneRules: rules,
     detail,
     logStyle,
-    showStanding,
 
     // The gates
     historyDays,
     maturity,
     waitFor,
+    // What the account said about itself, and the days it counts for
+    background,
+    headStart,
     streak,
 
     // The window, and the controls that move it
@@ -804,6 +943,7 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
     nameOf,
 
     // Overview
+    observed,
     figures,
     sparks,
     insights,
@@ -816,9 +956,6 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
      *  a downloaded file full of dashes is worse than no file. */
     hasReportCard: ratings.data !== null,
     recorded,
-    scoreLine,
-    scoreDates,
-    scoreMarks,
     breakdown,
     previousBySubject,
 
@@ -852,6 +989,7 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
 
     // Habits
     habits,
+    effects,
     byDate,
     patterns,
     shifts,
@@ -861,6 +999,9 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
     why,
     how,
     wins,
+    weekChange,
+    changes,
+    changeWindow: CHANGE_WINDOW,
     links,
     state,
 
@@ -871,8 +1012,13 @@ export function useAnalyticsModel(data: AnalyticsData, subjects: SubjectIndex) {
     goalIdeas,
     aimedShare,
     goalAdvice,
+    goalLimits,
+    lens,
     goalPace,
     goalEffort,
+    goalWorkRows,
+    goalCoverage,
+    skills,
     goalCheckpoints,
     goalLead,
     namedSubjects,

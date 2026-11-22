@@ -30,10 +30,12 @@ import {
 /** The two series behind the Daily / Weekly tabs. */
 const SERIES = {
   Daily: {
+    axis: ['6', '4', '2', '0'],
     line: 'M0,120 C40,96 80,108 120,72 C160,40 200,84 240,64 C280,44 320,88 360,52 C400,28 440,60 480,34',
     x: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
   },
   Weekly: {
+    axis: ['36', '24', '12', '0'],
     line: 'M0,112 C60,104 120,82 180,86 C240,90 300,56 360,46 C420,38 450,28 480,20',
     x: ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7'],
   },
@@ -75,9 +77,9 @@ function FeaturedChart() {
     <div className="lp-card lp-perf-main">
       <div className="lp-card-top">
         <div>
-          <span className="lp-metric-label">Total Hours Worked</span>
+          <span className="lp-metric-label">Total hours worked</span>
           <strong className="lp-metric-num">
-            1,953<small> hrs</small>
+            312<small> hrs</small>
           </strong>
         </div>
         <div className="lp-tabs">
@@ -103,10 +105,9 @@ function FeaturedChart() {
 
       <div className="lp-chart">
         <div className="lp-chart-y">
-          <span>60</span>
-          <span>40</span>
-          <span>20</span>
-          <span>0</span>
+          {series.axis.map((tick) => (
+            <span key={tick}>{tick}</span>
+          ))}
         </div>
         <svg
           viewBox="0 0 480 160"
@@ -228,7 +229,7 @@ function Gauge() {
           </em>
         </div>
         <div>
-          <span className="lp-metric-label">Best Completion Rate</span>
+          <span className="lp-metric-label">Best completion rate</span>
           <span className="lp-metric-note">245 of 255 tasks on time</span>
         </div>
       </div>
@@ -242,8 +243,8 @@ function Gauge() {
           {LAST_GRADE}
         </span>
         <div>
-          <span className="lp-metric-label">Best Efficiency Ratio</span>
-          <span className="lp-metric-note">100% deadlines · avg 42 min/task</span>
+          <span className="lp-metric-label">Best efficiency</span>
+          <span className="lp-metric-note">Every deadline hit · 42 min per task</span>
         </div>
       </div>
     </>
@@ -257,11 +258,11 @@ export function Performance() {
       <div className="lp-perf-side">
         <div className="lp-card lp-metric">
           <div className="lp-card-top">
-            <span className="lp-metric-label">Daily Hours Logged</span>
+            <span className="lp-metric-label">Hours per day</span>
             <Trend value={11} suffix="%" />
           </div>
           <strong className="lp-metric-num">
-            8.4<small> hrs</small>
+            3.7<small> hrs</small>
           </strong>
           <svg viewBox="0 0 200 44" className="lp-spark">
             <polyline

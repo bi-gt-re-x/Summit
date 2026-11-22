@@ -368,12 +368,12 @@ export function SearchPanel({ onClose }: SearchPanelProps) {
       {!needle ? (
         <p className="sf-empty">
           Two things are searched: your <strong>tasks</strong>, and the{' '}
-          <strong>components</strong> this app is made of — every page, tab and
-          settings section. You are taken to the closest match as you type;{' '}
-          <span className="sf-key">›</span> walks the rest.
+          <strong>pages</strong> of the app, including every tab and settings section. You jump
+          to the closest match as you type. Press <span className="sf-key">›</span> for the
+          next one.
         </p>
       ) : all.length === 0 ? (
-        <p className="sf-empty">Nothing matches “{needle}”.</p>
+        <p className="sf-empty">Nothing matches "{needle}".</p>
       ) : (
         <>
           {/* Where you are, and the two controls that move it. `aria-live`
@@ -383,7 +383,7 @@ export function SearchPanel({ onClose }: SearchPanelProps) {
             <button
               type="button"
               className="sf-step"
-              aria-label="Previous match (Up or Left arrow)"
+              aria-label="Previous match (Up or Left)"
               disabled={all.length < 2}
               onClick={() => step(-1)}
             >
@@ -399,7 +399,7 @@ export function SearchPanel({ onClose }: SearchPanelProps) {
             <button
               type="button"
               className="sf-step is-next"
-              aria-label="Next match (Down or Right arrow)"
+              aria-label="Next match (Down or Right)"
               disabled={all.length < 2}
               onClick={() => step(1)}
             >

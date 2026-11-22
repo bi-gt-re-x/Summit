@@ -34,19 +34,24 @@
  *   rail's foot until the foot became the rank and the XP bar, and it belongs
  *   with the rest of the app's controls anyway.
  *   **The account menu** is now the only one: who is signed in, the level, the
- *   fifty pictures, and the way out. It inherited the avatar picker from the
- *   rail, whose account plate is gone — a picker with no way to open it is a
- *   deleted feature with extra steps.
+ *   title in front of the name, the fifty pictures, and the way out.
+ *
+ * The account button is the nametag — picture, then "<title> <name>" — and it
+ * is the same one the rail's foot wears (hooks/useNametag), so the two
+ * corners of the screen never disagree about who is signed in.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { NotificationPanel } from './Notifications';
+import { NametagText, TitleSelect } from './Nametag';
 import { SearchPanel } from './Search';
-import { useAuth, useNotifications, useSettings, useStats, useTheme } from '@/hooks';
+import { OPEN_SEARCH } from '@/utils/searchBus';
+import { useAuth, useNotifications, useSettings, useStats } from '@/hooks';
+import { earnedTitle } from '@/utils/easterEgg';
+import { useNametag } from '@/hooks/useNametag';
 import { AVATARS, avatarPath } from '@/services/avatars';
 import { auth } from '@/services';
 import { format } from '@/utils';
-import type { Theme } from '@/types';
 import '@/styles/topbar.css';
 
 const stroke = {
@@ -69,16 +74,64 @@ export function Topbar() {
      as two people on one screen. One name on the surface; the username is in
      the menu below, which is where "which account am I in" belongs. */
   const { displayName } = useSettings();
-  const { theme, setTheme } = useTheme();
+  /* The engine button. Locked for everyone until the account has earned the
+     admin title in the hidden chain, and then it's a way back into the
+     engine room. See `openEngine` below and frontend/secret/engine.js. */
+  const [title, setTitle] = useState(() => (username ? earnedTitle(username) : null));
+  const [nope, setNope] = useState(false);
+  useEffect(() => {
+    const read = () => setTitle(username ? earnedTitle(username) : null);
+    read();
+    window.addEventListener('storage', read);
+    window.addEventListener('focus', read);
+    return () => {
+      window.removeEventListener('storage', read);
+      window.removeEventListener('focus', read);
+    };
+  }, [username]);
+  const openEngine = useCallback(() => {
+    if (!title || !username) {
+      setNope(true);
+      window.setTimeout(() => setNope(false), 450);
+      return;
+    }
+    try {
+      sessionStorage.setItem('summit:engine-pass', username);
+    } catch {
+      /* no session storage: the engine falls back to today's unlock */
+    }
+    window.location.assign('/engine');
+  }, [title, username]);
+
   // Shared with the rail, which shows the same level under the avatar. Six
   // integers, read once for the session — this used to be the account's whole
   // task list, twice, because the bar and the rail each asked for it.
   const { stats } = useStats();
 
   const level = stats ? format.levelForTotalXp(stats.xp) : null;
+  const tag = useNametag();
 
   const [open, setOpen] = useState<'search' | 'alerts' | 'account' | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
+
+  /* The rail's search box and ⌘K (Ctrl+K off a Mac) open the same panel as
+     the magnifier here. The rail is a sibling rather than a child, so it asks
+     by event — see OPEN_SEARCH in components/Rail. */
+  useEffect(() => {
+    const openSearch = () => setOpen('search');
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setOpen((was) => (was === 'search' ? null : 'search'));
+      }
+    };
+    window.addEventListener(OPEN_SEARCH, openSearch);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener(OPEN_SEARCH, openSearch);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, []);
 
   // A click anywhere else closes whatever is open. One listener for all three
   // panels, because only one is ever open at a time.
@@ -221,28 +274,26 @@ export function Topbar() {
           )}
         </div>
 
-        {/* ---- Dark mode ---- */}
-        {/* The only control here that opens nothing, so it is the only one that
-            does not sit in a `topbar-slot` — there is no panel to anchor. The
-            icon shows the theme you would be switching to, which is the one
-            question a reader has when they look at it. */}
+        {/* ---- The engine ---- */}
+        {/* A padlock for everyone, until the admin title is earned in the
+            hidden chain. Then it opens the engine room. Light and dark live in
+            Settings now. */}
         <button
           type="button"
-          className={`topbar-btn topbar-theme${theme === 'dark' ? ' is-dark' : ''}`}
-          role="switch"
-          aria-checked={theme === 'dark'}
-          aria-label="Dark mode"
-          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-          onClick={() => setTheme((theme === 'dark' ? 'light' : 'dark') as Theme)}
+          className={`topbar-btn topbar-engine${title ? ' is-open' : ' is-locked'}${nope ? ' is-nope' : ''}`}
+          aria-label={title ? 'Open the engine' : 'Locked'}
+          title={title ? 'Engine' : 'Locked'}
+          onClick={openEngine}
         >
-          {theme === 'dark' ? (
+          {title ? (
             <svg {...stroke}>
-              <circle cx="12" cy="12" r="4.2" />
-              <path d="M12 2v2.4M12 19.6V22M4.2 4.2l1.7 1.7M18.1 18.1l1.7 1.7M2 12h2.4M19.6 12H22M4.2 19.8l1.7-1.7M18.1 5.9l1.7-1.7" />
+              <circle cx="12" cy="12" r="3" />
+              <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1" />
             </svg>
           ) : (
             <svg {...stroke}>
-              <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+              <rect x="5" y="11" width="14" height="10" rx="2" />
+              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
             </svg>
           )}
         </button>
@@ -257,7 +308,7 @@ export function Topbar() {
             onClick={() => toggle('account')}
           >
             <img className="topbar-avatar" src={avatar} alt="" width={34} height={34} />
-            <span className="topbar-name">{displayName || username}</span>
+            <NametagText className="topbar-name" title={tag.title} name={tag.name} />
             <svg className="topbar-caret" {...stroke} strokeWidth={2.2}>
               <path d="m6 9 6 6 6-6" />
             </svg>
@@ -266,7 +317,9 @@ export function Topbar() {
           {open === 'account' && (
             <div className="topbar-panel topbar-account-menu" role="menu">
               <div className="topbar-account-head">
-                <strong>{displayName || username}</strong>
+                <strong>
+                  <NametagText title={tag.title} name={tag.name} />
+                </strong>
                 {/* The username, where it is an answer rather than a label:
                     the menu is where somebody checks which account they are
                     signed in to. Only shown when it differs from the name
@@ -279,6 +332,7 @@ export function Topbar() {
                   </span>
                 )}
               </div>
+              {tag.title && <TitleSelect tag={tag} className="topbar-title-pick" />}
               {/* All fifty in one scrolling line, as they were in the rail.
                   A wrapping grid would be ten rows deep and turn a menu into a
                   page; the row is the shape that fits a menu. */}
@@ -315,7 +369,7 @@ export function Topbar() {
                 Settings
               </Link>
               <button type="button" className="topbar-signout" onClick={() => void signOut()}>
-                Log Out
+                Log out
               </button>
             </div>
           )}

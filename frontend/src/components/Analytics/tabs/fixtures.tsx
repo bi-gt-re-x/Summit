@@ -9,11 +9,13 @@
  * Not a `.test.` file: it holds no cases, and naming it one would have vitest
  * collect it and report a file with nothing in it.
  */
+import { skillScores } from '@/utils/skillScore';
 import { render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi } from 'vitest';
 import type { ReactElement } from 'react';
 import { NEED_DAYS } from '../useAnalyticsModel';
+import { dataMaturity } from '@/utils/dataMaturity';
 import { consistency } from '../data';
 import { TONE_RULES } from '@/utils/analyticsPrefs';
 import { balanceShape, clockShape, rhythmShape, weekShape } from '@/utils/behaviour';
@@ -21,9 +23,12 @@ import { habitSummary } from '@/utils/habits';
 import { currentState } from '@/utils/insight';
 import { summariseRatings, summariseReasons } from '@/utils/ratings';
 import { summaryFigures } from '@/utils/growthSummary';
+import { analyticalScore } from '@/utils/analyticalScore';
+import { CHANGE_WINDOW } from '@/utils/changed';
 import { DETAIL_RULES } from '@/utils/analyticsPrefs';
 import { goalsOverview } from '@/utils/goalAnalytics';
 import { checkpointsByMonth, effortAgainstPriority, paceMap } from '@/utils/goalSuggest';
+import { goalWork, linkCoverage } from '@/utils/goalWork';
 import type { AnalyticsData } from '../useAnalyticsData';
 import type { AnalyticsModel } from '../useAnalyticsModel';
 
@@ -59,6 +64,15 @@ export function fakeModel(over: Partial<AnalyticsModel> = {}): AnalyticsModel {
     historyDays,
     waitFor: (key: keyof typeof NEED_DAYS) => Math.max(0, NEED_DAYS[key] - historyDays),
     streak: 0,
+    /* Derived from `historyDays` exactly as the real model derives it, so a
+       test that sets one gets a consistent answer from both — the same rule
+       `waitFor` above follows. `spanDays` equal to the active count is the
+       honest default here: these fixtures carry no day series, so there are no
+       unworked days to claim. */
+    maturity: dataMaturity([]),
+    /* No tasks in the fixture, so there is nothing to observe. A test that
+       wants a finding on a building tab passes one in. */
+    observed: [],
     all: [],
     tasks: [],
     slice: { current: [], previous: [] },
@@ -94,11 +108,19 @@ export function fakeModel(over: Partial<AnalyticsModel> = {}): AnalyticsModel {
     // `EMPTY` gives: a hand-written object falls out of step with the type the
     // moment a field is added to it.
     liveGoals: [],
-    goalSet: goalsOverview([], []),
+    goalSet: goalsOverview([]),
     goalPace: paceMap([], () => 'on-track'),
     goalEffort: effortAgainstPriority([], []),
     goalCheckpoints: checkpointsByMonth([]),
+    goalWorkRows: goalWork([], []),
+    goalCoverage: linkCoverage([]),
+    // The skill model, from the real constructor over an empty record — the
+    // same rule the goal fields above follow.
+    skills: skillScores([]),
     goalRows: [],
+    /* No goals and no tasks, so no goal has a shortfall to attribute. A test
+       that wants a limiter on a tab passes one in. */
+    goalLimits: [],
     goalIdeas: [],
     goalLead: 'No goals yet.',
     // Subjects
@@ -114,6 +136,19 @@ export function fakeModel(over: Partial<AnalyticsModel> = {}): AnalyticsModel {
     /* The figures every tab now reaches into for hours logged. From the real
        builder over an empty slice, for the reason `EMPTY` gives. */
     figures: summaryFigures({ current: [], previous: [] }),
+    /* The Insights opening. `analyticalScore(null)` is what an account with no
+       report card gets — the honest empty value, and the one that makes the
+       meters draw nothing rather than four zeros. A test that wants the meters
+       passes a card in; see ./insightsStory.test.tsx. */
+    analytical: analyticalScore(null),
+    weekChange: null,
+    changes: [],
+    changeWindow: CHANGE_WINDOW,
+    /* The Insights subject section and the Habits consequence block. Empty is
+       the honest default for both: no tasks in the fixture means no subject is
+       scored and no habit has a comparison behind it. */
+    focus: [],
+    effects: new Map(),
   };
   return { ...base, ...over } as unknown as AnalyticsModel;
 }
@@ -132,6 +167,9 @@ export function fakeData(): AnalyticsData {
     tasks: { data: null, loading: false },
     baseline: { data: null, loading: false },
     standing: { data: null, loading: false },
+    background: { data: null, loading: false },
+    said: { data: null, loading: false, reload: () => undefined },
+    mood: { data: null, loading: false, reload: () => undefined },
     adopt: vi.fn(),
     adopting: null,
     justAdopted: null,
@@ -145,4 +183,54 @@ export const subjects = new Map();
 
 export function draw(ui: ReactElement) {
   return render(<MemoryRouter>{ui}</MemoryRouter>);
+}
+
+/**
+ * A mature account: past every gate, with quality, tallies and extras on.
+ *
+ * `maturity.stage` is 'full' so OverviewTab takes its long branch rather than
+ * the Collecting one. Everything the Overview is worth testing lives on that
+ * branch — the panel groups, and the goal line under them — and the default
+ * `fakeModel` above is an account on its first week, which takes the other.
+ *
+ * Here rather than in one of the suites for the reason this whole file exists:
+ * it was local to ./groups.test.tsx until ./limiter.test.tsx needed the same
+ * mature account, and two copies of a thirty-line fixture drift the first time
+ * one of them is edited.
+ */
+export function matureOverview() {
+  return fakeModel({
+    historyDays: 400,
+    maturity: {
+      stage: 'full',
+      activeDays: 120,
+      spanDays: 400,
+      next: null,
+      toNext: null,
+      progress: 1,
+      lastActive: '2026-08-01',
+      /* Current, so the away notice stays off this fixture — it is about the
+         panel groups, not about somebody who stopped. */
+      quietDays: 0,
+    },
+    detail: { quality: true, tallies: true, extras: true, rows: 12 },
+    logStyle: 'tasks',
+    /* From the real builder over an empty slice, for the reason ./fixtures
+       gives: `Tiles` reads eight fields off this and a hand-written three
+       fails on the fourth. */
+    figures: summaryFigures({ current: [], previous: [] }),
+    rhythmRate: { rate: 0.5, previousRate: 0.4, bestMonth: null },
+    card: { value: 8, factors: [] },
+    score: 8,
+    heatRows: [],
+    sparks: { xp: [], tasks: [], focusHours: [], consistency: [], quality: [] },
+    ratingRows: [],
+    ratingBands: [],
+    ratingGrid: [],
+    compareLabel: 'the 90 days before',
+    previousSpanText: 'the 90 days before',
+    grain: 'weekly',
+    metric: 'tasks',
+    fromIso: '2026-05-01',
+  });
 }

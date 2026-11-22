@@ -1,5 +1,8 @@
 /**
- * Studying — a branch of Productivity.
+ * Studying, a branch of School & College.
+ *
+ * It sat under Productivity until 2026-10-11. Studying is the heart of being a
+ * student, so it moved to the Studying group's own root.
  *
  * Every node here has evidence behind it, and the tree is arranged to put the
  * techniques that work above the ones that feel productive. Rereading and
@@ -13,7 +16,7 @@ export const STUDY: SubjectTree = {
   id: 'study',
   title: 'Studying',
   blurb: 'Learning things deliberately, and still having them next year.',
-  parent: 'productivity',
+  parent: 'school',
   nodes: [
     { id: 'sy.plan', name: 'Planning Study', icon: 'study-plan', tier: 'foundation', core: true, state: open, percent: 20, xp: 1400,
       desc: 'Deciding what to study when, against the date it is needed. Working through material in the order it appears in a book is a plan by default rather than a decision.' },
@@ -29,15 +32,15 @@ export const STUDY: SubjectTree = {
       desc: 'Mixing problem types instead of doing thirty of one kind. Performance in the session gets worse and retention afterwards gets better, which is why almost nobody does it voluntarily.' },
     { id: 'sy.explain', name: 'Explaining It', icon: 'explain', tier: 'beginner', requires: ['sy.retrieval'], state: lock, percent: 0, xp: 1700,
       desc: 'Teaching the material to somebody, or to an empty room. The point where the explanation stalls is precisely the gap that rereading would have hidden.' },
-    { id: 'sy.understand', name: 'Understanding vs Memorising', icon: 'understanding', tier: 'intermediate', requires: ['sy.explain'], state: lock, percent: 0, xp: 1800,
-      desc: 'Knowing why something follows, so it can be reconstructed rather than recalled. Some things genuinely must be memorised, and knowing which is a decision worth making explicitly.' },
+    { id: 'sy.understand', name: 'Understanding vs Memorizing', icon: 'understanding', tier: 'intermediate', requires: ['sy.explain'], state: lock, percent: 0, xp: 1800,
+      desc: 'Knowing why something follows, so it can be reconstructed rather than recalled. Some things just have to be memorized, and knowing which is a decision worth making explicitly.' },
     { id: 'sy.problems', name: 'Practice Problems', icon: 'problem-set', tier: 'intermediate', requires: ['sy.interleave'], state: lock, percent: 0, xp: 1900,
       desc: 'Working problems without the solution visible, then checking. Reading a worked solution and nodding is the most reliable way to be surprised in an exam.' },
     { id: 'sy.mistakes', name: 'Learning from Mistakes', icon: 'error-log', tier: 'intermediate', core: true, requires: ['sy.problems'], state: lock, percent: 0, xp: 1900,
       desc: 'A record of what you got wrong and why, revisited. Most people mark, feel bad and move on, which throws away the most information-dense part of the session.' },
     { id: 'sy.memory', name: 'Memory Techniques', icon: 'mnemonic', tier: 'intermediate', requires: ['sy.understand'], state: lock, percent: 0, xp: 1800,
       desc: 'Mnemonics, stories and places for material that is arbitrary. Enormously effective on lists and sequences, and no substitute for understanding anything with a structure.' },
-    { id: 'sy.summarise', name: 'Summarising & Mapping', icon: 'concept-map', tier: 'intermediate', requires: ['sy.notes'], state: lock, percent: 0, xp: 1700,
+    { id: 'sy.summarise', name: 'Summarizing & Mapping', icon: 'concept-map', tier: 'intermediate', requires: ['sy.notes'], state: lock, percent: 0, xp: 1700,
       desc: 'Compressing a topic onto one page and drawing what connects to what. The compression is where the learning happens; the page afterwards is mostly a souvenir.' },
     { id: 'sy.deep', name: 'Deep Study Sessions', icon: 'deep-work', tier: 'advanced', requires: ['sy.mistakes'], state: lock, percent: 0, xp: 2000,
       desc: 'Long uninterrupted blocks on difficult material, which is what hard subjects require. Two focused hours outperform six with a phone on the desk, and it is not close.' },
@@ -50,10 +53,14 @@ export const STUDY: SubjectTree = {
     { id: 'sy.exam', name: 'Exam Technique', icon: 'exam', tier: 'advanced', core: true, requires: ['sy.revision'], state: lock, percent: 0, xp: 2100,
       desc: 'Reading the question, allocating time by marks, and writing what is being asked for. A large fraction of lost marks are technique rather than knowledge.' },
     { id: 'sy.nerves', name: 'Exam Nerves', icon: 'calm', tier: 'expert', requires: ['sy.exam'], state: lock, percent: 0, xp: 2100,
-      desc: 'Practising under timed conditions so the state is familiar, and having a plan for going blank. Preparation reduces anxiety far more effectively than reassurance does.' },
+      desc: 'Practicing under timed conditions so the state is familiar, and having a plan for going blank. Preparation reduces anxiety far more effectively than reassurance does.' },
     { id: 'sy.longterm', name: 'Keeping What You Learned', icon: 'retain', tier: 'expert', requires: ['sy.nerves', 'sy.memory'], state: lock, percent: 0, xp: 2300,
       desc: 'Occasional review after the exam, which is what separates a subject you studied from one you know. Almost all of it goes within months otherwise, whatever the grade said.' },
     { id: 'sy.self', name: 'Teaching Yourself', icon: 'autodidact', tier: 'mastery', requires: ['sy.longterm', 'sy.group'], state: lock, percent: 0, xp: 2800,
       desc: 'Learning something with no course, no deadline and nobody checking. It needs every skill in this tree at once, and it is the one that keeps working for the rest of your life.' },
+    { id: 'sy.notesx', name: 'Note-Taking (Full Course)', icon: 'notes', tier: 'beginner', requires: ['sy.notes'], navTo: 'note-taking', state: lock,
+      desc: 'Its own tree: Cornell notes, outlines, mind maps and turning notes into study sheets.' },
+    { id: 'sy.ai', name: 'AI Tools', icon: 'spark', tier: 'beginner', requires: ['sy.explain'], navTo: 'ai-tools', state: lock,
+      desc: 'Its own tree: using AI to explain, quiz and give feedback while keeping your work your own.' },
   ],
 };

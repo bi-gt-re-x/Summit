@@ -12,10 +12,10 @@
  * the accent cannot write back a stale copy of every other preference.
  */
 import { get, post } from './api';
-import type { ApiResult } from '@/types';
+import type { ApiResult, UserStats, VacationWindow } from '@/types';
 
 export type ThemeMode = 'system' | 'light' | 'dark';
-export type Accent = 'violet' | 'blue' | 'green' | 'amber' | 'rose' | 'slate';
+export type Accent = 'graphite' | 'violet' | 'blue' | 'green' | 'amber' | 'rose' | 'slate';
 /**
  * A whole built palette, or '' for plain light and dark.
  *
@@ -51,14 +51,7 @@ export type AnalyticsWindow = '7d' | '30d' | '90d' | '1y' | '2y' | 'all';
  * dependency the wrong way round. The page assigns one to the other, so a key
  * added on one side and not the other fails to compile.
  */
-export type AnalyticsHomeTab =
-  | 'recommendations'
-  | 'overview'
-  | 'goals'
-  | 'habits'
-  | 'insights'
-  | 'subjects'
-  | 'growth';
+export type AnalyticsHomeTab = 'recommendations' | 'overview' | 'insights' | 'subjects' | 'growth';
 export type LogStyle = 'tasks' | 'sessions' | 'both';
 export type AnalyticsTone = 'gentle' | 'balanced' | 'harsh';
 export type AnalyticsDetail = 'essentials' | 'standard' | 'everything';
@@ -107,6 +100,8 @@ export interface Prefs {
   show_quote: boolean;
   default_priority: Priority;
   default_xp: number;
+  /** How hard a new task starts out, 1-7 (utils/priority). Sets its XP. */
+  default_level: number;
   rating_depth: RatingDepth;
   confirm_delete: boolean;
   task_status: TaskStatus;
@@ -141,13 +136,33 @@ export interface Prefs {
    * defines the stretch of days it asks about.
    */
   catchup_seen_on: string;
+  /**
+   * Getting started — see utils/starter. Whether the tour has been shown,
+   * whether the starter days were ended early, and which advanced pages have
+   * been opened past their note.
+   */
+  welcome_seen: boolean;
+  starter_done: boolean;
+  features_open: string[];
+  /** Mango: resting on the dashboard, page guides, how lively, guides seen. */
+  mango_rest: boolean;
+  mango_tours: boolean;
+  mango_energy: 'calm' | 'lively' | 'still';
+  tours_seen: string[];
   analytics_window: AnalyticsWindow;
   analytics_setup_done: boolean;
+  /**
+   * The highest stage this account has been shown the overlay for.
+   *
+   * Only the announcement's memory — the stage itself is worked out from the
+   * record by utils/dataMaturity on every render. Empty until the first one
+   * fires. See `analytics_stage_seen` in backend/api/settings.py.
+   */
+  analytics_stage_seen: string;
   analytics_home_tab: AnalyticsHomeTab;
   analytics_log_style: LogStyle;
   analytics_tone: AnalyticsTone;
   analytics_detail: AnalyticsDetail;
-  analytics_standing: boolean;
   /**
    * The subjects the account said it most wants to work on, by id — at most
    * `SUBJECTS_MAX` of them (utils/analyticsPrefs), in the order picked.
@@ -213,7 +228,7 @@ export interface Prefs {
    * Every one of them is read by the server's sweep rather than by the panel:
    * a channel that is off is not swept at all, so turning it off stops rows
    * being written instead of hiding rows that were written anyway. Turning it
-   * back on therefore starts from what is true then, not from a fortnight of
+   * back on therefore starts from what is true then, not from two weeks of
    * backlog. See backend/tracking/notify.py.
    */
   notifications_enabled: boolean;
@@ -238,6 +253,12 @@ export interface Settings extends Prefs {
   level: number;
   xp: number;
   avatar: string;
+  /**
+   * Vacation mode. A state of the streak, kept on the user row and changed
+   * through `planVacation` / `endVacation` below rather than `saveSettings`.
+   */
+  streak_vacation?: VacationWindow | null;
+  vacation_max_days?: number;
 }
 
 /** What a save may carry. Anything left out is left alone. */
@@ -266,6 +287,7 @@ export const DEFAULTS: Prefs = {
   show_quote: true,
   default_priority: 'medium',
   default_xp: 30,
+  default_level: 3,
   rating_depth: 'ratings',
   confirm_delete: true,
   task_status: 'open',
@@ -283,16 +305,26 @@ export const DEFAULTS: Prefs = {
      a week of unlogged days, it is one the prompt has never met. The first
      visit records the day and asks nothing. */
   catchup_seen_on: '',
+  /* False and empty are the brand-new account. An account made before the
+     starter existed is let through by its sign-up date, not by these — see
+     `STARTER_SINCE` in utils/starter. */
+  welcome_seen: false,
+  starter_done: false,
+  features_open: [],
+  mango_rest: true,
+  mango_tours: true,
+  mango_energy: 'calm',
+  tours_seen: [],
   analytics_window: '1y',
   /* False is the first-run state, and it is what puts the question phase in
      front of the page. An account that already set a baseline is treated as
      having answered — see `firstRun` in pages/Analytics. */
   analytics_setup_done: false,
+  analytics_stage_seen: '',
   analytics_home_tab: 'overview',
   analytics_log_style: 'both',
   analytics_tone: 'balanced',
   analytics_detail: 'standard',
-  analytics_standing: true,
   analytics_subjects: [],
   analytics_subject_depth: {},
   analytics_ambitions: {},
@@ -361,6 +393,20 @@ export function resetData(
   confirm?: string,
 ): Promise<ApiResult<ResetResult>> {
   return post<ResetResult>('/api/settings/reset', { scope, confirm });
+}
+
+/**
+ * Pause the streak from today through `until` (an ISO day, included), or move
+ * the end of the vacation already running. The reply is the account's stats,
+ * so the caller redraws from what the server decided.
+ */
+export function planVacation(until: string): Promise<ApiResult<{ stats: UserStats }>> {
+  return post<{ stats: UserStats }>('/api/streak/vacation', { until });
+}
+
+/** Back early. Days already taken stay covered; today counts again. */
+export function endVacation(): Promise<ApiResult<{ stats: UserStats }>> {
+  return post<{ stats: UserStats }>('/api/streak/vacation/end', {});
 }
 
 /** Where the browser should be pointed to download an export. */

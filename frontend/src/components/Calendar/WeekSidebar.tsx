@@ -38,6 +38,7 @@ import type { DayLoad } from '@/utils/calendarBusy';
 import { fmtHM } from '@/hooks/useFocusSession';
 import { useCountUp } from '@/hooks/useCountUp';
 import { OTHER_KEY, type SubjectXp } from '@/utils/subjectXp';
+import { Icon, type IconName } from '@/components/Icon';
 
 export interface WeekStats {
   total: number;
@@ -84,7 +85,7 @@ export interface PriorityRow {
 
 export interface UpcomingEntry {
   id: string;
-  icon: string;
+  icon: IconName;
   title: string;
   /** "Aug 4, 2026" */
   date: string;
@@ -174,7 +175,7 @@ function SubjectBreakdown({ breakdown }: { breakdown: SubjectXp }) {
 
   return (
     <section className="wk-panel">
-      <h3 className="wk-panel-title">XP by Subject</h3>
+      <h3 className="wk-panel-title">XP by subject</h3>
       {total === 0 ? (
         <p className="wk-empty">No XP earned this week yet.</p>
       ) : (
@@ -245,7 +246,7 @@ function PriorityChart({ priorities }: { priorities: PriorityRow[] }) {
 
   return (
     <section className="wk-panel">
-      <h3 className="wk-panel-title">Tasks by Priority</h3>
+      <h3 className="wk-panel-title">Tasks by priority</h3>
       {total === 0 ? (
         <p className="wk-empty">Nothing scheduled this week.</p>
       ) : (
@@ -308,7 +309,7 @@ function WeekFocusCard({
 
   return (
     <section className="wk-panel">
-      <h3 className="wk-panel-title">⏱️ Weekly Focus Time</h3>
+      <h3 className="wk-panel-title"><Icon name="timer" /> Weekly focus time</h3>
       <p className="wk-focustime">
         {fmtHM(focus.focused)} <span className="wk-focustime-of">/ {fmtHM(focus.planned)}</span>
       </p>
@@ -323,7 +324,7 @@ function WeekFocusCard({
           aria-label="Weekly focus goal progress"
         />
       </div>
-      <p className="wk-focustime-sub">{percent}% Goal Progress</p>
+      <p className="wk-focustime-sub">{percent}% of goal</p>
 
       {anyFocus && (
         <>
@@ -368,7 +369,7 @@ function WeekFocusCard({
       )}
 
       <button type="button" className="wk-panel-link" onClick={onViewAnalytics}>
-        View Analytics<span aria-hidden="true"> →</span>
+        Open Analytics<span aria-hidden="true"> →</span>
       </button>
     </section>
   );
@@ -478,7 +479,7 @@ export function WeekSidebar({
           <path d="M8 4h3.5v16H8z" />
           <path d="m14.2 5.1 2.6-.7a1.5 1.5 0 0 1 1.8 1l3 11a1.5 1.5 0 0 1-1 1.9l-2.6.7Z" />
         </svg>
-        <span>Subject Library</span>
+        <span>Subjects</span>
       </button>
 
       {/* --- The month, with this week on it -------------------------------
@@ -540,7 +541,7 @@ export function WeekSidebar({
             <p className="wk-weekly-said">
               {total === 0
                 ? 'Nothing scheduled this week yet.'
-                : `${done} of ${total} finished, ${xp.toLocaleString()} XP banked.`}
+                : `${done} of ${total} finished, ${xp.toLocaleString()} XP earned.`}
             </p>
           </div>
         }
@@ -583,11 +584,11 @@ export function WeekSidebar({
 
       {/* --- Streaks ------------------------------------------------------- */}
       <section className="wk-panel">
-        <h3 className="wk-panel-title">🔥 Streaks</h3>
+        <h3 className="wk-panel-title"><Icon name="flame" /> Streaks</h3>
         <div className="wk-streak-num">
-          🔥 {streak} Day {streak === 1 ? 'Streak' : 'Streak'}
+          <Icon name="flame" /> {streak}-day streak
         </div>
-        <div className="wk-streak-sub">Keep it up!</div>
+        <div className="wk-streak-sub">One task a day keeps it going.</div>
         <div className="wk-dots">
           {days.map((day, index) => (
             <span key={index} className="wk-dot-cell">
@@ -618,7 +619,7 @@ export function WeekSidebar({
             {upcoming.map((entry) => (
               <li key={entry.id}>
                 <span className="wk-upcoming-ico" aria-hidden="true">
-                  {entry.icon}
+                  <Icon name={entry.icon} />
                 </span>
                 <span className="wk-upcoming-body">
                   <span className="wk-upcoming-name">{entry.title}</span>
@@ -643,7 +644,7 @@ export function WeekSidebar({
           this column has to offer and so belongs at the end of it, after every
           panel that is about the week itself. */}
       <button type="button" className="wk-fullcal" onClick={onViewMonth}>
-        View Full Calendar<span aria-hidden="true"> →</span>
+        View full calendar<span aria-hidden="true"> →</span>
       </button>
     </aside>
   );

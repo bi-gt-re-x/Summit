@@ -35,7 +35,7 @@ export const LIFE: SubjectTree = {
     { id: 'lf.admin', name: 'Admin', icon: 'admin', tier: 'intermediate', core: true, requires: ['lf.money'], state: lock, percent: 0, xp: 1600,
       desc: 'Renewals, appointments, forms and the documents you need once a year. A single folder and a calendar reminder converts a recurring panic into a ten-minute task.' },
     { id: 'lf.repair', name: 'Repairs & Maintenance', icon: 'repair', tier: 'intermediate', requires: ['lf.admin'], state: lock, percent: 0, xp: 1700,
-      desc: 'Basic fixes, and knowing which jobs need somebody qualified — anything gas, structural or on a consumer unit does. Small maintenance done on time is the cheapest money in a home.' },
+      desc: 'Basic fixes, and knowing which jobs need somebody qualified. Anything gas, structural or on a consumer unit does. Small maintenance done on time is the cheapest money in a home.' },
     { id: 'lf.safety', name: 'Home Safety', icon: 'safety', tier: 'intermediate', requires: ['lf.repair'], state: lock, percent: 0, xp: 1600,
       desc: 'Alarms tested, a first aid kit, and knowing where the stopcock and the fuse box are. Ten minutes of preparation that is worth an enormous amount on one unlikely day.' },
     { id: 'lf.plants', name: 'Plants & Garden', icon: 'garden', tier: 'intermediate', requires: ['lf.clean'], state: lock, percent: 0, xp: 1500,
@@ -56,5 +56,9 @@ export const LIFE: SubjectTree = {
       desc: 'A subject of its own: feeding yourself well, most days, without it taking an evening.' },
     { id: 'lf.travel', name: 'Travel', icon: 'travel', tier: 'advanced', requires: ['lf.occasions'], navTo: 'travel', state: lock,
       desc: 'A subject of its own: planning, packing and going somewhere without the trip needing recovery.' },
+    { id: 'lf.driving', name: 'Driving', icon: 'car', tier: 'intermediate', requires: ['lf.admin'], navTo: 'driving', state: lock,
+      desc: "Its own tree: your learner's permit, road skills, the road test and staying safe." },
+    { id: 'lf.chess', name: 'Chess', icon: 'rook', tier: 'beginner', requires: ['lf.routine'], navTo: 'chess', state: lock,
+      desc: 'Its own tree: tactics, openings, endgames, calculation and playing in real tournaments.' },
   ],
 };

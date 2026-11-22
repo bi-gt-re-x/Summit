@@ -27,6 +27,8 @@ import { renderWithProviders } from '@/test/render';
 import type { Subject } from '@/services/subjects';
 import { setMatchMedia } from '@/test/media';
 import { stats } from '@/test/factories';
+import userEvent from '@testing-library/user-event';
+import { SPACES_CHANGED } from '@/services/spaces';
 import type { MediaControl } from '@/test/media';
 
 /** The same query as the component's, and as the @media block in rail.css. */
@@ -34,10 +36,8 @@ const PHONE = '(max-width: 640px)';
 
 /** The four the phone bar keeps, in the order the rail lists them. */
 const PHONE_TABS = ['Dashboard', 'Calendar', 'Tasks', 'Goals'];
-/** The seven behind More. Records and Settings are the two that used to fall off. */
-const SHEET_TABS = [
-  'Analytics', 'Skill Tree', 'Notes', 'Timer', 'Achievements', 'Records', 'Settings',
-];
+/** The six behind More. Achievements and Settings are the two that used to fall off. */
+const SHEET_TABS = ['Analytics', 'Skill Tree', 'Notes', 'Log', 'Timer', 'Achievements', 'Settings'];
 
 /**
  * The catalogue the rail joins the account's picks against.
@@ -160,7 +160,7 @@ describe('the Analytics entry, which is the one that unfolds', () => {
       .toHaveAttribute('href', '/analytics/subject/physics');
   });
 
-  it('draws the menu in the order the reader picked, not the catalogue order', async () => {
+  it('draws the menu in the order the reader picked, not the catalog order', async () => {
     await withFollowed(['physics', 'maths']);
     fireEvent.click(screen.getByRole('button', { name: /show your subjects/i }));
 
@@ -172,7 +172,7 @@ describe('the Analytics entry, which is the one that unfolds', () => {
     expect(named).toEqual(['/analytics/subject/physics', '/analytics/subject/maths']);
   });
 
-  it('drops a subject the catalogue no longer holds', async () => {
+  it('drops a subject the catalog no longer holds', async () => {
     // Nominated in the wizard, deleted from the library the week after. The
     // stored list still names it; a row for it would open a page about
     // nothing.
@@ -183,7 +183,7 @@ describe('the Analytics entry, which is the one that unfolds', () => {
     expect(screen.queryByRole('link', { name: /latin/i })).not.toBeInTheDocument();
   });
 
-  it('prints the full name, not the catalogue\'s abbreviation', async () => {
+  it('prints the full name, not the catalog\'s abbreviation', async () => {
     await withFollowed(['enviro']);
     fireEvent.click(screen.getByRole('button', { name: /show your subjects/i }));
 
@@ -218,6 +218,17 @@ describe('the Analytics entry, which is the one that unfolds', () => {
     expect(screen.getByRole('link', { name: 'Analytics' }).className).toContain('active');
   });
 
+  it.each(['/recommendations', '/analytics', '/subjects'])(
+    'lights Overall as well as Analytics on %s, a tab of the overall page',
+    async (route) => {
+      await withFollowed(['maths'], route);
+      fireEvent.click(screen.getByRole('button', { name: /show your subjects/i }));
+      expect(screen.getByRole('link', { name: 'Analytics' }).className).toContain('active');
+      expect(screen.getByRole('link', { name: 'Overall' }).className).toContain('active');
+      expect(screen.getByRole('link', { name: 'Mathematics' }).className).not.toContain('active');
+    },
+  );
+
   it('does not light Overall on a subject page, since /analytics is its prefix', async () => {
     await withFollowed(['maths'], '/analytics/subject/maths');
     expect(screen.getByRole('link', { name: 'Overall' }).className).not.toContain('active');
@@ -250,7 +261,7 @@ describe('the Analytics entry, which is the one that unfolds', () => {
 });
 
 describe('on a phone', () => {
-  it('shows the four tabs a phone is for, and hides the other seven', () => {
+  it('shows the four tabs a phone is for, and hides the other eight', () => {
     // Ten tabs across 375px put Records at x 352-393 and Settings at 395-436
     // — off the end of the screen, with nothing to scroll. Two whole sections
     // of the app were unreachable.
@@ -265,7 +276,7 @@ describe('on a phone', () => {
     });
   });
 
-  it('keeps the other seven one tap away behind More', () => {
+  it('keeps the other eight one tap away behind More', () => {
     renderWithProviders(<Rail />);
     act(() => media.set(PHONE, true));
 
@@ -282,7 +293,7 @@ describe('on a phone', () => {
     });
   });
 
-  it('accounts for every destination — four visible plus seven behind More', () => {
+  it('accounts for every destination — four visible plus eight behind More', () => {
     // The invariant that matters more than either list: nothing is dropped.
     // A tab added to TABS without a `phone` decision still has a way in.
     renderWithProviders(<Rail />);
@@ -304,9 +315,9 @@ describe('on a phone', () => {
         '/goals',
         '/skill-trees',
         '/notes',
+        '/log',
         '/timer',
         '/achievements',
-        '/records',
         '/settings',
       ]),
     );
@@ -326,7 +337,7 @@ describe('on a phone', () => {
     act(() => media.set(PHONE, true));
     fireEvent.click(screen.getByRole('button', { name: /More/ }));
 
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Records' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Achievements' }));
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
@@ -352,7 +363,7 @@ describe('on a phone', () => {
 
   it('lights More when the reader is on one of the pages behind it', () => {
     // Otherwise the bar answers "where am I" for four pages out of ten.
-    renderWithProviders(<Rail />, { route: '/records' });
+    renderWithProviders(<Rail />, { route: '/achievements' });
     act(() => media.set(PHONE, true));
 
     expect(screen.getByRole('button', { name: /More/ }).className).toContain('active');
@@ -373,6 +384,80 @@ describe('on a phone', () => {
     act(() => media.set(PHONE, false));
     expect(screen.getByRole('link', { name: 'Settings' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /More/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('a rail taller than the window', () => {
+  /**
+   * jsdom lays nothing out, so the scroll box's size and the current row's
+   * position are stubbed — on the prototype, because the rail measures on
+   * mount, before a test could reach the element itself. `rowAt` is where the
+   * active row sits in the unscrolled list; scrolling moves it up by
+   * `scroll.top`, and the setter clamps the way a browser does.
+   */
+  function layout(scrollHeight: number, clientHeight: number, rowAt = { top: 10, bottom: 40 }) {
+    const scroll = { top: 0 };
+    const isBox = (el: Element) => el.classList.contains('rail-links');
+    const isRow = (el: Element) => el.classList.contains('rail-link') && el.classList.contains('active');
+    vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockImplementation(function (this: Element) {
+      return isBox(this) ? scrollHeight : 0;
+    });
+    vi.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(function (this: Element) {
+      return isBox(this) ? clientHeight : 0;
+    });
+    vi.spyOn(Element.prototype, 'scrollTop', 'get').mockImplementation(function (this: Element) {
+      return isBox(this) ? scroll.top : 0;
+    });
+    vi.spyOn(Element.prototype, 'scrollTop', 'set').mockImplementation(function (this: Element, to: number) {
+      if (isBox(this)) scroll.top = Math.max(0, Math.min(to, scrollHeight - clientHeight));
+    });
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      if (isBox(this)) return { top: 0, bottom: clientHeight } as DOMRect;
+      if (isRow(this)) return { top: rowAt.top - scroll.top, bottom: rowAt.bottom - scroll.top } as DOMRect;
+      return { top: 0, bottom: 0 } as DOMRect;
+    });
+    return scroll;
+  }
+
+  const links = () => document.querySelector('.rail-links')!;
+
+  it('draws no fade when every destination fits', () => {
+    layout(300, 300);
+    renderWithProviders(<Rail />);
+    expect(links()).not.toHaveClass('more-up');
+    expect(links()).not.toHaveClass('more-down');
+  });
+
+  it('fades whichever edge has more beyond it, as the list scrolls', () => {
+    const scroll = layout(600, 300);
+    renderWithProviders(<Rail />);
+    expect(links()).toHaveClass('more-down');
+    expect(links()).not.toHaveClass('more-up');
+
+    scroll.top = 150;
+    fireEvent.scroll(links());
+    expect(links()).toHaveClass('more-up');
+    expect(links()).toHaveClass('more-down');
+
+    scroll.top = 300;
+    fireEvent.scroll(links());
+    expect(links()).toHaveClass('more-up');
+    expect(links()).not.toHaveClass('more-down');
+  });
+
+  it('scrolls the current page into view, clear of the fade, on a short window', () => {
+    // Achievements is last in Core, so it is the row a short laptop hides.
+    const scroll = layout(600, 300, { top: 450, bottom: 480 });
+    renderWithProviders(<Rail />, { route: '/achievements' });
+    // Its bottom lands 40px above the box's, past the 32px fade.
+    expect(scroll.top).toBe(480 - (300 - 40));
+    expect(links()).toHaveClass('more-up');
+  });
+
+  it('leaves the list where it is when the current page is already in view', () => {
+    const scroll = layout(600, 300, { top: 100, bottom: 130 });
+    renderWithProviders(<Rail />, { route: '/dashboard' });
+    expect(scroll.top).toBe(0);
   });
 });
 
@@ -467,7 +552,7 @@ describe('the foot', () => {
 
     expect(screen.getByRole('link', { name: 'Log In' })).toHaveAttribute(
       'href',
-      '/home?auth=login',
+      '/login?auth=login',
     );
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
   });
@@ -494,5 +579,103 @@ describe('the foot', () => {
       window.dispatchEvent(new Event(STATS_CHANGED));
     });
     expect(reload).not.toHaveBeenCalled();
+  });
+});
+
+describe('Core, Personal and Team', () => {
+  it('puts every page but Settings under Core, and Personal and Team under it', () => {
+    renderWithProviders(<Rail />);
+    const core = screen.getByRole('region', { name: 'Core' });
+    [...PHONE_TABS, ...SHEET_TABS.filter((label) => label !== 'Settings')].forEach((label) => {
+      expect(within(core).getByRole('link', { name: label })).toBeInTheDocument();
+    });
+    expect(within(core).queryByRole('link', { name: 'Settings' })).not.toBeInTheDocument();
+    const personal = screen.getByRole('region', { name: 'Personal' });
+    ['Space 1', 'Space 2', 'Space 3'].forEach((name, at) => {
+      expect(within(personal).getByRole('link', { name })).toHaveAttribute('href', `/spaces/${at + 1}`);
+    });
+    const team = screen.getByRole('region', { name: 'Team' });
+    ['Team Space 1', 'Team Space 2', 'Team Space 3'].forEach((name, at) => {
+      expect(within(team).getByRole('link', { name })).toHaveAttribute('href', `/team/${at + 1}`);
+    });
+    expect(within(team).getByRole('link', { name: 'Invite people' })).toHaveAttribute(
+      'href',
+      '/team/1?invite=1',
+    );
+  });
+
+  it('draws no label inside Core', () => {
+    const { container } = renderWithProviders(<Rail />);
+    expect(container.querySelector('.rail-heading')).toBeNull();
+  });
+
+  it('folds a section from its heading, and remembers it', async () => {
+    const user = userEvent.setup();
+    const first = renderWithProviders(<Rail />);
+    const head = screen.getByRole('button', { name: 'Core' });
+    expect(head).toHaveAttribute('aria-expanded', 'true');
+    await user.click(head);
+    expect(head).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('link', { name: 'Calendar' })).not.toBeInTheDocument();
+    // Personal and Team are untouched.
+    expect(screen.getByRole('link', { name: 'Space 1' })).toBeInTheDocument();
+
+    first.unmount();
+    renderWithProviders(<Rail />);
+    expect(screen.getByRole('button', { name: 'Core' })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('shows every section when folded to icons, where there are no headings to click', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Rail />);
+    await user.click(screen.getByRole('button', { name: 'Core' }));
+    await user.click(screen.getByRole('button', { name: 'Collapse navigation' }));
+    expect(screen.getByRole('link', { name: 'Calendar' })).toBeInTheDocument();
+  });
+
+  it('has no search box: search is in the top bar', () => {
+    renderWithProviders(<Rail />);
+    expect(screen.queryByRole('button', { name: 'Search or ask' })).not.toBeInTheDocument();
+  });
+
+  it('draws none of it on a phone, where the rail is a bar', () => {
+    media.set(PHONE, true);
+    renderWithProviders(<Rail />);
+    expect(screen.queryByRole('region', { name: 'Core' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Search or ask' })).not.toBeInTheDocument();
+  });
+});
+
+describe('the Personal spaces', () => {
+  it('shows a space under the name the reader gave it, as soon as it is saved', () => {
+    renderWithProviders(<Rail />);
+    act(() => {
+      window.dispatchEvent(new CustomEvent(SPACES_CHANGED, {
+        detail: { kind: 'personal', space: { id: 2, name: 'Reading list', body: '' } },
+      }));
+    });
+    expect(screen.getByRole('link', { name: 'Reading list' })).toHaveAttribute('href', '/spaces/2');
+    expect(screen.queryByRole('link', { name: 'Space 2' })).not.toBeInTheDocument();
+  });
+});
+
+describe('the Team spaces', () => {
+  it('renames a team space without touching the personal one of the same number', () => {
+    renderWithProviders(<Rail />);
+    act(() => {
+      window.dispatchEvent(new CustomEvent(SPACES_CHANGED, {
+        detail: { kind: 'team', space: { id: 1, name: 'Study group', body: '', invites: [] } },
+      }));
+    });
+    expect(screen.getByRole('link', { name: 'Study group' })).toHaveAttribute('href', '/team/1');
+    expect(screen.getByRole('link', { name: 'Space 1' })).toBeInTheDocument();
+  });
+
+  it('invites to the team space that is open', () => {
+    renderWithProviders(<Rail />, { route: '/team/3' });
+    expect(screen.getByRole('link', { name: 'Invite people' })).toHaveAttribute(
+      'href',
+      '/team/3?invite=1',
+    );
   });
 });

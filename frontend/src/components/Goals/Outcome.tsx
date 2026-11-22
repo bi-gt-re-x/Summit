@@ -34,6 +34,7 @@ import { useCountUp } from '@/hooks';
 import { formatGoalDate } from './numbers';
 import { goalHealth, systemHealth, type GoalHealth, type HealthState } from '@/utils/goalHealth';
 import { goalNotes, goalsOverview, type GoalNote } from '@/utils/goalAnalytics';
+import { currentStone } from '@/utils/goalStage';
 import type { Goal, GoalCategory, Milestone, Task } from '@/types';
 
 const DAY = 86_400_000;
@@ -62,6 +63,35 @@ export const CATEGORIES: Array<{
   { id: 'personal', label: 'Personal', tone: 'rose', path: 'M12 20s-7-4.5-7-9a4 4 0 017-2.6A4 4 0 0119 11c0 4.5-7 9-7 9z' },
   { id: 'other', label: 'Other', tone: 'grey', path: 'M12 3l2.6 5.6 6.4.8-4.7 4.3 1.3 6.3L12 17l-5.6 3 1.3-6.3L3 9.4l6.4-.8L12 3z' },
 ];
+
+const MATH_WORDS = /math|algebra|geometry|trig|calculus|statistic|equation|arithmetic|number theory/i;
+const MUSIC_WORDS = /music|piano|guitar|violin|cello|drum|band|choir|sing|orchestra|instrument/i;
+const AI_IDS = new Set(['machine_learning', 'data_science', 'artificial_intelligence', 'ai']);
+
+/**
+ * The tile a goal wears, from the subject it's for.
+ *
+ * The wizard used to ask for this as a row of nine fixed chips (Math, Coding,
+ * AI / ML, Fitness…) next to the subject picker, which offers every subject
+ * in the catalog. The subject is the real answer, so the color and the icon
+ * now follow from it: its group, and a few names that have a tile of their
+ * own. A custom subject, or one this can't place, is `other`.
+ */
+export function categoryForSubject(
+  subject: { id: string; name: string; group?: string; custom?: boolean } | null | undefined,
+): GoalCategory {
+  if (!subject || subject.custom) return 'other';
+  const { id, name, group = '' } = subject;
+  if (AI_IDS.has(id)) return 'ai';
+  if (group === 'Computing') return 'coding';
+  if (group === 'Math and science') return MATH_WORDS.test(name) ? 'math' : 'school';
+  if (group === 'Creative') return MUSIC_WORDS.test(name) ? 'music' : 'projects';
+  if (group === 'Health and fitness') return 'fitness';
+  if (group === 'Language and humanities' || group === 'Studying') return 'school';
+  if (group === 'Business and money' || group === 'Work') return 'projects';
+  if (group === 'Life and home') return 'personal';
+  return 'other';
+}
 
 export function categoryOf(goal: Goal) {
   return CATEGORIES.find((entry) => entry.id === goal.category) ?? CATEGORIES[CATEGORIES.length - 1]!;
@@ -100,26 +130,25 @@ export function GoalTile({ goal, size = 18 }: { goal: Goal; size?: number }) {
 // The chip that says whether this is going to happen
 // --------------------------------------------------------------------------
 const HEALTH_LABEL: Record<HealthState, string> = {
-  'on-track': 'On Track',
-  'at-risk': 'At Risk',
-  'off-track': 'Off Track',
-  'not-started': 'Not Started',
+  'on-track': 'On track',
+  behind: 'Behind',
+  'not-started': 'Not started',
 };
 
 /**
  * The health chip, with its reason on the hover.
  *
- * The reason is not decoration: "At Risk" on its own is a colour, and the
+ * The reason is not decoration: "Behind" on its own is a colour, and the
  * reader's next question is always the same one. The model that produced the
  * colour produces the sentence, and the sentence travels with it — on the card
- * it is a title, and in the detail view it is printed. See `reasonFor` in
+ * it is a title, and in the detail view it is printed. See `goalHealth` in
  * utils/goalHealth.
  */
 export function HealthChip({ health }: { health: GoalHealth }) {
   return (
     <span className={`gx-health is-${health.state}`} title={health.reason}>
       <i aria-hidden="true" />
-      {health.state === 'on-track' && health.score === 100 ? 'Complete' : HEALTH_LABEL[health.state]}
+      {health.label === 'Complete' ? 'Complete' : HEALTH_LABEL[health.state]}
     </span>
   );
 }
@@ -228,14 +257,12 @@ const STAT_ICONS = {
  */
 export function OverviewStrip({
   goals,
-  tasks,
   today = new Date(),
 }: {
   goals: Goal[];
-  tasks: Task[];
   today?: Date;
 }) {
-  const view = goalsOverview(goals, tasks, today);
+  const view = goalsOverview(goals, today);
   const share = view.active ? Math.round((view.onTrack / view.active) * 100) : 0;
 
   // Counted to rather than replaced — see hooks/useCountUp.ts. The footers are
@@ -243,7 +270,7 @@ export function OverviewStrip({
   // a sentence counting through its own numbers is noise, not motion.
   const active = Math.round(useCountUp(view.active));
   const onTrack = Math.round(useCountUp(view.onTrack));
-  const atRisk = Math.round(useCountUp(view.atRisk));
+  const behind = Math.round(useCountUp(view.behind));
   const dueSoon = Math.round(useCountUp(view.dueSoon.length));
   // The ring beside this reading runs its own tween off the same figure — same
   // input, same duration, same first frame — so the two cannot drift apart.
@@ -268,7 +295,7 @@ export function OverviewStrip({
     <div className="gx-strip">
       <article className="gx-stat tone-violet">
         <header>
-          <span className="gx-stat-label">Active Goals</span>
+          <span className="gx-stat-label">Active goals</span>
         </header>
         <strong className="gx-stat-value">{active}</strong>
         <span className="gx-stat-foot">
@@ -279,7 +306,7 @@ export function OverviewStrip({
 
       <article className="gx-stat tone-indigo">
         <header>
-          <span className="gx-stat-label">Overall Progress</span>
+          <span className="gx-stat-label">Overall progress</span>
           <Ring pct={overallTarget} tone="indigo" />
         </header>
         <strong className="gx-stat-value">{overall}%</strong>
@@ -288,7 +315,7 @@ export function OverviewStrip({
 
       <article className="gx-stat tone-green">
         <header>
-          <span className="gx-stat-label">Goals On Track</span>
+          <span className="gx-stat-label">Goals on track</span>
           <span className="gx-stat-ico">
             <Icon path={STAT_ICONS.check} />
           </span>
@@ -299,27 +326,27 @@ export function OverviewStrip({
 
       <article className="gx-stat tone-amber">
         <header>
-          <span className="gx-stat-label">Goals At Risk</span>
+          <span className="gx-stat-label">Behind</span>
           <span className="gx-stat-ico">
             <Icon path={STAT_ICONS.warn} />
           </span>
         </header>
-        <strong className="gx-stat-value">{atRisk}</strong>
+        <strong className="gx-stat-value">{behind}</strong>
         <span className="gx-stat-foot">
-          {view.offTrack ? `${view.offTrack} already off track` : 'none off track'}
+          {view.behind ? 'see the reason on each card' : 'none behind'}
         </span>
       </article>
 
       <article className="gx-stat tone-blue">
         <header>
-          <span className="gx-stat-label">Upcoming Deadlines</span>
+          <span className="gx-stat-label">Due soon</span>
           <span className="gx-stat-ico">
             <Icon path={STAT_ICONS.calendar} />
           </span>
         </header>
         <strong className="gx-stat-value">{dueSoon}</strong>
         <span className="gx-stat-foot">
-          {next ? `Next: ${formatGoalDate(next.deadline)}` : 'nothing in the next fortnight'}
+          {next ? `Next: ${formatGoalDate(next.deadline)}` : 'nothing in the next two weeks'}
         </span>
       </article>
     </div>
@@ -383,13 +410,10 @@ export function GoalChain({
     return <p className="gx-empty">No checkpoints yet. Break this goal into stages.</p>;
   }
 
-  /* The one being worked on, by the same rule the card uses: the checkpoint
-     explicitly made active, else the first that is not done. Both places have
-     to agree or the page says a goal is on two different stages. */
-  const current =
-    stones.find((row) => row.status === 'active') ??
-    stones.find((row) => row.status !== 'done') ??
-    null;
+  /* The one being worked on, by the rule every page that draws a stage shares
+     — utils/goalStage, which exists because this was written here and in the
+     goal card and the two had to agree. */
+  const current = currentStone(goal);
 
   const shown = stones.slice(0, limit);
   const category = categoryOf(goal);
@@ -458,7 +482,7 @@ export function NextMilestones({
     .slice(0, limit);
 
   if (rows.length === 0) {
-    return <p className="gx-empty">No milestone is waiting. Every goal with checkpoints is done with them.</p>;
+    return <p className="gx-empty">No checkpoints waiting. They're all done.</p>;
   }
 
   return (
@@ -526,21 +550,13 @@ export function NextMilestones({
  * thing that acts on "needs attention"; a second button doing the same job
  * four sections apart is two places to learn for one action.
  */
-export function SystemVerdict({
-  goals,
-  tasks,
-  today,
-}: {
-  goals: Goal[];
-  tasks: Task[];
-  today?: Date;
-}) {
-  const view = systemHealth(goals, tasks, today);
+export function SystemVerdict({ goals }: { goals: Goal[] }) {
+  const view = systemHealth(goals);
 
   if (view.active === 0) {
     return (
       <p className="gx-verdict-none">
-        No active goals, so there is nothing to read yet.
+        No active goals yet.
       </p>
     );
   }
@@ -556,11 +572,10 @@ export function SystemVerdict({
 
   return (
     <div className={`gx-verdict is-${view.state}`}>
-      <span className="gx-verdict-label">Overall goal health</span>
+      <span className="gx-verdict-label">How your goals are doing</span>
       <p className="gx-verdict-say">
         <i aria-hidden="true" />
         <strong>{view.label}</strong>
-        {view.state !== 'not-started' && <em>{view.score}</em>}
       </p>
       <p className="gx-verdict-counts">{parts.join(' · ')}</p>
     </div>
@@ -568,35 +583,26 @@ export function SystemVerdict({
 }
 
 /**
- * The four health states as one ring.
+ * The three health states as one ring.
  *
  * The only chart on the page, and it earns its place by answering the page's
  * own question — how much of what I am carrying is actually going to happen —
  * in a way five numbers in a row do not. A ring is right here for the reason
- * it is wrong almost everywhere else: four slices of one whole, all labelled,
+ * it is wrong almost everywhere else: three slices of one whole, all labelled,
  * all counted beside it.
  */
-export function HealthRing({
-  goals,
-  tasks,
-  today,
-}: {
-  goals: Goal[];
-  tasks: Task[];
-  today?: Date;
-}) {
-  const view = goalsOverview(goals, tasks, today);
+export function HealthRing({ goals, today }: { goals: Goal[]; today?: Date }) {
+  const view = goalsOverview(goals, today);
   const total = view.active || 1;
 
-  // Four fixed states, so four calls rather than a loop. Each arc is drawn from
+  // Three fixed states, so three calls rather than a loop. Each arc is drawn from
   // its own animated count and the offsets are accumulated from those same
   // numbers, so the ring stays a closed circle at every frame of the sweep
   // instead of opening gaps between slices that are still catching up.
   const slices = [
-    { key: 'on-track', label: 'On Track', shown: useCountUp(view.onTrack) },
-    { key: 'at-risk', label: 'At Risk', shown: useCountUp(view.atRisk) },
-    { key: 'off-track', label: 'Off Track', shown: useCountUp(view.offTrack) },
-    { key: 'not-started', label: 'Not Started', shown: useCountUp(view.notStarted) },
+    { key: 'on-track', label: 'On track', shown: useCountUp(view.onTrack) },
+    { key: 'behind', label: 'Behind', shown: useCountUp(view.behind) },
+    { key: 'not-started', label: 'Not started', shown: useCountUp(view.notStarted) },
   ];
   const active = Math.round(useCountUp(view.active));
 
@@ -626,7 +632,7 @@ export function HealthRing({
         </svg>
         <span className="gx-dist-centre">
           <strong>{active}</strong>
-          <span>Active Goals</span>
+          <span>Active goals</span>
         </span>
       </div>
       <ul className="gx-dist-key">
@@ -843,23 +849,18 @@ export function GoalsCta({ onNew }: { onNew: () => void }) {
  */
 export function GoalsState({
   goals,
-  tasks,
-  today = new Date(),
   on = false,
   onAttention,
 }: {
   /** The outcome goals — exactly the set the Active Goals tab draws. */
   goals: Goal[];
-  tasks: Task[];
-  today?: Date;
   /** Whether the attention filter is currently on. */
   on?: boolean;
   /** Toggle it. Absent, and the count is text rather than a button. */
   onAttention?: () => void;
 }) {
   const needs = goals.filter((goal) => {
-    const state = goalHealth(goal, tasks, today).state;
-    return state === 'at-risk' || state === 'off-track';
+    return goalHealth(goal).state === 'behind';
   }).length;
 
   if (goals.length === 0) {

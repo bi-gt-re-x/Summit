@@ -41,9 +41,10 @@
 import { useState } from 'react';
 import { analytics as analyticsService } from '@/services';
 import { fmtGoalNumber, formatGoalDate, goalNumbers } from './numbers';
-import { goalHealth, goalPace, healthFactors } from '@/utils/goalHealth';
+import { goalHealth, goalPace } from '@/utils/goalHealth';
 import type { GoalPlan } from '@/services/analytics';
 import type { Goal, Task } from '@/types';
+import { countsToward } from '@/utils/goalLinks';
 
 /** Finished, linked tasks before a read is worth asking for. */
 export const EVIDENCE = 4;
@@ -52,7 +53,7 @@ export const EVIDENCE = 4;
 function linkedTo(goal: Goal, tasks: Task[]): Task[] {
   const stones = new Set((goal.milestones ?? []).map((stone) => stone.id));
   return tasks.filter(
-    (task) => task.goal_id === goal.id || (task.milestone_id && stones.has(task.milestone_id)),
+    (task) => countsToward(task, goal.id) || (task.milestone_id && stones.has(task.milestone_id)),
   );
 }
 
@@ -76,7 +77,7 @@ export function GoalRead({ goal, tasks, nameOf }: GoalReadProps) {
     setFailed(null);
     const numbers = goalNumbers(goal);
     const pace = goalPace(goal);
-    const health = goalHealth(goal, tasks);
+    const health = goalHealth(goal);
 
     try {
       /* Every figure here is one the drawer already drew. Sending them rather
@@ -92,7 +93,7 @@ export function GoalRead({ goal, tasks, nameOf }: GoalReadProps) {
           .map(nameOf)
           .join(', '),
         why: goal.why || goal.description || '',
-        standing: `${Math.round(numbers.progress)}% — ${fmtGoalNumber(numbers.current, numbers)} of ${fmtGoalNumber(numbers.target, numbers)}`,
+        standing: `${Math.round(numbers.progress)}%: ${fmtGoalNumber(numbers.current, numbers)} of ${fmtGoalNumber(numbers.target, numbers)}`,
         deadline: goal.deadline ? formatGoalDate(String(goal.deadline)) : '',
         days_left: health.signals.daysLeft,
         need_weekly: pace.need === null ? '' : `${Math.round(pace.need * 7 * 10) / 10} a week`,
@@ -105,19 +106,17 @@ export function GoalRead({ goal, tasks, nameOf }: GoalReadProps) {
            model is being asked to route around these, not to rediscover them —
            and a read that contradicted the health panel two sections up would
            be the drawer arguing with itself. */
-        levers: healthFactors(health)
-          .filter((one) => !one.good)
-          .map((one) => one.note),
+        levers: health.state === 'behind' ? [health.reason] : [],
         finished: done.length,
       });
 
       if (!result.success) {
-        setFailed(result.message || 'That did not work.');
+        setFailed(result.message || "That didn't work.");
         return;
       }
       setPlan(result.plan);
     } catch (cause) {
-      setFailed(cause instanceof Error ? cause.message : 'That did not work.');
+      setFailed(cause instanceof Error ? cause.message : "That didn't work.");
     } finally {
       setThinking(false);
     }
@@ -126,8 +125,8 @@ export function GoalRead({ goal, tasks, nameOf }: GoalReadProps) {
   return (
     <section className="gx-panel gx-read">
       <header className="gx-panel-head">
-        <h3>Summit&rsquo;s read</h3>
-        {plan && <span className="gx-read-mark">Written by a model</span>}
+        <h3>Summit&apos;s take</h3>
+        {plan && <span className="gx-read-mark">Written by AI</span>}
       </header>
 
       {/* Not enough behind it. Said as a count of what would unlock it rather
@@ -135,16 +134,15 @@ export function GoalRead({ goal, tasks, nameOf }: GoalReadProps) {
           thing somebody can go and do. */}
       {short > 0 ? (
         <p className="gx-read-gate">
-          <strong>Not enough evidence yet.</strong> Finish and link{' '}
+          <strong>Not enough to go on yet.</strong> Finish and link{' '}
           {short === 1 ? 'one more task' : `${short} more tasks`} to this goal and Summit can
-          read the pattern in them. Right now there {done.length === 1 ? 'is' : 'are'}{' '}
-          {done.length} — too few to tell a pattern from a coincidence.
+          spot a pattern. You have {done.length} so far.
         </p>
       ) : !plan ? (
         <>
           <p className="gx-read-lead">
-            {done.length} finished tasks are linked to this goal. A read costs one model
-            call and stores nothing.
+            {done.length} finished tasks are linked to this goal. Ask AI what to do next. It
+            only takes a few seconds.
           </p>
           <button
             type="button"
@@ -152,7 +150,7 @@ export function GoalRead({ goal, tasks, nameOf }: GoalReadProps) {
             disabled={thinking}
             onClick={() => void ask()}
           >
-            {thinking ? 'Reading…' : 'Read this goal'}
+            {thinking ? 'Working…' : 'Get AI advice'}
           </button>
         </>
       ) : (
@@ -172,7 +170,7 @@ export function GoalRead({ goal, tasks, nameOf }: GoalReadProps) {
 
           {plan.phases.length > 0 && (
             <div className="gx-read-block">
-              <h4>The route from here</h4>
+              <h4>The plan from here</h4>
               <ol className="gx-read-phases">
                 {plan.phases.map((phase, at) => (
                   <li key={at}>
@@ -191,9 +189,7 @@ export function GoalRead({ goal, tasks, nameOf }: GoalReadProps) {
               arrive as confident prose and the reader has to be able to tell
               them apart. */}
           <p className="gx-quiet gx-caveat">
-            Written by a model over the figures on this page. The numbers above it are
-            counted from your own tasks; this paragraph is a reading of them, and the
-            weeks it suggests are a recommendation.
+            Written by AI from the numbers on this page. The numbers come from your tasks. The weeks it suggests are just a plan you can change.
           </p>
         </>
       )}

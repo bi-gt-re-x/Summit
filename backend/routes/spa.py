@@ -37,6 +37,9 @@ SPA_ROUTES = (
     # everyone else to the landing page — is `FrontDoor` in src/App.tsx now.
     '/',
     '/home',
+    # Signing in and signing up. The gate and the auth redirects land here —
+    # see backend/middleware/gate.py and backend/routes/auth.py.
+    '/login',
     '/dashboard',
     '/about-us',
     '/privacy-policy',
@@ -61,6 +64,16 @@ SPA_ROUTES = (
     '/growth-tree',
     # Free-form notes. The one page whose contents the app does not score.
     '/notes',
+    # The private journal Summit learns from. See backend/api/journal.py.
+    '/log',
+    # The three Personal spaces in the rail — a name and a page of text each.
+    '/spaces/1',
+    '/spaces/2',
+    '/spaces/3',
+    # The three Team spaces: the same page, with a member list.
+    '/team/1',
+    '/team/2',
+    '/team/3',
     # The focus timer with a pomodoro cycle over it. The session it runs is the
     # account's ordinary one — see src/pages/Timer.tsx.
     '/timer',

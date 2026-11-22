@@ -23,10 +23,11 @@
  * 'Default'. After somebody reached it, the name was pinned to whoever that
  * was and never moved again — so the next person to sign in on that browser
  * was read as *them*: their day's unlock, and, fatally, their earned title.
- * A title retires the chain (`earnedTitle` below), so a second account found
- * the whole thing already over — ten clicks on the rail's title doing
- * nothing, no unlock written, and the pentagon on the landing page inert
- * because it had no unlock to find. Dead, with no symptom to read.
+ * A title used to retire the chain, so a second account found the whole
+ * thing already over — ten clicks on the dashboard's mark doing nothing, no
+ * unlock written, and the pentagon on the landing page inert because it had no
+ * unlock to find. Dead, with no symptom to read. (A title no longer retires
+ * anything: see hooks/useMarkEgg.ts.)
  *
  * So `rememberAccount` writes it, from the session React already knows about,
  * on every load and every sign-in. The scripts go on reading the key they
@@ -39,12 +40,19 @@
  */
 
 /**
- * Announced when the tenth click lands, for a dashboard that is already open.
+ * Announced when the tenth click lands, so the quote can play its reveal.
  *
  * The same device as `summit:stats-changed` in components/Rail.tsx, for the
- * same reason: one fact, one direction, no reply. The door (the rail's title)
- * and the room (the dashboard's quote) are in two components that never share
- * a parent below the router.
+ * same reason: one fact, one direction, no reply. The door is the mark in the
+ * corner of the Focus card and the room is the quote at the foot of the page —
+ * two children of pages/Dashboard.tsx with no state between them and no reason
+ * to be given any, since one of them has exactly one thing to tell the other.
+ *
+ * No latch goes with it any more. There was one, back when the door was the
+ * rail's title and the tenth click could land on a page where the quote was
+ * not mounted: the reveal had to survive a navigation, so it was owed rather
+ * than played. Both ends are on the dashboard now and are on screen together,
+ * so the event is heard the moment it is sent.
  */
 export const EGG_UNLOCKED = 'summit:egg-unlocked';
 
@@ -120,12 +128,10 @@ export function markUnlockedToday(account: string): void {
  * The title handed out at the end of the chain, in the hidden ADMIN ROOM —
  * written by frontend/secret/hidden-engine.js.
  *
- * It is the chain's terminator: once a title has been earned the clue has done
- * its job and the dashboard goes back to reading normally.
- *
- * That script writes a second key at the same moment — the rail's chosen
- * title, so the prize is worn and not merely offered. utils/rankTitle.ts owns
- * that one and explains it.
+ * The nametag wears it in front of the name once it is here, so the prize is
+ * worn and not merely offered — see utils/rankTitle.ts. It does not close the
+ * chain: the door on the dashboard opens again for an account that already
+ * holds one (hooks/useMarkEgg.ts), and /engine lets it straight in.
  */
 export function earnedTitle(account: string): string | null {
   return carriedOver(`summitTitle:${account}`, `ascenTitle:${account}`);
@@ -142,9 +148,8 @@ export function earnedTitle(account: string): string | null {
  * the old name, and moving it across is what makes the fallback finite rather
  * than a branch this code carries for ever.
  *
- * Exported because utils/rankTitle.ts owns the second of the two keys and has
- * exactly the same problem; two copies of this would be two chances to get the
- * order of the arguments wrong.
+ * Exported so the next key with the same problem uses this rather than a
+ * second copy of it.
  */
 export function carriedOver(now: string, before: string): string | null {
   try {
@@ -159,36 +164,4 @@ export function carriedOver(now: string, before: string): string | null {
   } catch {
     return null;
   }
-}
-
-/* --------------------------------------------------------------------------
- * The reveal latch
- * ------------------------------------------------------------------------ */
-
-/**
- * One bit, in memory, saying the reveal is owed a performance.
- *
- * The tenth click can land on any page, because the rail is on all of them —
- * so it sends the reader to the dashboard, and the theatrics have to survive
- * that trip. `unlockedToday()` cannot carry them: it is also true tomorrow
- * morning, when the clue should simply be sitting there rather than crashing
- * in again.
- *
- * A module variable and not sessionStorage, because the trip is a client-side
- * navigation and this is the same JavaScript context on the other side of it.
- * If a reload somehow intervenes the latch is lost, which is the right way to
- * fail: the clue is still there, it just arrives quietly.
- */
-let owed = false;
-
-/** The tenth click landed: the next quote to mount owes a reveal. */
-export function armReveal(): void {
-  owed = true;
-}
-
-/** Claim the reveal, if one is owed. Answers true at most once per arming. */
-export function takeReveal(): boolean {
-  const was = owed;
-  owed = false;
-  return was;
 }

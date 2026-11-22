@@ -36,6 +36,7 @@
             padding: 18px;
         }
         .contact-card h3 { margin: 0 0 6px; font-size: 1em; }
+        h3 .ico { margin-right: 0.4em; }
         .contact-card p { margin: 0; font-size: 0.92em; color: #555; }
         .faq details {
             background: #f7f7f7;
@@ -53,49 +54,49 @@
     <div class="content-container">
         <h1>Contact Support</h1>
 
-        <p>Stuck on something? We want Summit to help you focus, not slow you down. Check the quick answers below — and if they don't solve it, reach out.</p>
+        <p>Stuck on something? Check the quick answers below. If they don't help, reach out.</p>
 
-        <h2>Get In Touch</h2>
+        <h2>Get in touch</h2>
         <div class="contact-options">
             <div class="contact-card">
-                <h3>📧 Email</h3>
-                <p>Send questions, bug reports, or feedback to <a href="mailto:support@summit.app">support@summit.app</a>. We aim to reply within 2 business days.</p>
+                <h3><span class="ico" aria-hidden="true">📧</span>Email</h3>
+                <p>Send questions, bug reports, or feedback to <a href="mailto:joverdam722@gmail.com">joverdam722@gmail.com</a>. We aim to reply within 2 business days.</p>
             </div>
             <div class="contact-card">
-                <h3>🐛 Bug Reports</h3>
-                <p>Found something broken? Open an issue on the project's repository with steps to reproduce — screenshots help a lot.</p>
+                <h3><span class="ico" aria-hidden="true">🐛</span>Bug reports</h3>
+                <p>Found something broken? Open an issue on the project's repo with the steps to make it happen. Screenshots help a lot.</p>
             </div>
             <div class="contact-card">
-                <h3>💡 Feature Ideas</h3>
-                <p>Summit is shaped by its users. Tell us what would make your study sessions better.</p>
+                <h3><span class="ico" aria-hidden="true">💡</span>Feature ideas</h3>
+                <p>Summit grows from your ideas. Tell us what would make studying better.</p>
             </div>
         </div>
 
-        <h2>Frequently Asked Questions</h2>
+        <h2>Common questions</h2>
         <div class="faq">
             <details>
                 <summary>Where is my data stored?</summary>
-                <p>Everything lives locally — in your browser's local storage and in JSON files on the machine running the app. Nothing is uploaded to a cloud service. See our <a href="{{ url_for('privacypolicy.page') }}">Privacy Policy</a> for details.</p>
+                <p>Everything lives in one database on the server that runs Summit. The only thing that leaves is the short summary sent when you use an AI button. See our <a href="{{ url_for('privacypolicy.page') }}">Privacy Policy</a> for details.</p>
             </details>
             <details>
-                <summary>I lost my streak — can it be restored?</summary>
-                <p>Streaks count consecutive days with completed work. If a day was genuinely logged and the streak still reset, that's a bug — report it with your task history and we'll look into it.</p>
+                <summary>I lost my streak. Can I get it back?</summary>
+                <p>A streak counts days in a row with finished work. If you logged work that day and it still reset, that's a bug. Send us your task history and we'll look into it.</p>
             </details>
             <details>
                 <summary>How do XP and levels work?</summary>
-                <p>Completing tasks and focus sessions earns XP. Each level requires more XP than the last, and your Growth page grades your consistency over time.</p>
+                <p>Finishing tasks and focus sessions earns XP. Each level takes more XP than the last. Your Growth page shows how steady you've been.</p>
             </details>
             <details>
                 <summary>Can I use Summit on multiple devices?</summary>
-                <p>Because data is stored locally, each device keeps its own progress. To move your data, copy the app's JSON data files to the new machine.</p>
+                <p>Yes. Your account lives on the server that runs Summit, so any device that can reach it sees the same progress. To move to a new server, copy the database file (data/summit.db).</p>
             </details>
             <details>
                 <summary>Does Summit cost anything?</summary>
-                <p>No — Summit is free, with every feature included. There are no paid tiers, subscriptions, or ads.</p>
+                <p>Nope. Summit is free with every feature included. No paid plans, no subscriptions and no ads.</p>
             </details>
         </div>
 
-        <h2>Before You Write In</h2>
+        <h2>Before you write in</h2>
         <ul>
             <li>Include what you were doing when the problem happened.</li>
             <li>Mention your browser and operating system.</li>

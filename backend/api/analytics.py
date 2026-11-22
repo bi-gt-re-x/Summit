@@ -4,12 +4,7 @@ Most of the page is computed on the client from the growth series, which is why
 this module stayed a stub long after the page existed: one endpoint already
 carried everything a single account needs.
 
-`/api/standing` is the exception, and the reason is structural rather than a
-matter of taste. It is the one figure on the page that cannot be derived from
-the reader's own record at all — it needs every other account's, which the
-client has no business seeing. The rules live in backend/tracking/standing.py.
-
-`/api/baseline` is the other, and it is the opposite case: it is the one thing
+`/api/baseline` is the exception: it is the one thing
 on the page that is not derived from anything, because the account has to say
 it. Every other figure the analytics page draws needs weeks of record before it
 means anything, which left a new account with a page of countdowns and nothing
@@ -19,7 +14,7 @@ tabs from "come back in three weeks" into "here is what you said, here is what
 happened". It goes in `user_settings` — the key/value table that already exists
 for exactly this, a preference rather than a measurement — under BASELINE_KEY.
 
-`/api/adopted_advice` is the third, and it exists to answer the question the
+`/api/adopted_advice` is the second, and it exists to answer the question the
 Recommendations tab could not: *did the change work.* The tab would compute
 that closing your three-day gaps was worth four thousand XP a year, the reader
 would agree and press the button, and then nothing ever came back. A page built
@@ -39,15 +34,17 @@ from datetime import date
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from backend.api.guard import current_username
 from backend.api.reply import fail, ok
 from backend.database import connection as db
+from backend.goal_matcher import store as goal_store
 from backend.tracking import analytics as analytics_tracking
-from backend.tracking import standing as standing_tracking
 from backend.tracking import subject_brief
 from backend.tracking import goal_plan
+from backend.api import background as background_api
 from backend.tracking import subject_goal
 from backend.tracking.auth import load_user
 
@@ -138,6 +135,9 @@ ANALYTICS_TASK_FIELDS = (
     'created_at',
     'completed_at',
     'due_date',
+    # With `created_at` and `due_date`, what says a task's time spent is its
+    # calendar block (frontend/src/utils/timeSpent.ts).
+    'show_on_calendar',
     'completion_seconds',
     'met_deadline',
     'difficulty',
@@ -184,25 +184,32 @@ def get_analytics_tasks(username: str = Depends(current_username)):
     also the more useful order for a reader who stops reading early, and nothing
     on the page depends on which order it arrives in — every panel filters by
     date before it counts.
+
+    ## Columns, not rows
+
+    The response is `{fields, rows}` rather than a list of objects, and on the
+    largest account here that is 3.44 MB instead of 5.99 MB for exactly the
+    same data. Two thirds of the old payload was the sixteen field names
+    repeated twenty thousand times, which JSON has no way to say once.
+
+    The client zips them straight back into the objects every panel already
+    expects — see `rehydrate` in frontend/src/services/analytics.ts — so this
+    is a change to the wire and to nothing else. It also parses about twice as
+    fast, which is the half of the saving a reader actually feels.
     """
-    return ok(tasks=db.columns_for('tasks', username, ANALYTICS_TASK_FIELDS,
-                                   order=TASK_ORDER))
-
-
-@router.get('/api/standing')
-def get_standing(username: str = Depends(current_username)):
-    """Where this account places against the others, measure by measure.
-
-    Returns the placements, the size of the cohort behind them, and whether
-    that cohort was big enough to place against at all — see the module note in
-    tracking/standing.py for why the last of those is a field rather than an
-    assumption.
-    """
-
-    placement = standing_tracking.standing(username)
-    if placement is None:
-        return fail('User not found')
-    return ok(**placement)
+    fields, rows = db.columns_table_for('tasks', username, ANALYTICS_TASK_FIELDS,
+                                        order=TASK_ORDER)
+    # Which goals each task counts toward, as stored when the task was
+    # written: {task_id: [goal_id, ...]}, only for tasks that have any. Kept
+    # beside the rows rather than as a seventeenth column, because on a big
+    # account nearly every row would carry a null for it. Nothing is matched
+    # here — see backend/goal_matcher.
+    # A JSONResponse rather than the dict. Handed a dict, FastAPI first walks
+    # every value through `jsonable_encoder` — three hundred and fifty thousand
+    # of them on a five-year account, most of this endpoint's time — to turn
+    # plain strings and numbers into the plain strings and numbers they were.
+    # Everything here came straight out of SQLite as JSON-native types.
+    return JSONResponse(ok(fields=fields, rows=rows, goal_links=goal_store.goal_links(username)))
 
 
 @router.get('/api/metric_history')
@@ -315,13 +322,13 @@ def set_baseline(body: SetBaseline, username: str = Depends(current_username)):
     """
 
     if body.active_days is None or body.session_minutes is None:
-        return fail('A baseline needs both how often and how long.')
+        return fail('Your targets need both how often and how long.')
 
     if not (ACTIVE_DAYS[0] <= body.active_days <= ACTIVE_DAYS[1]):
         return fail('Days a week must be between {} and {}.'.format(*ACTIVE_DAYS))
 
     if not (SESSION_MINUTES[0] <= body.session_minutes <= SESSION_MINUTES[1]):
-        return fail('A sitting must be between {} and {} minutes.'.format(*SESSION_MINUTES))
+        return fail('A session has to be between {} and {} minutes.'.format(*SESSION_MINUTES))
 
     _, user = load_user(username)
     if not user:
@@ -406,7 +413,7 @@ def adopt_advice(body: AdoptAdvice, username: str = Depends(current_username)):
     Dated today rather than tomorrow, even though the task this creates is due
     tomorrow: the decision is what is being recorded here, and the comparison
     that follows wants the day the reader changed their mind about how they
-    work. A day either way is inside the noise of a fortnight-long window
+    work. A day either way is inside the noise of a two-week window
     anyway, and "the day I pressed the button" is the one a reader can
     remember.
     """
@@ -445,6 +452,54 @@ def drop_advice(body: DropAdvice, username: str = Depends(current_username)):
     stored = db.set_user_setting(username, ADOPTED_KEY, rows)
 
     return ok(adopted=_adopted(stored))
+
+
+class FileInferred(BaseModel):
+    subject: str = ''
+    ids: List[str] = []
+
+
+@router.get('/api/analytics/said')
+def said_vs_did(username: str = Depends(current_username)):
+    """What the reader said (About you, the Log) against what they did.
+
+    See backend/tracking/said_did.py for every comparison and its rule.
+    """
+    _, user = load_user(username)
+    if not user:
+        return fail('Account not found')
+    return ok(**background_api.said_for(username))
+
+
+@router.get('/api/analytics/mood')
+def mood_vs_output(username: str = Depends(current_username)):
+    """How the days felt (the Log) against what they did (the record).
+
+    See backend/tracking/mood.py for every comparison and its floor.
+    """
+    _, user = load_user(username)
+    if not user:
+        return fail('Account not found')
+    return ok(**background_api.mood_for(username))
+
+
+@router.post('/api/analytics/file_inferred')
+def file_inferred(body: FileInferred, username: str = Depends(current_username)):
+    """File finished tasks that have no subject under the one their names say.
+
+    Only ever touches this account's tasks that are still unfiled, so a stale
+    page can't move a task the reader has since filed by hand.
+    """
+    names = background_api.subject_names(username)
+    if body.subject not in names:
+        return fail("That subject isn't one of yours.")
+    wanted = {str(one) for one in body.ids[:500]}
+    filed = 0
+    for row in db.columns_for('tasks', username, ('id', 'subject')):
+        if str(row.get('id')) in wanted and not (row.get('subject') or '').strip():
+            if db.update_row('tasks', row['id'], {'subject': body.subject}, user_id=username):
+                filed += 1
+    return ok(filed=filed, **background_api.said_for(username))
 
 
 @router.get('/api/growth_periods')
@@ -606,7 +661,7 @@ def write_subject_brief(body: SubjectBrief, username: str = Depends(current_user
 
     name = (body.subject or '').strip()[:BRIEF_TEXT]
     if not name:
-        return fail('There is no subject to write about.')
+        return fail("There's no subject to write about.")
 
     findings = {
         'subject': name,
@@ -624,6 +679,8 @@ def write_subject_brief(body: SubjectBrief, username: str = Depends(current_user
         'bands': _rows(body.bands, BRIEF_BANDS),
         'struggles': _rows(body.struggles, BRIEF_REASONS),
         'goals': _rows(body.goals, BRIEF_GOALS),
+        # About you and the Log, on the server: never sent by the client.
+        'about': background_api.about_lines(username, body.subject),
     }
 
     try:
@@ -693,7 +750,7 @@ def write_goal_plan(body: GoalPlanBrief, username: str = Depends(current_usernam
 
     title = (body.goal or '').strip()[:BRIEF_TEXT]
     if not title:
-        return fail('There is no goal to plan a route to.')
+        return fail("There's no goal to plan a route to.")
 
     findings = {
         'goal': title,
@@ -722,6 +779,8 @@ def write_goal_plan(body: GoalPlanBrief, username: str = Depends(current_usernam
         'recent_days': body.recent_days,
         'bands': _rows(body.bands, BRIEF_BANDS),
         'struggles': _rows(body.struggles, BRIEF_REASONS),
+        # About you and the Log, on the server: never sent by the client.
+        'about': background_api.about_lines(username, body.subject),
     }
 
     try:
@@ -774,7 +833,7 @@ def suggest_subject_goal(body: SubjectGoalDraft, username: str = Depends(current
 
     name = (body.subject or '').strip()[:BRIEF_TEXT]
     if not name:
-        return fail('There is no subject to draft a goal for.')
+        return fail("There's no subject to draft a goal for.")
 
     try:
         drafted = subject_goal.draft({
@@ -789,6 +848,8 @@ def suggest_subject_goal(body: SubjectGoalDraft, username: str = Depends(current
                            for entry in (body.milestones or [])[:12] if str(entry).strip()],
             'aim': (body.aim or '').strip()[:BRIEF_TEXT],
             'level': (body.level or '').strip()[:BRIEF_TEXT],
+            # About you and the Log, on the server: never sent by the client.
+            'about': background_api.about_lines(username, body.subject),
             # Same bound and same reason as the checkpoints above. Five rates,
             # five difficulty bands and twelve reasons are the whole of what
             # the page can hold, so anything past that is a client saying

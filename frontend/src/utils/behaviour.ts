@@ -33,6 +33,8 @@ export interface WeekdayStat {
   label: string;
   /** XP per occurrence of this weekday, not summed. */
   avgXp: number;
+  /** Tasks finished per occurrence of this weekday. What best and worst go by. */
+  avgTasks: number;
   avgFocusMinutes: number;
   /** Share of this weekday that had anything on it, 0-100. */
   activeRate: number;
@@ -48,12 +50,13 @@ export interface WeekdayStat {
  * about the day and not about the calendar.
  */
 export function weekdayProfile(days: GrowthDay[]): WeekdayStat[] {
-  const buckets = Array.from({ length: 7 }, () => ({ xp: 0, focus: 0, active: 0, days: 0 }));
+  const buckets = Array.from({ length: 7 }, () => ({ xp: 0, tasks: 0, focus: 0, active: 0, days: 0 }));
 
   days.forEach((day) => {
     const at = new Date(`${day.date}T00:00:00`).getDay();
     const bucket = buckets[at]!;
     bucket.xp += num(day.xp_earned);
+    bucket.tasks += num(day.tasks_completed);
     bucket.focus += num(day.focus_minutes);
     bucket.days += 1;
     if (isActiveDay(day)) bucket.active += 1;
@@ -63,6 +66,7 @@ export function weekdayProfile(days: GrowthDay[]): WeekdayStat[] {
     index,
     label: WEEKDAYS[index]!,
     avgXp: bucket.days ? bucket.xp / bucket.days : 0,
+    avgTasks: bucket.days ? bucket.tasks / bucket.days : 0,
     avgFocusMinutes: bucket.days ? bucket.focus / bucket.days : 0,
     activeRate: bucket.days ? (bucket.active / bucket.days) * 100 : 0,
     days: bucket.days,
@@ -86,14 +90,16 @@ export function weekShape(days: GrowthDay[]): WeekShape {
     return { stats, best: null, worst: null, weekendGap: null, spread: 1 };
   }
 
-  const best = withDays.reduce((a, b) => (b.avgXp > a.avgXp ? b : a));
-  const worst = withDays.reduce((a, b) => (b.avgXp < a.avgXp ? b : a));
-  const mean = withDays.reduce((sum, stat) => sum + stat.avgXp, 0) / withDays.length;
+  // By tasks finished, not XP: a weekday that gets more done is the better
+  // day, whatever the levels of the tasks on it.
+  const best = withDays.reduce((a, b) => (b.avgTasks > a.avgTasks ? b : a));
+  const worst = withDays.reduce((a, b) => (b.avgTasks < a.avgTasks ? b : a));
+  const mean = withDays.reduce((sum, stat) => sum + stat.avgTasks, 0) / withDays.length;
 
   const pick = (indices: number[]) => {
     const chosen = stats.filter((stat) => indices.includes(stat.index) && stat.days > 0);
     if (chosen.length === 0) return null;
-    return chosen.reduce((sum, stat) => sum + stat.avgXp, 0) / chosen.length;
+    return chosen.reduce((sum, stat) => sum + stat.avgTasks, 0) / chosen.length;
   };
   const weekend = pick([0, 6]);
   const weekday = pick([1, 2, 3, 4, 5]);
@@ -106,7 +112,7 @@ export function weekShape(days: GrowthDay[]): WeekShape {
       weekend !== null && weekday !== null && weekday > 0
         ? Math.round(((weekend - weekday) / weekday) * 100)
         : null,
-    spread: mean > 0 ? best.avgXp / mean : 1,
+    spread: mean > 0 ? best.avgTasks / mean : 1,
   };
 }
 
@@ -250,7 +256,7 @@ export function rhythmShape(days: GrowthDay[]): RhythmShape {
 
   /* A gap is broken by *any* day that had work on it, not only one that
      earned XP. Focus sessions earn none — see utils/activeDay — so counting
-     XP here told somebody who sat down every day of a fortnight and logged it
+     XP here told somebody who sat down every day of two weeks and logged it
      that they had taken a fourteen-day break, and then priced a
      "fill the three-day gaps" recommendation off the fiction. */
   days.forEach((day) => {
@@ -288,7 +294,7 @@ export interface Momentum {
 /**
  * The last stretch against the one before it, on four measures.
  *
- * Ninety days by default: long enough that a bad fortnight does not read as a
+ * Ninety days by default: long enough that a bad two weeks does not read as a
  * decline, short enough that a change of habit six months ago is not still
  * being reported as news.
  */
@@ -486,9 +492,9 @@ export interface SubjectQuality {
    *
    * Here because the two questions want different spans. Whether a subject is
    * going well is a question about now, and reading it over a year would let a
-   * good spring hide a bad fortnight. Whether it has been *dropped* cannot be
+   * good spring hide a bad two weeks. Whether it has been *dropped* cannot be
    * asked of the window at all: a subject last touched five weeks ago has
-   * nothing inside a fortnight to be absent from, so on the window alone it
+   * nothing inside two weeks to be absent from, so on the window alone it
    * does not appear as neglected — it does not appear.
    */
   lifetimeDone: number;
@@ -543,7 +549,7 @@ export function subjectQuality(
   /* Two passes over the same tasks. `lifetime` is every finished task in a
      subject, ever, and is what answers "when did this last happen"; `buckets`
      is the window, and is what answers "how is it going". A subject with a long
-     history and nothing this fortnight has a row in `lifetime` and an empty one
+     history and nothing in the last two weeks has a row in `lifetime` and an empty one
      in `buckets`, which is exactly the state the dropped-subject rule looks
      for and the state a window-only pass cannot represent. */
   const lifetime = new Map<string, Task[]>();

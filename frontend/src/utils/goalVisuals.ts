@@ -35,6 +35,7 @@
  * checkpoints. Nothing is estimated and nothing is shared with another goal.
  */
 import type { Goal, GoalCategory, Task } from '@/types';
+import { countsToward } from '@/utils/goalLinks';
 
 const DAY = 86_400_000;
 
@@ -52,7 +53,11 @@ export type VisualId =
   /** How much work landed on each day of the week. */
   | 'volume'
   /** The checkpoints, as a roadmap. */
-  | 'roadmap';
+  | 'roadmap'
+  /** Checkpoints reached over time, one step up per checkpoint. Chosen only. */
+  | 'step'
+  /** One bar: how far along, against the goal's own target. Chosen only. */
+  | 'basic';
 
 export interface VisualMeta {
   /** The panel heading. */
@@ -64,33 +69,67 @@ export interface VisualMeta {
 export const VISUALS: Record<VisualId, VisualMeta> = {
   progress: {
     title: 'Progress over time',
-    caption: 'Built from the days checkpoints were actually reached.',
+    caption: 'Based on the days you reached each checkpoint.',
   },
   scale: {
     title: 'Distance to target',
-    caption: 'Where the figure stands, and what is left to cover.',
+    caption: "Where you are, and what's left.",
   },
   difficulty: {
-    title: 'Difficulty against execution',
-    caption: 'How well it went at each difficulty, off the ratings you gave.',
+    title: 'Difficulty vs. how it went',
+    caption: 'How well tasks went at each difficulty, from your ratings.',
   },
   skills: {
     title: 'By subject',
-    caption: 'Where the work went, and how well it went there.',
+    caption: 'Where your work went and how well it went.',
   },
   heatmap: {
     title: 'Consistency',
-    caption: 'Which days carried work. Twelve weeks, most recent on the right.',
+    caption: 'Which days you worked. Last 12 weeks, newest on the right.',
   },
   volume: {
     title: 'Practice volume',
-    caption: 'When in the week the work actually happens.',
+    caption: 'Which days of the week you work.',
   },
   roadmap: {
     title: 'Roadmap',
     caption: 'The checkpoints between here and done.',
   },
+  step: {
+    title: 'Checkpoints reached',
+    caption: 'Each step up is a checkpoint reached.',
+  },
+  basic: {
+    title: 'Progress',
+    caption: 'How far along, in one bar.',
+  },
 };
+
+/**
+ * The charts a reader can pin to a goal, in menu order.
+ *
+ * The automatic pick below stays the default. These exist because the reader
+ * sometimes knows better — a goal they want to watch for consistency even
+ * while the data would support a richer chart. `step` and `basic` are only
+ * ever chosen, never picked: the automatic order already has a better chart
+ * for every case either would cover.
+ */
+export const CHART_CHOICES: { id: VisualId; label: string }[] = [
+  { id: 'progress', label: 'Line graph' },
+  { id: 'step', label: 'Step chart' },
+  { id: 'heatmap', label: 'Heatmap' },
+  { id: 'basic', label: 'Basic graph' },
+  { id: 'roadmap', label: 'Roadmap' },
+  { id: 'volume', label: 'Weekly volume' },
+  { id: 'difficulty', label: 'Difficulty' },
+];
+
+const CHOSEN = new Set<string>(CHART_CHOICES.map((choice) => choice.id));
+
+/** The goal's pinned chart, or null when the page should pick. */
+export function chosenChart(goal: Goal): VisualId | null {
+  return goal.chart && CHOSEN.has(goal.chart) ? (goal.chart as VisualId) : null;
+}
 
 /**
  * What each kind of goal wants to be shown, best first.
@@ -100,7 +139,7 @@ export const VISUALS: Record<VisualId, VisualMeta> = {
  * consistency comes first; a competition maths goal is bottlenecked on where the
  * marks go, so accuracy against difficulty comes first and the practice charts
  * are far down. Getting that backwards is how an app ends up telling somebody
- * preparing for the AMC that they practised for 47 minutes.
+ * preparing for the AMC that they practiced for 47 minutes.
  *
  * `scale` is not in any of them. It is checked before the list, because a goal
  * measured by a number has a number, and no arrangement of subjects changes
@@ -130,7 +169,7 @@ export interface VisualContext {
 export function linkedTasks(goal: Goal, tasks: Task[]): Task[] {
   const stones = new Set((goal.milestones ?? []).map((stone) => stone.id));
   return tasks.filter(
-    (task) => task.goal_id === goal.id || (task.milestone_id && stones.has(task.milestone_id)),
+    (task) => countsToward(task, goal.id) || (task.milestone_id && stones.has(task.milestone_id)),
   );
 }
 
@@ -179,6 +218,13 @@ const FITS: Record<VisualId, (context: VisualContext) => boolean> = {
   volume: (ctx) => dated(ctx.done).length >= 4,
 
   roadmap: (ctx) => (ctx.goal.milestones ?? []).length > 0,
+
+  // Never reached by the automatic pick; kept so the table stays total.
+  step: (ctx) =>
+    (ctx.goal.milestones ?? []).some(
+      (stone) => stone.status === 'done' && Boolean(stone.completed_at),
+    ),
+  basic: () => true,
 };
 
 export interface Pick {
@@ -211,40 +257,37 @@ const WHY: Record<VisualId, (context: VisualContext) => string> = {
     const marked = (ctx.goal.milestones ?? []).filter(
       (stone) => stone.status === 'done' && Boolean(stone.completed_at),
     ).length;
-    return `${marked} checkpoints were reached on a recorded date, so the run has a real shape.`;
+    return `${marked} checkpoints have a date, so the line shows real progress.`;
   },
 
   scale: (ctx) =>
-    `You set a target of ${ctx.goal.target_number} ${ctx.goal.unit || 'units'}, and the distance `
-    + 'to a figure you chose comes before anything this page could infer.',
+    `You set a target of ${ctx.goal.target_number} ${ctx.goal.unit || 'units'}, so how close you are comes first.`,
 
   difficulty: (ctx) => {
     const marks = rated(ctx.done);
     const levels = new Set(marks.map((task) => task.difficulty)).size;
-    return `${marks.length} finished tasks carry both ratings, across ${levels} difficulty `
-      + 'levels — enough to see where the work stops going well.';
+    return `${marks.length} finished tasks have both ratings, across ${levels} difficulty levels. Enough to see where things start going wrong.`;
   },
 
   skills: (ctx) => {
     const filed = ctx.done.filter((task) => Boolean(task.subject));
     const subjects = new Set(filed.map((task) => task.subject)).size;
-    return `${filed.length} finished tasks are filed across ${subjects} subjects, so where the `
-      + 'effort went is a real split rather than one subject with a rounding error.';
+    return `${filed.length} finished tasks across ${subjects} subjects, so you can see where your effort went.`;
   },
 
   heatmap: (ctx) => {
     const days = new Set(dated(ctx.done).map((task) => task.completed_at!.slice(0, 10))).size;
-    return `Work landed on ${days} separate days. For this kind of goal the question is `
-      + 'whether you sat down, not how hard it was.';
+    return `You worked on ${days} different days. For this kind of goal, showing up is what counts.`;
   },
 
   volume: (ctx) =>
-    `${dated(ctx.done).length} finished tasks carry a date, which is enough to say when in the `
-    + 'week the work actually happens.',
+    `${dated(ctx.done).length} finished tasks have a date. That's enough to show which days you work.`,
 
   roadmap: (ctx) =>
-    `${(ctx.goal.milestones ?? []).length} checkpoints are set and there is not yet enough `
-    + 'finished work to chart. The plan is the most honest thing to show.',
+    `${(ctx.goal.milestones ?? []).length} checkpoints are set, but there's not enough finished work to chart yet. So here's the plan.`,
+
+  step: () => '',
+  basic: () => '',
 };
 
 /**
@@ -254,6 +297,17 @@ const WHY: Record<VisualId, (context: VisualContext) => string> = {
  * against it, which the card answers with an invitation rather than a chart.
  */
 export function pickVisual(context: VisualContext): Pick | null {
+  // A chart the reader chose is drawn whatever the data says. The panel copes
+  // with thin data on its own, and says so, rather than overruling them.
+  const chosen = chosenChart(context.goal);
+  if (chosen) {
+    return {
+      id: chosen,
+      meta: VISUALS[chosen],
+      why: 'You chose this chart. Pick Automatic from the ⋯ menu to let the page choose.',
+    };
+  }
+
   const category = (context.goal.category || 'other') as GoalCategory;
   const order = BY_CATEGORY[category] ?? BY_CATEGORY.other;
 
@@ -298,7 +352,7 @@ export function difficultyBars(context: VisualContext): Bar[] {
   return [1, 2, 3, 4, 5].map((level) => {
     const at = marks.filter((task) => Number(task.difficulty) === level);
     if (at.length === 0) {
-      return { label: RATING[level]!, percent: 0, value: '—', empty: true };
+      return { label: RATING[level]!, percent: 0, value: '-', empty: true };
     }
     const mean = at.reduce((sum, task) => sum + Number(task.execution), 0) / at.length;
     return {

@@ -2,7 +2,7 @@
  * The grade, and the rung above it.
  *
  * The panel's lead sentence is the largest thing on the analytics page and the
- * first thing read. It used to end at the letter's meaning — "62/100, two or
+ * first thing read. It used to end at the letter's meaning — "6.2/10, two or
  * three of the five are low" — which states where the reader is and offers
  * nowhere to go. Every other row on the panel links somewhere; this one graded
  * and stopped.
@@ -48,9 +48,6 @@ function show(overrides: Partial<SummaryProps> = {}) {
   const props: SummaryProps = {
     score: scoreOf(62, 'D'),
     movement: null,
-    topAdvice: null,
-    adviceCount: 0,
-    phase: null,
     goals: null,
     ...overrides,
   };
@@ -78,57 +75,56 @@ describe('the distance to the next grade', () => {
   it('is in the lead sentence', () => {
     // 62 is a D; C starts at 70.
     show({ score: scoreOf(62, 'D') });
-    expect(nextClause()).toMatch(/8 points to C/);
+    expect(nextClause()).toMatch(/0\.8 to C/);
   });
 
   it('counts from the band the letter came from', () => {
     // 88 is a B; A starts at 90.
     show({ score: scoreOf(88, 'B') });
-    expect(nextClause()).toMatch(/2 points to A/);
+    expect(nextClause()).toMatch(/0\.2 to A/);
   });
 
-  it('says "point" rather than "points" when there is one', () => {
+  it('says the distance on the ten-point scale the score is printed on', () => {
     show({ score: scoreOf(69, 'D') });
-    expect(nextClause()).toMatch(/1 point to C/);
-    expect(nextClause()).not.toMatch(/points/);
+    expect(nextClause()).toMatch(/0\.1 to C/);
   });
 
   it('is absent at the top, where there is no band above', () => {
     show({ score: scoreOf(100, 'S') });
-    expect(lead().textContent).not.toMatch(/points? to/);
+    expect(clauseCount()).toBe(0);
   });
 });
 
-describe('and it does not depend on tone', () => {
-  /* The point of the change. A reader on the gentle page is the one most in
-     need of being shown a reachable next rung, and was the one not shown it. */
-  it.each(['gentle', 'balanced', 'harsh'] as const)('is shown at %s tone', (tone) => {
-    show({ score: scoreOf(62, 'D'), tone });
-    expect(nextClause()).toMatch(/8 points to C/);
-  });
-
-  it.each(['gentle', 'balanced', 'harsh'] as const)('is shown once at %s tone', (tone) => {
-    /* It moved out of the weakest row rather than being copied into the lead.
-       Printed in both places the panel says the same arithmetic twice. */
-    show({ score: scoreOf(62, 'D'), tone });
+describe('and the five measures stay on Achievements', () => {
+  it('is shown once', () => {
+    show({ score: scoreOf(62, 'D') });
     expect(clauseCount()).toBe(1);
-    // And specifically not back on the row it came off.
-    const row = screen.getByText(/measure holding it back/i);
-    expect(row.textContent).not.toMatch(/points? to/);
   });
 
-  it('leaves the weakest measure named in its own row', () => {
-    show({ score: scoreOf(62, 'D'), tone: 'balanced' });
-    const row = screen.getByText(/measure holding it back/i);
-    expect(row.textContent).toMatch(/consistency/i);
-    expect(row.textContent).toMatch(/40/);
+  it('does not name the strongest or weakest measure', () => {
+    /* Those are "Biggest improvement" and "Needs attention" on the Growth
+       tab. */
+    show({ score: scoreOf(62, 'D') });
+    expect(screen.queryByText(/measure holding it back/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/what is carrying it/i)).not.toBeInTheDocument();
+  });
+
+  it('sends "see it over time" to the Growth tab', () => {
+    show({
+      score: scoreOf(62, 'D'),
+      movement: { now: 62, previous: 60, days: 3, direction: 'up' },
+    });
+    expect(screen.getByRole('link', { name: 'See it over time' })).toHaveAttribute(
+      'href',
+      '/analytics/growth',
+    );
   });
 });
 
 describe('what must not have changed', () => {
   it('still prints the score and what the letter means', () => {
     show({ score: scoreOf(62, 'D') });
-    expect(lead().textContent).toMatch(/62/);
+    expect(lead().textContent).toMatch(/6\.2\/10/);
     expect(lead().textContent).toMatch(/two or three of the five are low/i);
   });
 
@@ -138,5 +134,61 @@ describe('what must not have changed', () => {
     show({ score: scoreOf(null, null) });
     expect(screen.getByText(/no score yet/i)).toBeInTheDocument();
     expect(clauseCount()).toBe(0);
+  });
+});
+
+describe('the five measures on the grade card', () => {
+  const FIVE: AnalyticalScore = {
+    value: 84,
+    grade: 'B',
+    parts: [
+      part('productivity', 'Productivity', 100),
+      part('quality', 'Quality', 76),
+      part('consistency', 'Consistency', 88),
+      part('efficiency', 'Efficiency', 78),
+      part('focus', 'Focus', 80),
+    ],
+    weakest: part('quality', 'Quality', 76),
+    strongest: part('productivity', 'Productivity', 100),
+  };
+
+  /** The rows of the measures list, as "name letter score" strings. */
+  function measures() {
+    return Array.from(
+      document.querySelectorAll('.ax-summary-parts li'),
+      (row) => row.textContent?.replace(/\s+/g, ' ').trim(),
+    );
+  }
+
+  it('lists all five, each with its own letter, on the headline\'s ten-point scale', () => {
+    show({ score: FIVE });
+    expect(screen.getByRole('list', { name: 'Your five scores' })).toBeInTheDocument();
+    expect(measures()).toEqual([
+      'ProductivityS10.0/10',
+      'QualityC7.6/10',
+      'ConsistencyB8.8/10',
+      'EfficiencyC7.8/10',
+      'FocusB8.0/10',
+    ]);
+  });
+
+  it('colors each letter by its own grade, not the headline\'s', () => {
+    show({ score: FIVE });
+    const rows = document.querySelectorAll('.ax-summary-parts li');
+    expect(rows[0]).toHaveClass('grade-S');
+    expect(rows[1]).toHaveClass('grade-C');
+  });
+
+  it('puts the measured quantity on hover, except the consistency rate', () => {
+    // The consistency rate is printed once on the page, on the Overview tile.
+    show({ score: FIVE });
+    const rows = document.querySelectorAll('.ax-summary-parts li');
+    expect(rows[0]).toHaveAttribute('title', '100 of 100');
+    expect(rows[2]).not.toHaveAttribute('title');
+  });
+
+  it('draws no measures before there is a score', () => {
+    show({ score: scoreOf(null, null) });
+    expect(document.querySelector('.ax-summary-parts')).toBeNull();
   });
 });

@@ -101,37 +101,38 @@
  * new account's first impression of the analysis a page of numbers about
  * somebody who does not exist, and taught the reader to discount the real ones
  * that arrived later. A tab that cannot be filled now says what it is waiting
- * for and when it opens — see `Locked` — and a new account is offered the one
+ * for and when it opens — see `Building` — and a new account is offered the one
  * thing it can actually do here, which is answer the questions above.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { STAGES, type Stage } from '@/utils/dataMaturity';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Ambient, ErrorState, Loading, PageHero } from '@/components';
+import { ErrorState, Loading, PageHero } from '@/components';
 import { stageShows } from '@/utils/dataMaturity';
 import {
   AnalyticsSetup,
-  Controls,
-  GoalsTab,
+  GrowthTab,
   habitLead,
-  HabitsTab,
-  Header,
   InsightsTab,
+  Controls,
+  Header,
   OverviewTab,
   RecommendationsTab,
-  GrowthTab,
   scoreMovement,
   SubjectsTab,
   Summary,
   TabOpening,
   useAnalyticsData,
   useAnalyticsModel,
-  VIEWS,
+  viewByKey,
   ViewTabs,
+  NEED_DAYS,
+  StageReached,
   viewFor,
   type SetupAnswers,
   type View,
 } from '@/components/Analytics';
-import { useDocumentTitle, useSettings, useSubjectIndex } from '@/hooks';
+import { useDocumentTitle, useSettings, useSubjectIndex, useSubjectsReady } from '@/hooks';
 import { saveSubjectMilestones } from '@/services/analytics';
 import { PATTERN_DAYS, RECENT_DAYS } from '@/utils/recent';
 import { buildReport, reportFilename } from '@/utils/report';
@@ -154,6 +155,13 @@ import '@/styles/analytics.css';
  * shipped and matched against every page in the app, not just this one.
  */
 import '@/styles/growth.css';
+import { startAnalyticsReads } from '@/components/Analytics/earlyReads';
+import { SOLID_AT } from '@/components/Analytics/milestones';
+
+/* The page's reads begin the moment this module is evaluated — when the route
+   is first opened — rather than after the first commit. See
+   components/Analytics/earlyReads for why that gap was a third of a second. */
+startAnalyticsReads();
 
 
 export default function Analytics() {
@@ -183,7 +191,23 @@ export default function Analytics() {
    * nothing but lay them out.
    */
   const subjects = useSubjectIndex(username);
-  const model = useAnalyticsModel(data, subjects);
+  const subjectsReady = useSubjectsReady(username);
+  const { prefs, ready, update } = useSettings();
+  /*
+   * Whether every call the first paint needs has answered. Asked here, before
+   * the model, because the model is told to hold until it is true — see `hold`
+   * in ./useAnalyticsModel. It is also what draws the spinner below ("Drawn
+   * once, with everything"), so the model starts work exactly when the
+   * spinner is about to go.
+   */
+  const waiting =
+    [
+      data.tasks, series, data.ratings, data.goals,
+      baseline, data.adopted, data.gradedLog, data.scoreLog, data.said, data.mood,
+    ].some((call) => call.loading)
+    || !ready
+    || !subjectsReady;
+  const model = useAnalyticsModel(data, subjects, waiting);
 
   /**
    * Which tab a bare visit lands on.
@@ -202,7 +226,6 @@ export default function Analytics() {
    * The same shape as FrontDoor's redirect for `home_page`, and for the same
    * reason: a redirect cannot be taken back.
    */
-  const { prefs, ready, update } = useSettings();
   /**
    * Whether the reader asked for the questions outright.
    *
@@ -222,16 +245,30 @@ export default function Analytics() {
     // visit, and sending them to their opening tab would drop the request.
     if (askedSetup || view.key !== 'overview') return;
     if (prefs.analytics_home_tab === 'overview') return;
-    const target = VIEWS.find((entry) => entry.key === prefs.analytics_home_tab);
+    /* `viewByKey` rather than a find over VIEWS: an account that chose Habits
+       has that word stored, and Habits is Insights now. See `MOVED_KEYS`. */
+    const target = viewByKey(prefs.analytics_home_tab);
     if (target) navigate(target.path, { replace: true });
   }, [askedSetup, navigate, prefs.analytics_home_tab, ready, view.key]);
   /* The page reads a dozen of the model's eighty figures — the gates, the
      opening sentence and the export. Everything else goes to a tab whole. */
   const {
     span, chooseSpan, option, spanText, subject, setSubject, subjectOptions, waitFor,
-    maturity, streak, analytical, hasReportCard, figures, insights, breakdown, banked, recentSubjects,
-    discovered, diagnoses, advice, plan, recorded, state, goalSet, habits, summary,
+    habits, summary, maturity, streak, analytical, hasReportCard, figures, insights, breakdown, banked, recentSubjects,
+    discovered, diagnoses, advice, plan, recorded, goalSet,
   } = model;
+
+  /* Every subject in the catalog, for the pickers that should reach any of
+     them: the subject filter lists the ones with work first and these under
+     them, and setup offers all of them with a search. */
+  const allSubjects = useMemo(
+    () =>
+      [...subjects.values()].map((entry) => ({
+        id: entry.id, label: entry.name, custom: entry.custom, used: entry.used,
+      })),
+    [subjects],
+  );
+  const otherSubjects = useMemo(() => allSubjects.filter((entry) => !(entry.used > 0)), [allSubjects]);
   // ---- The shell ----------------------------------------------------------
 
   /**
@@ -312,6 +349,11 @@ export default function Analytics() {
    * first-run case.
    */
   const [editingSetup, setEditingSetup] = useState<boolean | null>(null);
+  /* A `?setup` link followed while this page is already open asks again, even
+     if the questions were closed earlier in the visit. */
+  useEffect(() => {
+    if (askedSetup) setEditingSetup(null);
+  }, [askedSetup]);
   const aim = baseline.data?.baseline ?? null;
 
   /**
@@ -329,6 +371,13 @@ export default function Analytics() {
    * preferences all have defaults that are already in force, so losing them
    * costs the reader a trip to settings rather than the page.
    */
+  /* Closing the questions, saved or not. A `?setup` that opened them comes off
+     the address too, or a reload would open them again. */
+  const closeSetup = useCallback(() => {
+    setEditingSetup(false);
+    if (askedSetup) navigate(location.pathname, { replace: true });
+  }, [askedSetup, location.pathname, navigate]);
+
   const saveSetup = useCallback(
     async (answers: SetupAnswers) => {
       const saved = await data.saveBaseline(answers.baseline);
@@ -348,12 +397,78 @@ export default function Analytics() {
           ),
         ),
       );
-      setEditingSetup(false);
+      closeSetup();
       return true;
     },
-    [data, update],
+    [closeSetup, data, update],
   );
 
+
+  /**
+   * Arriving at a new stage, announced once.
+   *
+   * The comparison is between the stage the record *is* at and the highest one
+   * this account has been told about — never between two computed stages, and
+   * nothing is stored about maturity itself. `STAGES` is ordered weakest-first
+   * so an index comparison is the whole test, and it is a comparison rather
+   * than an equality so an account that crosses two thresholds between visits
+   * is told about the one it landed on rather than about neither.
+   *
+   * Nothing fires on an empty `analytics_stage_seen`: that is a reader who has
+   * never been announced to, which includes every account that existed before
+   * this key did. Announcing "Getting started" to somebody on their first
+   * morning would be an interruption to tell them nothing has happened yet, so
+   * the first visit records where they are and stays quiet.
+   */
+  const seenStage = prefs.analytics_stage_seen;
+  const stageNow = model.maturity.stage;
+  const climbed =
+    ready &&
+    seenStage !== '' &&
+    STAGES.indexOf(stageNow) > STAGES.indexOf(seenStage as Stage);
+
+  const [announced, setAnnounced] = useState(false);
+
+  /* First sight of this account: record where it stands and say nothing. That
+     is what gives the next climb something to be measured against, and it is
+     why an account that existed before this key did is not greeted with an
+     overlay for a stage it reached months ago. */
+  useEffect(() => {
+    if (ready && seenStage === '') void update({ analytics_stage_seen: stageNow });
+  }, [ready, seenStage, stageNow, update]);
+
+  const closeStage = useCallback(() => {
+    setAnnounced(true);
+    void update({ analytics_stage_seen: stageNow });
+  }, [stageNow, update]);
+
+  /**
+   * Leaving the questions unanswered, for good.
+   *
+   * Skipping used to set the local flag and nothing else, which made it a
+   * skip for exactly as long as the page stayed mounted: `editingSetup` is
+   * `useState`, so the next visit reset it to `null`, `firstRun` was still
+   * true — no flag, no baseline — and the wizard opened again. A reader who
+   * did not want to answer was asked on every single visit, which is the wall
+   * the screen was explicitly designed not to be.
+   *
+   * So a skip writes the same flag a finished run writes. That is what "not
+   * insisting" has to mean: the offer is made once. Every answer is still
+   * reachable afterwards — the baseline panel says "Set a baseline" and the
+   * settings page links back here with `?setup`, which is the re-entry the
+   * flag deliberately does not block.
+   *
+   * The screen closes whether or not the write lands. A failed flag costs the
+   * reader the same question next time; refusing to close costs them the page
+   * they were trying to reach.
+   */
+  const skipSetup = useCallback(() => {
+    closeSetup();
+    /* Only when it is not already set. An account reopening the screen from
+       the baseline panel is pressing Cancel, not skipping, and has answered
+       this long ago. */
+    if (!prefs.analytics_setup_done) void update({ analytics_setup_done: true });
+  }, [closeSetup, prefs.analytics_setup_done, update]);
 
   /**
    * Whether the setup screen takes the page over.
@@ -379,7 +494,26 @@ export default function Analytics() {
     aim === null;
   const showSetup = editingSetup ?? (firstRun || askedSetup);
 
-  if (series.loading) return <Loading label="Reading your history" />;
+  /*
+   * Drawn once, with everything.
+   *
+   * The page used to open as soon as the day series answered and then redraw
+   * as each of the other eight calls landed — eleven paints in the first
+   * quarter-second, with gates flipping, panels appearing under the reader
+   * and the opening sentence rewriting itself. Every tab reads several of
+   * these, so none of them is optional for a correct first frame. So the page
+   * waits for all of them, the preferences and the subject catalogue, and
+   * then paints the finished thing.
+   *
+   * `loading` rather than `pending`: it is only true before a call's *first*
+   * answer, so a re-read after adopting advice or saving a baseline keeps the
+   * page on screen and never brings the spinner back. A call that fails still
+   * counts as answered — the panel that needed it says so, and the rest of the
+   * page is not held hostage to it.
+   */
+  if (waiting) {
+    return <Loading label="Loading your analytics" />;
+  }
   if (!series.data) {
     return (
       <ErrorState
@@ -404,17 +538,17 @@ export default function Analytics() {
   const opening = ((): React.ReactNode => {
     switch (view.key) {
       case 'overview':
-        /* Nothing until a fortnight of recorded work. `Summary` leads with a
+        /* Nothing until ten days of recorded work. `Summary` leads with a
            score out of a hundred and a letter grade, and that is the most
            confident claim the page makes about a person — on day two it is
            arithmetic over an empty record, and on day nine it is a verdict
            passed on somebody the app has barely met.
            
-           Suppressed for the same three stages that hold `ScorePanel` and
-           `StandingPanel` back on the tab itself, so the grade, its chart and
-           its percentile all arrive together rather than one of them turning
-           up a week before the other two. The tab's own opening below a
-           fortnight is `Collecting` or `StageNote`, which say the true thing
+           Suppressed for the same stages that hold the quality panels back on
+           the tab itself, so the grade does not turn up a week before the
+           readings it is graded on, and wears "Early read" until the old
+           two-week floor (`SOLID_AT`). The tab's own opening below ten
+           days is `Collecting` or `StageNote`, which say the true thing
            instead. See utils/dataMaturity. */
         if (!stageShows(maturity.stage).judgement) return null;
         /* The one tab whose opening is a block rather than a line. Everything
@@ -425,56 +559,36 @@ export default function Analytics() {
           <Summary
             score={analytical}
             movement={scoreMovement(recorded)}
-            /* Reorders one pair of rows and adds one clause — see the prop's
-               own note. No figure in the block changes with it. */
-            tone={model.tone}
-            topAdvice={advice[0]?.title ?? null}
-            adviceCount={advice.length}
-            phase={waitFor('insights') === 0 ? state.phase : null}
             /* What it is read from, until "enough" is the honest answer. The
                score is the mean of five measures and it swings a long way on
                one good week at this length — a fact about the number rather
                than a hedge, so it sits beside it. */
             basis={
-              stageShows(maturity.stage).note
-                ? `Read from ${maturity.activeDays} days of your work. It will settle as you record more.`
-                : null
+              maturity.activeDays < SOLID_AT.judgement
+                ? `Early read from ${maturity.activeDays} work days. It firms up around day ${SOLID_AT.judgement}.`
+                : stageShows(maturity.stage).note
+                  ? `Based on ${maturity.activeDays} days of work. It'll get sharper as you log more.`
+                  : null
             }
             goals={
               goalSet.active > 0
-                ? { active: goalSet.active, behind: goalSet.atRisk + goalSet.offTrack }
+                ? { active: goalSet.active, behind: goalSet.behind }
                 : null
             }
           />
         );
-      case 'goals':
-        return goalSet.active > 0 ? (
-          <TabOpening tone={goalSet.atRisk + goalSet.offTrack > 0 ? 'down' : 'up'}>
-            <strong>{goalSet.active}</strong> {goalSet.active === 1 ? 'goal is' : 'goals are'}{' '}
-            live
-            {goalSet.atRisk + goalSet.offTrack > 0 ? (
-              <>
-                , and <strong>{goalSet.atRisk + goalSet.offTrack}</strong> of them{' '}
-                {goalSet.atRisk + goalSet.offTrack === 1 ? 'is' : 'are'} behind.
-              </>
-            ) : (
-              <>, and none of them is behind.</>
-            )}
-          </TabOpening>
-        ) : null;
-      case 'habits':
-        return waitFor('habits') === 0 && habits.length > 0 ? (
-          <TabOpening>{habitLead(summary, spanText)}</TabOpening>
-        ) : null;
       case 'insights':
-        return waitFor('insights') === 0 ? <TabOpening>{state.sentence}</TabOpening> : null;
+        /* What repeats. `state.sentence` used to lead once the tab had
+           twenty-eight days, but it opens on the share of days worked, which
+           is the Overview's Consistency tile. */
+        if (waitFor('habits') === 0 && habits.length > 0) {
+          return <TabOpening>{habitLead(summary, spanText)}</TabOpening>;
+        }
+        return null;
       case 'recommendations':
-        return advice.length > 0 ? (
-          <TabOpening>
-            {advice.length} {advice.length === 1 ? 'change is' : 'changes are'} worth making here.
-            The first is <strong>{advice[0]!.title.toLowerCase()}</strong>.
-          </TabOpening>
-        ) : null;
+        /* This used to count the "Changes Worth Making" cards. They are gone,
+           and the plan under it is its own opening. */
+        return null;
       case 'subjects':
         return breakdown.rows.length > 0 ? (
           <TabOpening>
@@ -483,12 +597,6 @@ export default function Analytics() {
             <strong>{breakdown.rows[0]!.label}</strong> is the furthest along.
           </TabOpening>
         ) : null;
-      case 'growth':
-        /* Nothing. This is the one tab whose opening line is the reading
-           itself — `growthArc`, drawn by the tab — and a streak count above it
-           would be a second, shorter, unrelated headline competing with the
-           sentence the whole page exists to state. */
-        return null;
       default:
         return null;
     }
@@ -497,7 +605,15 @@ export default function Analytics() {
 
   return (
     <div className="ax-page">
-      <Ambient />
+      {/* Over the page rather than in it. See the note at the top of
+          StageReached for why this one moment is allowed to interrupt. */}
+      {climbed && !announced && (
+        <StageReached
+          stage={stageNow}
+          activeDays={model.maturity.activeDays}
+          onDone={closeStage}
+        />
+      )}
       {/* No `pg-enter` here, unlike every other page. This one has its own
           arrival and always did — `.ax-panel` and the tiles carry `ax-enter`,
           which is the same fade and the same ten pixels, and the charts inside
@@ -529,7 +645,26 @@ export default function Analytics() {
             onExportData={model.slice.current.length > 0 ? exportData : undefined}
             dataName={seriesFilename(username ?? 'account', new Date())}
           />
-          <ViewTabs active={view.key} onView={openView} />
+          {/* How far the gated tab is along, so the bar reads as
+              filling rather than as features the account does not have. From
+              the model, which is the only place that knows both the
+              thresholds and the active-day count — see `ViewTabs`. */}
+          <ViewTabs
+            active={view.key}
+            onView={openView}
+            filling={{
+              recommendations:
+                model.waitFor('recommendations') > 0
+                  ? { have: model.historyDays, need: NEED_DAYS.recommendations }
+                  : undefined,
+              /* Insights fills on the earlier of its two gates, the habits
+                 one: that is when it stops being a notice. */
+              insights:
+                model.waitFor('habits') > 0
+                  ? { have: model.historyDays, need: NEED_DAYS.habits }
+                  : undefined,
+            }}
+          />
           {/* Not during setup, for the same reason the tab body is not: a
               window picker over a page with nothing in it to scope is a
               control that does nothing. The tabs stay, because they are the
@@ -541,6 +676,7 @@ export default function Analytics() {
               subject={subject}
               onSubject={setSubject}
               subjects={subjectOptions}
+              others={otherSubjects}
               compareLabel={option.compare}
             />
           )}
@@ -551,12 +687,12 @@ export default function Analytics() {
             in the hero now and hidden from there. */}
         {showSetup ? (
           <AnalyticsSetup
-            subjects={subjectOptions}
+            subjects={allSubjects}
             current={aim}
             setOn={aim?.set_on ?? ''}
             prefs={prefs}
             onSave={saveSetup}
-            onSkip={() => setEditingSetup(false)}
+            onSkip={skipSetup}
           />
         ) : (
           <>
@@ -567,10 +703,8 @@ export default function Analytics() {
           <OverviewTab model={model} data={data} onEditBaseline={() => setEditingSetup(true)} />
         )}
 
-        {view.key === 'goals' && <GoalsTab model={model} />}
-        {view.key === 'habits' && <HabitsTab model={model} subjects={subjects} />}
-        {view.key === 'insights' && <InsightsTab model={model} />}
         {view.key === 'recommendations' && <RecommendationsTab model={model} data={data} />}
+        {view.key === 'insights' && <InsightsTab model={model} data={data} subjects={subjects} />}
         {view.key === 'subjects' && (
           <SubjectsTab model={model} subjects={subjects} username={username} />
         )}

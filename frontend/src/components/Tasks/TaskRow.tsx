@@ -12,8 +12,11 @@
  * alternative is a dialog for the single most common edit there is.
  */
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { Goal, Task } from '@/types';
 import { dueLine, spellDuration } from './board';
+import { daysLate, earnedXp, isOverdue, lateXp } from '@/utils/overdue';
+import { levelLabel, levelOf } from '@/utils/priority';
 
 export interface TaskRowProps {
   task: Task;
@@ -23,6 +26,8 @@ export interface TaskRowProps {
   goals: Goal[];
   /** Seconds set aside for it on the calendar, or null when it has no block. */
   estimate: number | null;
+  /** How many notes are about it (utils/noteLinks). Zero draws nothing. */
+  notes?: number;
   selected: boolean;
   starred: boolean;
   busy: boolean;
@@ -59,6 +64,13 @@ const CAL = (
   </svg>
 );
 
+const NOTE = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M6 3h9l4 4v14H6z" />
+    <path d="M14 3v5h5M9 13h7M9 17h5" />
+  </svg>
+);
+
 const CLOCK = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
     <circle cx="12" cy="12" r="9" />
@@ -71,6 +83,7 @@ export function TaskRow({
   subject,
   goals,
   estimate,
+  notes = 0,
   selected,
   starred,
   busy,
@@ -118,6 +131,12 @@ export function TaskRow({
   };
 
   const when = dueLine(task);
+  // Late costs XP (utils/overdue.ts): an open task shows what finishing it
+  // now would pay, a finished one what it did pay.
+  const fullXp = Number(task.xp_value) || 0;
+  const overdue = isOverdue(task);
+  const xp = done ? earnedXp(task) : overdue ? lateXp(fullXp, task.due_date) : fullXp;
+  const late = overdue ? daysLate(task.due_date) : 0;
 
   return (
     /* `data-task` is how the top bar's search finds this row on the page:
@@ -173,15 +192,26 @@ export function TaskRow({
               {task.title}
             </span>
           )}
-          <span className={`tk-tag is-${task.priority}`}>
-            {task.priority[0]!.toUpperCase() + task.priority.slice(1)}
+          {/* The task's level, Easy to Grueling, in its priority's color. It
+              used to print the priority word, which read as a second
+              difficulty beside the level ("Medium" next to "Easy"). */}
+          <span className={`tk-tag is-${task.priority}`} title={`Priority: ${task.priority}`}>
+            {levelLabel(levelOf(task))}
           </span>
           {subject && <span className="tk-tag is-subject">{subject}</span>}
+          {overdue && (
+            <span
+              className="tk-tag is-overdue"
+              title={`${late} ${late === 1 ? 'day' : 'days'} late. Finish it now for ${xp} of ${fullXp} XP.`}
+            >
+              Overdue
+            </span>
+          )}
         </div>
 
         <div className="tk-row-meta">
           {when && (
-            <span className={task.status !== 'done' && when.includes('late') ? 'is-late' : undefined}>
+            <span className={overdue ? 'is-late' : undefined}>
               <i aria-hidden="true">{CAL}</i>
               {when}
             </span>
@@ -192,6 +222,13 @@ export function TaskRow({
               {goal.title}
             </span>
           )}
+          {notes > 0 && (
+            <Link className="tk-notes-chip" to={`/notes?task=${encodeURIComponent(task.id)}`}
+              title={`Your notes about ${task.title}`}>
+              <i aria-hidden="true">{NOTE}</i>
+              {notes} {notes === 1 ? 'note' : 'notes'}
+            </Link>
+          )}
           {estimate !== null && (
             <span title="The block you set aside for this on the calendar">
               <i aria-hidden="true">{CLOCK}</i>
@@ -201,7 +238,10 @@ export function TaskRow({
         </div>
       </div>
 
-      <span className="tk-xp">+{(Number(task.xp_value) || 0).toLocaleString()} XP</span>
+      <span className={`tk-xp${xp < fullXp ? ' is-cut' : ''}`}>
+        {xp < fullXp && <s aria-label={`was ${fullXp} XP`}>{fullXp.toLocaleString()}</s>}
+        +{xp.toLocaleString()} XP
+      </span>
 
       <button
         type="button"
@@ -267,6 +307,16 @@ export function TaskRow({
         )}
         {menu && !linking && (
           <div className="tk-menu-panel is-row">
+            {/* Opens the timer with this task picked, so the sittings that
+                follow are logged against it. See `?task=` in pages/Timer. */}
+            {!done && (
+              <Link className="tk-menu-item is-link" to={`/timer?task=${encodeURIComponent(task.id)}`}>
+                Focus on this
+              </Link>
+            )}
+            <Link className="tk-menu-item is-link" to={`/notes?task=${encodeURIComponent(task.id)}&new=1`}>
+              Write a note
+            </Link>
             <button type="button" className="tk-menu-item" onClick={() => { setMenu(false); setEditing(true); }}>
               Rename
             </button>

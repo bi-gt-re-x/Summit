@@ -68,7 +68,7 @@ export const aiMl = [
   }),
   node({
     id: 'ml.visualisation',
-    name: 'Advanced Visualisation',
+    name: 'Advanced Visualization',
     description: 'Choosing the form that shows the thing, and building a figure that survives being looked at properly.',
     difficulty: 'advanced',
     xpReward: 130,
@@ -83,7 +83,7 @@ export const aiMl = [
   node({
     id: 'ml.data-cleaning',
     name: 'Data Cleaning',
-    description: 'Missing values, wrong types, duplicates and outliers — most of the actual work.',
+    description: 'Missing values, wrong types, duplicates and outliers. Most of the actual work.',
     difficulty: 'intermediate',
     xpReward: 120,
     prerequisites: all('ml.pandas', 'math.statistics'),
@@ -107,7 +107,7 @@ export const aiMl = [
   node({
     id: 'ml.fundamentals',
     name: 'Machine Learning Fundamentals',
-    description: 'What a model is, what training means, and the split between what it learned and what it memorised.',
+    description: 'What a model is, what training means, and the split between what it learned and what it memorized.',
     difficulty: 'advanced',
     xpReward: 180,
     prerequisites: all('math.statistics', 'math.linear-algebra', 'ml.pandas'),
@@ -152,7 +152,7 @@ export const aiMl = [
   }),
   node({
     id: 'ml.overfitting',
-    name: 'Overfitting and Regularisation',
+    name: 'Overfitting and Regularization',
     description: 'Why the model that fits the training data best is often the worst one, and what to do about it.',
     difficulty: 'expert',
     xpReward: 170,
@@ -188,7 +188,7 @@ export const aiMl = [
   node({
     id: 'ml.neural-networks',
     name: 'Neural Networks',
-    description: 'Layers, weights and a non-linearity — and why stacking them buys anything at all.',
+    description: 'Layers, weights and a non-linearity. And why stacking them buys anything at all.',
     difficulty: 'expert',
     xpReward: 210,
     prerequisites: all('ml.gradient-descent', 'math.linear-algebra'),

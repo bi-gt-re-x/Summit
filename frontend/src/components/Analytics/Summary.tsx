@@ -61,23 +61,16 @@ import {
   GRADE_BANDS,
   GRADE_MEANING,
   bandLabel,
+  gradeFor,
   howItIsCalculated,
   type AnalyticalScore,
 } from '@/utils/analyticalScore';
-import { toneRules } from '@/utils/analyticsPrefs';
-import type { AnalyticsTone } from '@/services/settings';
 
 export interface SummaryProps {
   /** The score, its letter and its five parts. */
   score: AnalyticalScore;
   /** What the score did, or null when there is nothing honest to compare to. */
   movement: ScoreMovement | null;
-  /** The highest-value recommendation's title, or null when there are none. */
-  topAdvice: string | null;
-  /** How many there are in total, for the row's hand-off. */
-  adviceCount: number;
-  /** The behavioural phase — "Building", "Dormant" — from `currentState`. */
-  phase: string | null;
   /** Live goals and how many of them are behind, or null when there are none. */
   goals: { active: number; behind: number } | null;
   /**
@@ -89,21 +82,6 @@ export interface SummaryProps {
    * beside it rather than in a tooltip. See utils/dataMaturity.
    */
   basis?: string | null;
-  /**
-   * How blunt the block is allowed to be about the five measures.
-   *
-   * It reorders one pair of rows, and that is now all it does. Everything
-   * stated is stated at every setting — the score, the letter, the distance to
-   * the next letter, the weakest measure and its figure — but a reader who
-   * asked for a gentle page is told what is carrying the score before what is
-   * holding it back. See utils/analyticsPrefs.
-   *
-   * It used to add a clause too: how far the weak measure was from the next
-   * grade, on the blunt page only. That is in the lead sentence now and every
-   * reader gets it, because a distance is arithmetic rather than a judgement
-   * and the gentle page is the one that needed it most.
-   */
-  tone?: AnalyticsTone;
 }
 
 /**
@@ -118,13 +96,24 @@ function toNextGrade(value: number): { points: number; grade: string } | null {
   return { points: above[0] - value, grade: above[1] };
 }
 
+/**
+ * A band from the report card's hundred-point table, said on the score's own
+ * ten-point scale: "80–89" becomes "8.0–8.9".
+ */
+function tenths(band: string): string {
+  return band
+    .split('-')
+    .map((end) => (Number(end) / 10).toFixed(1))
+    .join('-');
+}
+
 /** Five is the cap. See the note at the top for why, and `goals` for how. */
 const MAX_ROWS = 5;
 
 interface Row {
   key: string;
   text: ReactNode;
-  /** The tab that shows the working. A hash is an anchor on this same tab. */
+  /** The page that shows the working. */
   href: string;
   label: string;
 }
@@ -132,15 +121,10 @@ interface Row {
 export function Summary({
   score,
   movement,
-  topAdvice,
-  adviceCount,
-  phase,
   goals,
   basis = null,
-  tone,
 }: SummaryProps) {
-  const { value, grade, weakest, strongest } = score;
-  const { leadWithStrength } = toneRules(tone);
+  const { value, grade } = score;
 
   /* No score is not a broken panel — it is a new account, and it deserves the
      same answer the banner gave it: what the score needs before it exists.
@@ -150,8 +134,7 @@ export function Summary({
     return (
       <section className="ax-panel ax-summary is-empty">
         <p className="ax-empty">
-          No score yet. It is the average of five measures and each one needs a few days of
-          record behind it before it means anything.
+          No score yet. It needs a few days of work first.
         </p>
       </section>
     );
@@ -165,81 +148,31 @@ export function Summary({
       text:
         movement.direction === 'held' ? (
           <>
-            It has held at <strong>{movement.now}</strong> for <strong>{movement.days}</strong>{' '}
+            It's been at <strong>{(movement.now / 10).toFixed(1)}</strong> for <strong>{movement.days}</strong>{' '}
             days.
           </>
         ) : (
           <>
-            That is <strong>{movement.direction}</strong> from {movement.previous}
+            That's <strong>{movement.direction}</strong> from {movement.previous === null ? '' : (movement.previous / 10).toFixed(1)}
             {/* A comma, because the two figures are otherwise adjacent — "up
                 from 61 12 days ago" reads as one number twice. */}
             {movement.days === 1 ? ' yesterday' : <>, {movement.days} days ago</>}.
           </>
         ),
-      // Trends was this row's destination and is gone. The score over time is
-      // drawn by `ScorePanel` on this same tab, which is where the movement
+      // The score over time is the Growth tab, which is where the movement
       // this row states can actually be looked at.
-      href: '#trajectory',
+      href: '/analytics/growth',
       label: 'See it over time',
     });
   }
 
-  /* On a gentle page, what is working comes first. Only when there is a real
-     gap between the two: five measures within a point of each other produce
-     "focus is carrying it at 61, focus is holding it back at 61", which is the
-     sentence pattern talking rather than the record. The same guard
-     `howItIsCalculated` applies, and for the same reason. */
-  const spread = strongest && weakest ? strongest.score - weakest.score : 0;
-  if (leadWithStrength && strongest && weakest && strongest.name !== weakest.name && spread >= 5) {
-    rows.push({
-      key: 'strongest',
-      text: (
-        <>
-          What is carrying it is <strong>{strongest.label.toLowerCase()}</strong>, at{' '}
-          <strong>{Math.round(strongest.score)}</strong> out of 100 — {strongest.raw}.
-        </>
-      ),
-      href: '#trajectory',
-      label: 'See all five',
-    });
-  }
+  /* The strongest and weakest of the five used to be two rows here. They are
+     "Biggest improvement" and "Needs attention" on the Growth tab, from the
+     same figures, so the summary links there instead
+     of saying them twice. */
+  /* "The change worth most right now" was a row here. What to change is the
+     Recommendations tab's job and is said there only. */
 
-  if (weakest) {
-    /* How far the letter is from the next one used to be a clause here, and
-       only on the blunt page. It is in the lead sentence now, at every tone —
-       see the note there. This row is the measure alone again. */
-    rows.push({
-      key: 'weakest',
-      text: (
-        <>
-          The measure holding it back is <strong>{weakest.label.toLowerCase()}</strong>, at{' '}
-          <strong>{Math.round(weakest.score)}</strong> out of 100 — {weakest.raw}.
-        </>
-      ),
-      href: '#trajectory',
-      label: 'See all five',
-    });
-  }
-
-  if (topAdvice) {
-    rows.push({
-      key: 'advice',
-      text: (
-        <>
-          The change worth most right now is <strong>{topAdvice.toLowerCase()}</strong>
-          {adviceCount > 1 ? <>, one of {adviceCount} worth making</> : null}.
-        </>
-      ),
-      href: '/recommendations',
-      label: 'See what to change',
-    });
-  }
-
-  /* Above the phase row, and that ordering is the whole of how the cap holds:
-     rows are pushed in the order they are worth reading and the list is cut at
-     five, so on an account with something to say about every one of them the
-     phase — the softest of the six — is what falls off. A goal behind its date
-     outranks a description of how the last three weeks have felt. */
   if (goals && goals.active > 0) {
     rows.push({
       key: 'goals',
@@ -256,21 +189,8 @@ export function Summary({
             {goals.active === 1 ? 'goal is' : 'goals are'} on track.
           </>
         ),
-      href: '/analytics/goals',
+      href: '/goals',
       label: 'See the goals',
-    });
-  }
-
-  if (phase) {
-    rows.push({
-      key: 'phase',
-      text: (
-        <>
-          You are working in a <strong>{phase.toLowerCase()}</strong> phase.
-        </>
-      ),
-      href: '/insights',
-      label: 'See why',
     });
   }
 
@@ -280,14 +200,14 @@ export function Summary({
   return (
     <section className={`ax-panel ax-summary ${gradeClass(grade)}`}>
       <div className="ax-summary-head">
-        <div className="ax-summary-grade" title={`${bandLabel(grade)} out of 100`}>
+        <div className="ax-summary-grade" title={`${tenths(bandLabel(grade))} out of 10`}>
           <span aria-hidden="true">{grade}</span>
           <span className="ax-sr">Grade {grade}</span>
         </div>
         {/* The letter, and then the next one up and what it costs.
 
             The sentence used to stop at the meaning, which made it a verdict
-            and nothing else: a reader shown "62/100 — two or three of the five
+            and nothing else: a reader shown "6.2/10 — two or three of the five
             are low" has been told where they stand and given nowhere to go.
             Every other line on this panel points somewhere; this one, the one
             printed largest and read first, did not.
@@ -299,43 +219,62 @@ export function Summary({
             band table the letter came from rather than a judgement, so there
             was never a reason to ration it by tone. */}
         <p className="ax-summary-lead">
-          Your analytical score is{' '}
+          Your growth score is{' '}
           <strong>
-            {value}
-            <em>/100</em>
-          </strong>{' '}
-          — {GRADE_MEANING[grade].toLowerCase()}.
+            {(value / 10).toFixed(1)}
+            <em>/10</em>
+          </strong>
+          . That&apos;s {GRADE_MEANING[grade].toLowerCase()}.
           {next && (
             <>
               {' '}
               <span className="ax-summary-next">
-                <strong>{next.points}</strong>{' '}
-                {next.points === 1 ? 'point' : 'points'} to {next.grade}.
+                <strong>{(next.points / 10).toFixed(1)}</strong> to {next.grade}.
               </span>
             </>
           )}
         </p>
       </div>
 
+      {/* The five the score is the mean of, each with its own letter. The
+          headline says where the account stands; these say which of the five
+          put it there, so "B" is never a letter with nothing behind it. Same
+          ten-point scale as the headline, and the measured quantity behind
+          each — "2h 10m of a 6h goal" — is on hover rather than printed, which
+          keeps the card one row of five rather than a second table. */}
+      {score.parts.length > 0 && (
+        <ul className="ax-summary-parts" aria-label="Your five scores">
+          {score.parts.map((part) => {
+            const letter = gradeFor(part.score);
+            return (
+              /* No hover on consistency: its measured quantity is the
+                 consistency rate, which this page prints once — on the
+                 Overview's tile. */
+              <li
+                key={part.name}
+                className={gradeClass(letter)}
+                title={part.name === 'consistency' ? undefined : part.raw}
+              >
+                <span className="ax-summary-part-name">{part.label}</span>
+                <span className="ax-summary-part-grade">{letter}</span>
+                <span className="ax-summary-part-score">
+                  {(part.score / 10).toFixed(1)}
+                  <em>/10</em>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
       {rows.length > 0 && (
         <ul className="ax-summary-rows">
           {rows.slice(0, MAX_ROWS).map((row) => (
             <li key={row.key}>
               <p>{row.text}</p>
-              {/* A hash is an anchor on the tab that is already open; anything
-                  else is another tab, and `Link` keeps the router in charge of
-                  it. Two elements rather than one branch inside a `Link`,
-                  because a router link to "#trajectory" resolves against the
-                  route and navigates away from it. */}
-              {row.href.startsWith('#') ? (
-                <a className="ax-summary-more" href={row.href}>
-                  {row.label}
-                </a>
-              ) : (
-                <Link className="ax-summary-more" to={row.href}>
-                  {row.label}
-                </Link>
-              )}
+              <Link className="ax-summary-more" to={row.href}>
+                {row.label}
+              </Link>
             </li>
           ))}
         </ul>
@@ -348,7 +287,7 @@ export function Summary({
       {basis && <p className="ax-summary-basis">{basis}</p>}
 
       <details className="ax-summary-how">
-        <summary>How this is worked out</summary>
+        <summary>How this works</summary>
         <p>{howItIsCalculated(score)}</p>
       </details>
     </section>

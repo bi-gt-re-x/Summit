@@ -21,30 +21,35 @@
  * thing that asks the server again.
  *
  * The focus session is owned here rather than inside the Focus panel, because
- * two things now show it: the panel and the Focus Time stat card. One
- * `useFocusSession` shared between them is what keeps the goal on the card
- * moving when the + on the panel is pressed.
+ * two things show it: the panel and the Focus Time stat card. One
+ * `useFocusSession` shared between them is what stops the two disagreeing
+ * about the same day. The pomodoro over it is owned here for the same reason
+ * and one stronger: it starts and stops that session, so a second copy would
+ * be a second hand on the account's focus clock.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Ambient, ErrorState, Loading, PageHero, RefreshButton, STATS_CHANGED } from '@/components';
+import { ErrorState, Loading, PageHero, RefreshButton } from '@/components';
 import {
   CatchUp,
   DailyQuote,
+  FirstWeek,
   FocusCard,
   FocusPanel,
   GoalReached,
   GoalsCard,
   LevelUp,
-  NextMove,
-  NextUp,
   RecentActivity,
   StreakCard,
   TaskModal,
   TaskPanel,
   TodayCard,
+  TodayQuest,
   WeeklyOverview,
   XpCard,
+  showFirstWeek,
+  showTodayQuest,
   useCrossing,
+  useFirstWeek,
 } from '@/components/Dashboard';
 import { RatePrompt } from '@/components/Tasks';
 import {
@@ -69,19 +74,46 @@ import {
   useUserData,
 } from '@/hooks';
 import { fmtHM, useFocusSession } from '@/hooks/useFocusSession';
-import { focus as focusService, goals as goalService, tasks as taskService } from '@/services';
+import { usePomodoro } from '@/hooks/usePomodoro';
+import { useHandover } from '@/hooks/useHandover';
+import { FocusSitting } from '@/components/Timer/FocusSitting';
+import { MangoPet } from '@/components/Tutorial/MangoPet';
+import { useTourShowing } from '@/components/Tutorial/Tutorial';
+import type { Counting } from '@/pages/Timer';
+import { currentStone } from '@/utils/goalStage';
+import { reduced } from '@/utils/homePlay';
+import {
+  focus as focusService,
+  goals as goalService,
+  quests as questService,
+  tasks as taskService,
+} from '@/services';
 import { weekStartDay } from '@/services/settings';
 import { dates, format } from '@/utils';
 import { isoStamp } from '@/utils/calendarGrid';
 import type { GoalNews, TaskTab } from '@/components/Dashboard';
+import type { QuestClaim, QuestId } from '@/services/quests';
 import type { NewTask } from '@/services/tasks';
 import type { Goal, Task } from '@/types';
+import { NextSessionsPanel } from '@/components/NextSessions/NextSessions';
 import '@/styles/dashboard.css';
 import '@/styles/dashboard-home.css';
+import { announceStatsChanged } from '@/utils/statsBus';
+import { announceXpChange, ratingTarget, withRating, type RatingTarget } from '@/utils/rated';
+
+/** How long the page and the sitting take to hand over. See `sitting` below. */
+const SITTING_MS = 200;
 
 export default function Dashboard() {
   const { data, error, loading, refreshing, reload, mutate, username } = useUserData();
   const session = useFocusSession(username);
+  /* The cycle over the session, for the Focus panel.
+   *
+   * Owned here for the reason the session is: it is one account-wide record in
+   * localStorage, and a second copy of it would be a second thing starting and
+   * stopping the focus clock. It takes `session` because a running focus phase
+   * *is* a running session — see the note at the top of hooks/usePomodoro. */
+  const pomodoro = usePomodoro(username, session);
 
   /* The tab carries the session while it runs.
    *
@@ -96,8 +128,9 @@ export default function Dashboard() {
   const { prefs, dailyGoal, displayName } = useSettings();
   /* The days this page was not told about — see hooks/useCatchUp. Usually
      nothing: an account that runs the timer has no unrecorded days, and one
-     that has already been asked today is not asked again. */
-  const catchUp = useCatchUp(username);
+     that has already been asked today is not asked again. Saving re-reads the
+     page, so the streak and week figures take in the hours straight away. */
+  const catchUp = useCatchUp(username, reload);
 
   const [tab, setTab] = useState<TaskTab>('today');
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -145,17 +178,93 @@ export default function Dashboard() {
      something to be measured against — see `typicalDay` in Dashboard/summary
      for why every calendar day counts and today does not. */
   const usual = useMemo(() => typicalDay(tasks, todayIso), [tasks, todayIso]);
-  const nowHour = useMemo(() => {
-    const hours = now.getHours() + now.getMinutes() / 60;
-    // The grid's day runs 6 AM to 5 AM — see `gridHour` in Dashboard/summary.
-    return hours < 6 ? hours + 24 : hours;
-  }, [now]);
+
+  /* ---- The sitting --------------------------------------------------------
+   *
+   * Start Focus here opens the same screen it opens on the Timer page:
+   * components/Timer/FocusSitting, the clock and today's work over a tinted
+   * window. Pausing brings the dashboard back, and so does Escape, which
+   * pauses. A break brings it back on its own, the way it does there.
+   *
+   * Only when "Clear the page while focusing" is on (Settings, Focus). Turned
+   * off, the timer runs in the Focus panel and the page stays put, which is
+   * what that switch has always promised.
+   *
+   * `SITTING_MS` is the length of `pomSitOut` in styles/timer.css and of
+   * `dashOut` in styles/dashboard-home.css; see the same handover on
+   * pages/Timer.tsx for why it has to match. */
+  const sitting = pomodoro.running && pomodoro.phase === 'focus' && prefs.focus_dim;
+  const swap = useHandover(sitting, reduced ? 0 : SITTING_MS);
+  /* Mango rests on the top card between tours, and steps aside while one runs
+     (it's the same Mango, and two on screen would be one too many). See
+     components/Tutorial/MangoPet and Settings, Mango. */
+  const touring = useTourShowing();
+
+  /* ---- The first week ------------------------------------------------------
+   *
+   * Six first things, each worth XP once, while the account is new. See
+   * components/Dashboard/FirstWeek for when it shows. Re-read when the task
+   * count moves, so a first task finished on this page ticks its quest.
+   *
+   * After that, one small quest a day until Analytics has its Performance
+   * stage: components/Dashboard/TodayQuest, read by the same hook. */
+  const firstWeek = useFirstWeek(username, data?.stats.tasks_completed);
+  const [questBusy, setQuestBusy] = useState<QuestId | 'daily' | null>(null);
+  const [lastClaim, setLastClaim] = useState<QuestClaim | null>(null);
+  const firstWeekShowing = Boolean(firstWeek.line) && showFirstWeek({ ...firstWeek, touring });
+  const daily = firstWeek.line?.daily ?? null;
+  const dailyShowing = showTodayQuest({ ...firstWeek, touring, firstWeekShowing });
+
+  /* The backend decides here too: the claim answers with the new lifetime XP
+     and level, and that's what goes on the page. A level crossed gets the same
+     celebration a task crossing one does. */
+  const claimQuest = useCallback(
+    async (id: QuestId | 'daily') => {
+      setQuestBusy(id);
+      setFailure(null);
+      try {
+        const result = id === 'daily'
+          ? await questService.claimDaily(daily?.day ?? dates.isoDate())
+          : await questService.claim(id);
+        if (!result.success) {
+          setFailure(result.message);
+          void firstWeek.reload();
+          return;
+        }
+        if (id === 'daily') firstWeek.markDailyClaimed(result.xp_earned);
+        else firstWeek.markClaimed(id);
+        setLastClaim(result);
+        mutate((current) => ({
+          ...current,
+          stats: { ...current.stats, xp: result.total_xp, level: result.new_level },
+        }));
+        announceStatsChanged();
+        if (result.leveled_up) setLevelled(result.new_level);
+      } catch (cause) {
+        setFailure(cause instanceof Error ? cause.message : "Couldn't claim that one.");
+      } finally {
+        setQuestBusy(null);
+      }
+    },
+    [daily?.day, firstWeek, mutate],
+  );
+
+  /* The rest of what the sitting shows, read off what this page already has.
+     Same order and length as the Timer page's "Up next". */
+  const upcoming = useMemo(() => tasks
+    .filter((task) => task.status !== 'done')
+    .sort((a, b) => (a.due_date ?? '9').localeCompare(b.due_date ?? '9'))
+    .slice(0, 5), [tasks]);
+  const ticking = useMemo<ReadonlySet<string>>(
+    () => new Set(busyId ? [busyId] : []),
+    [busyId],
+  );
 
   /**
    * Hours focused on an average day, from the record rather than the task list.
    *
    * The one figure on this page that cannot be counted off the tasks — focus is
-   * its own table — so it is its own read, over the same fortnight `typicalDay`
+   * its own table — so it is its own read, over the same two weeks `typicalDay`
    * uses. Null until it lands, and the card simply does not draw the line
    * until then rather than showing a zero it would have to take back.
    */
@@ -202,6 +311,24 @@ export default function Dashboard() {
       live = false;
     };
   }, [username]);
+
+  /* The first goal measured in focus time, which the sitting shows moving
+     with the clock. The same pick the Timer page makes. */
+  const counting = useMemo<Counting | null>(() => {
+    const goal = goals.find((row) => row.status === 'active'
+      && row.measure === 'focus' && row.target_focus > 0);
+    if (!goal) return null;
+    return {
+      goal,
+      now: goal.current_focus,
+      target: goal.target_focus,
+      next: currentStone(goal),
+      subjects: (goal.subject_ids || '')
+        .split(',')
+        .map((id) => subjects.get(id.trim())?.name)
+        .filter((name): name is string => Boolean(name)),
+    };
+  }, [goals, subjects]);
 
   // ---- Reaching a goal ----------------------------------------------------
   /* The two figures the dashboard already draws against a target, watched for
@@ -292,8 +419,7 @@ export default function Dashboard() {
             xp: (Number(current.stats.xp) || 0) + (Number(result.xp_earned) || 0),
             level: result.new_level,
             tasks_completed: result.new_tasks_completed,
-            current_streak: result.current_streak,
-            best_streak: result.best_streak,
+            ...taskService.streakPatch(result),
           },
           tasks: current.tasks.map((entry) => {
             if (String(entry.id) !== String(task.id)) return entry;
@@ -318,7 +444,7 @@ export default function Dashboard() {
         // The rail shows the level and the XP total and is mounted outside the
         // router, so it never re-reads on its own. This is the one thing that
         // moves those numbers.
-        window.dispatchEvent(new Event(STATS_CHANGED));
+        announceStatsChanged();
 
         // Ask how it went, now that the work is banked — unless the reader
         // has turned the questions off in Settings, which this used to ignore
@@ -327,12 +453,12 @@ export default function Dashboard() {
         // waits on the answer — see `rating` below and
         // components/Tasks/RatePrompt.
         if (ask && prefs.rating_depth !== 'none') {
-          setReviews([{ id: String(task.id), name: task.title }]);
+          setReviews([ratingTarget(task, String(task.id))]);
         }
         return true;
       } catch (cause) {
         setFailure(
-          cause instanceof Error ? cause.message : 'Could not complete that task.',
+          cause instanceof Error ? cause.message : "Couldn't complete that task.",
         );
         reload();
         return false;
@@ -356,14 +482,14 @@ export default function Dashboard() {
    * be asked one after another rather than each replacing the last. A single
    * completion puts exactly one thing in it, which is what it always did.
    */
-  const [reviews, setReviews] = useState<{ id: string; name: string }[]>([]);
+  const [reviews, setReviews] = useState<RatingTarget[]>([]);
   const rating = reviews[0] ?? null;
 
   /** Done with the head, however it was dismissed. */
   const nextReview = useCallback(() => setReviews((queue) => queue.slice(1)), []);
 
   const saveRating = useCallback(
-    (values: { difficulty?: number; execution?: number; reason?: string }) => {
+    (values: taskService.RatingAnswers) => {
       const target = rating;
       nextReview();
       if (!username || !target) return;
@@ -372,9 +498,10 @@ export default function Dashboard() {
         mutate((current) => ({
           ...current,
           tasks: current.tasks.map((entry) =>
-            String(entry.id) === target.id ? { ...entry, ...values } : entry,
+            String(entry.id) === target.id ? withRating(entry, values, result) : entry,
           ),
         }));
+        announceXpChange(result);
       });
     },
     [mutate, nextReview, rating, username],
@@ -401,9 +528,9 @@ export default function Dashboard() {
       const todo = buckets.today;
       if (todo.length === 0) return;
       setSaving(true);
-      const done: { id: string; name: string }[] = [];
+      const done: RatingTarget[] = [];
       for (const task of todo) {
-        if (await complete(task, false)) done.push({ id: String(task.id), name: task.title });
+        if (await complete(task, false)) done.push(ratingTarget(task, String(task.id)));
       }
       setSaving(false);
       if (review && prefs.rating_depth !== 'none' && done.length > 0) setReviews(done);
@@ -440,6 +567,7 @@ export default function Dashboard() {
               priority: task.priority ?? 'medium',
               status: 'todo' as const,
               xp_value: Number(task.xp_reward) || 0,
+              ...(task.level ? { level: task.level } : {}),
               due_date: task.due_date ?? undefined,
               show_on_calendar: task.show_on_calendar ?? false,
               created_at: task.created_at ?? isoStamp(new Date()),
@@ -449,7 +577,7 @@ export default function Dashboard() {
           ],
         }));
       } catch (cause) {
-        setFailure(cause instanceof Error ? cause.message : 'Could not add that task.');
+        setFailure(cause instanceof Error ? cause.message : "Couldn't add that task.");
         reload();
       } finally {
         setSaving(false);
@@ -473,13 +601,38 @@ export default function Dashboard() {
   const entering = usePageEntrance(Boolean(data));
 
   if (loading && !data) return <Loading label="Loading your dashboard" />;
-  if (!data) return <ErrorState message={error ?? 'No data came back.'} onRetry={reload} />;
+  if (!data) return <ErrorState message={error ?? "Couldn't load your dashboard. Try refreshing."} onRetry={reload} />;
+
+  if (swap.shown) {
+    return (
+      <FocusSitting
+        leaving={swap.leaving}
+        phase={pomodoro.phase}
+        percent={pomodoro.percent}
+        remaining={pomodoro.remaining}
+        onPause={pomodoro.pause}
+        tasksDone={day.done}
+        tasksTotal={day.total}
+        focused={session.focused}
+        focusGoal={session.goalHours * 3600}
+        upcoming={upcoming}
+        onComplete={(task) => void complete(task)}
+        busy={busyId !== null}
+        done={ticking}
+        goal={counting}
+        goalMinutes={Math.round(session.focused / 60)}
+        task={pomodoro.task}
+      />
+    );
+  }
 
   return (
-    <div className={`dash${entering ? ' pg-enter' : ''}`}>
-      {/* The same background the landing page has, minus the glow that follows
-          the pointer — see components/Ambient.tsx. */}
-      <Ambient />
+    <div
+      className={`dash${entering ? ' pg-enter' : ''}${swap.leaving ? ' is-going' : ''}${
+        prefs.mango_rest ? ' has-mango' : ''
+      }`}
+    >
+      {prefs.mango_rest && !touring && <MangoPet anchor=".dash-hero" energy={prefs.mango_energy} />}
 
       {/* The greeting slides away with the stat row while a focus session
           runs — see html.focus-mode in styles/dashboard-home.css, which folds
@@ -494,8 +647,7 @@ export default function Dashboard() {
                   This greeted people by their username whatever they had typed
                   into Settings, which made "Display name" a field that stored a
                   value and changed nothing. */}
-              {dates.greeting(now)}, {displayName || username}!{' '}
-              <span aria-hidden="true">👋</span>
+              {dates.greeting(now)}, {displayName || username}
             </h1>
             {/* "Here is your day." stood here and said nothing — a sentence
                 under a greeting, on a page that does not fit one screen. The
@@ -529,7 +681,10 @@ export default function Dashboard() {
           <TodayCard day={day} xpLeft={plan.xp} usual={usual} />
           <XpCard stats={data.stats} xpToday={day.xp} dailyGoal={dailyGoal} usual={usual} />
           <FocusCard session={session} usualHours={usualFocus} />
-          <StreakCard stats={data.stats} />
+          <StreakCard
+            stats={data.stats}
+            held={levelled !== null || news !== null || rating !== null}
+          />
         </div>
       )}
 
@@ -538,13 +693,34 @@ export default function Dashboard() {
           change, rather than in place of it. */}
       {(failure ?? error) && <ErrorState message={failure ?? error ?? ''} />}
 
+      {/* Under the figures it fills in and over the work it points at. Gone
+          while the Mango tour runs and once the first week is over. */}
+      {firstWeek.line && firstWeekShowing && (
+        <FirstWeek
+          quests={firstWeek.line.quests}
+          busy={questBusy === 'daily' ? null : questBusy}
+          lastClaim={lastClaim}
+          onClaim={(id) => void claimQuest(id)}
+        />
+      )}
+      {/* Takes the first week's place once that's done, until Analytics has
+          enough days for Performance. */}
+      {daily && dailyShowing && (
+        <TodayQuest
+          quest={daily}
+          maturity={firstWeek.maturity}
+          todayActive={firstWeek.todayActive}
+          busy={questBusy === 'daily'}
+          popped={lastClaim?.quest === daily.id}
+          onClaim={() => void claimQuest('daily')}
+        />
+      )}
+
       {/* The focus panel is a preference too, and hiding it widens the task
           list rather than leaving a hole where it was — see `.is-solo` in
           styles/dashboard-home.css. */}
-      {/* What now — the one line on this page that is about the next hour
-          rather than about the day so far. Above the task list because that is
-          the order the questions arrive in. */}
-      <NextUp plan={plan} now={nowHour} />
+      {/* The "next" card that sat here was the top of the Recommendations
+          plan. What to do next is said on that tab only. */}
 
       <div className={`dash-main${prefs.show_focus ? '' : ' is-solo'}`}>
         <TaskPanel
@@ -559,7 +735,7 @@ export default function Dashboard() {
           onCompleteDay={(review) => void completeDay(review)}
           busy={saving}
         />
-        {prefs.show_focus && <FocusPanel session={session} />}
+        {prefs.show_focus && <FocusPanel session={session} pomodoro={pomodoro} />}
       </div>
 
       {/* Three, not four. Top Priorities used to sit in this row: the same
@@ -576,21 +752,10 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* One line about what to change, under the row that reports. It goes
-          last of the page's own content because it is the only thing here the
-          reader has not already asked for — everything above answers a
-          question they came with. Drawn only when the record has something to
-          say; see components/Dashboard/NextMove. */}
-      {prefs.show_insights && (
-        <NextMove
-          tasks={tasks}
-          goals={goals}
-          todayIso={todayIso}
-          doneToday={day.done}
-          xpToday={day.xp}
-          nameOf={(id) => subjects.get(id)?.label ?? id}
-        />
-      )}
+      {/* Three sessions to plan next, for every subject or one chosen, above
+          the quote: the last thing on the page that asks something of the
+          reader. See components/NextSessions. */}
+      <NextSessionsPanel where="dashboard" />
 
       {prefs.show_quote && <DailyQuote />}
 
@@ -632,22 +797,20 @@ export default function Dashboard() {
       {rating && levelled === null && news === null && (
         <RatePrompt
           taskName={rating.name}
+          level={rating.level}
           depth={prefs.rating_depth}
           onSubmit={saveRating}
           onClose={nextReview}
         />
       )}
 
-      {/* The same two defaults the tasks page's composer opens on. This dialog
-          used to start every task at the floor of the XP scale, which made
-          "Default XP" a preference one of the app's two Add Task forms had
-          never heard of. */}
+      {/* The same default level the tasks page's composer opens on. */}
       <TaskModal
         open={adding}
         busy={saving}
         username={username}
-        defaultXp={prefs.default_xp}
-        defaultPriority={prefs.default_priority}
+        defaultLevel={prefs.default_level}
+        goals={goals}
         onClose={() => setAdding(false)}
         onAdd={(task) => void addTask(task)}
       />

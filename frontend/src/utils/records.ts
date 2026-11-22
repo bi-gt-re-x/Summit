@@ -29,7 +29,7 @@
  * larger number as the better one everywhere, which is right for scores,
  * streaks and levels and wrong for a personal best measured in time — a
  * five-minute mile beats a six-minute one. Guessing from the unit does not
- * rescue it: "minutes practised" is a *bigger-is-better* duration and any rule
+ * rescue it: "minutes practiced" is a *bigger-is-better* duration and any rule
  * built on `unit === 'minutes'` gets that one backwards.
  *
  * So the row carries `comparison_direction` — see data/sql/records.sql — and
@@ -46,6 +46,7 @@
  * corner of the UI and correctly in another.
  */
 import type { Direction, RecordRow } from '@/services/records';
+import type { IconName } from '@/components/Icon';
 
 const DAY = 86_400_000;
 
@@ -116,7 +117,7 @@ export function formatValue(value: number, unit: string, target = 0): string {
 
 /** "Aug 12, 2026", or "—" for a milestone that has not happened. */
 export function formatOn(iso: string): string {
-  if (!iso) return '—';
+  if (!iso) return '-';
   const [year, month, day] = iso.split('-').map(Number);
   if (!year || !month || !day) return iso;
   // Built from parts, not `new Date(iso)`: a bare YYYY-MM-DD parses as UTC and
@@ -302,7 +303,7 @@ export function trail(best: Best, max = 6): string[] {
  */
 export interface Story {
   key: string;
-  icon: string;
+  icon: IconName;
   figure: string;
   label: string;
   detail: string;
@@ -327,7 +328,7 @@ const monthsBetween = (from: string, to: Date): number => {
  *
  * None of these read the growth history. Everything here comes out of rows the
  * account wrote, which is the same line the page draws between what you logged
- * and what Summit counted — see the note in pages/Records.tsx.
+ * and what Summit counted — see the note in pages/Achievements.tsx.
  */
 export function stories(bests: Best[], today: Date = new Date()): Story[] {
   const out: Story[] = [];
@@ -349,7 +350,7 @@ export function stories(bests: Best[], today: Date = new Date()): Story[] {
     const unit = leap.best.unit === 'minutes' ? 'minutes' : '';
     out.push({
       key: 'leap',
-      icon: '⚡',
+      icon: 'zap',
       figure: `${leap.best.direction === 'lower' ? '−' : '+'}${formatValue(leap.size, unit)}`,
       label: 'Biggest leap',
       detail: `${leap.best.name} · ${formatValue(leap.from, unit)} → ${formatValue(
@@ -377,7 +378,7 @@ export function stories(bests: Best[], today: Date = new Date()): Story[] {
   if (run) {
     out.push({
       key: 'run',
-      icon: '🔥',
+      icon: 'flame',
       figure: `${run.length}`,
       label: 'Longest run',
       detail: `${run.best.name} · ${run.length} entries, each better than the last`,
@@ -392,7 +393,7 @@ export function stories(bests: Best[], today: Date = new Date()): Story[] {
   if (fresh.length > 0) {
     out.push({
       key: 'month',
-      icon: '📈',
+      icon: 'trend',
       figure: `${fresh.length}`,
       label: fresh.length === 1 ? 'Record this month' : 'Records this month',
       detail: fresh
@@ -416,7 +417,7 @@ export function stories(bests: Best[], today: Date = new Date()): Story[] {
     const months = monthsBetween(standing.on, today);
     out.push({
       key: 'standing',
-      icon: '🛡️',
+      icon: 'shield',
       figure: months >= 12 ? `${Math.floor(months / 12)}y` : `${months}mo`,
       label: 'Standing longest',
       detail: `${standing.name} · ${formatValue(standing.value, standing.unit, standing.target)} still unbeaten`,

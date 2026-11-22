@@ -23,7 +23,7 @@
  * ## Stages, and why they are floors rather than ranges
  *
  * Five, and a stage is simply the highest floor an account has reached. That
- * shape matters: a reader who works nine days in a fortnight and then stops
+ * shape matters: a reader who works nine days in two weeks and then stops
  * for a month does not fall back to `early`, because nothing they learned
  * about themselves became untrue. Data does not expire, so stages do not
  * either — the only direction is up.
@@ -35,26 +35,34 @@
  *
  * ## The whole progression, in one place
  *
- *   0-2 active days    `Collecting`, and the counts that are already true:
+ *   0-1 active days    `Collecting`, and the counts that are already true:
  *                      tasks, focus, XP, streak, completion rate, where the
  *                      work went. No trend, no comparison, no grade.
- *   3-6                the two Early tallies — when you worked, what you
+ *   2-4                the two Early tallies — when you worked, what you
  *                      finish — each wearing the day count it was read from.
- *   7-13               the real tab. Delta tiles, the trajectory line, the
+ *   5-9                the real tab. Delta tiles, the trajectory line, the
  *                      consistency and streak panels, the subject split with
  *                      its per-row change.
- *   14-29              the readings that grade a person: the score, its
+ *   10-20              the readings that grade a person: the score, its
  *                      letter, the percentile, quality. Plus a line saying how
  *                      much record they rest on, and a strip naming the tabs
  *                      still filling.
- *   30+                exactly the above with the staging notice off. There is
+ *   21+                exactly the above with the staging notice off. There is
  *                      no separate mature component to transition into, which
  *                      is the point — see `stageShows`.
  *
  * The gates the tabs already had land inside that ladder on their own, once
- * they count active days: Recommendations at 14, Habits at 21, Insights at 28.
- * None of those numbers were chosen for this feature; they were in the
- * codebase and were being read against the wrong denominator.
+ * they count active days: Recommendations at 10, Habits at 14, Insights at 18.
+ *
+ * ## Why the numbers came down (2026-10-19)
+ *
+ * They were 3, 7, 14 and 30, with the tabs at 14, 21 and 28. That was honest
+ * and it was also a month of a new account looking at a mostly empty page,
+ * which is when people decide whether to stay. So every gate opens sooner and
+ * a reading that opened on thin data says so: `SOLID_AT` in
+ * components/Analytics/milestones holds the old numbers as the point where a
+ * reading stops being an early read. Opening early with a label beats a month
+ * of countdowns.
  */
 import { countActiveDays, isActiveDay } from './activeDay';
 import type { GrowthDay } from '@/types';
@@ -68,23 +76,22 @@ export { isActiveDay };
 /**
  * The five stages, and the active-day count each one starts at.
  *
- * The numbers are the brief — day 3, 7, 14, 30 — read as days of real work
- * rather than days on the calendar, which is the whole point. They are
- * deliberately the same figures a reader would have been told, because the
- * promise "a week of use" is a promise about their effort, not about the
- * Earth's rotation.
+ * Day 2, 5, 10, 21, read as days of real work rather than days on the
+ * calendar, which is the whole point: the promise "a week of use" is a
+ * promise about their effort, not about the Earth's rotation. See the note
+ * above on why they used to be 3, 7, 14 and 30.
  *
- * So `full` at 30 means thirty days that had work on them, however long those
- * thirty took: thirty days on the trot, or thirty across four months. A day
+ * So `full` at 21 means twenty-one days that had work on them, however long
+ * those took: three weeks on the trot, or the same across three months. A day
  * counts on one finished task, one logged focus session, or any XP at all —
  * see utils/activeDay, which is the only place that decides.
  */
 export const STAGE_FLOOR = {
   new: 0,
-  early: 3,
-  weekly: 7,
-  developing: 14,
-  full: 30,
+  early: 2,
+  weekly: 5,
+  developing: 10,
+  full: 21,
 } as const;
 
 export type Stage = keyof typeof STAGE_FLOOR;
@@ -95,10 +102,33 @@ export const STAGES: Stage[] = ['new', 'early', 'weekly', 'developing', 'full'];
 /** What each stage is called where a reader can see it. */
 export const STAGE_LABEL: Record<Stage, string> = {
   new: 'Getting started',
-  early: 'Early insight',
+  early: 'First look',
   weekly: 'Weekly trends',
-  developing: 'Developing profile',
+  developing: 'Filling in',
   full: 'Full analytics',
+};
+
+/**
+ * What each stage *opens*, as opposed to what it is called.
+ *
+ * `STAGE_LABEL` names the rung somebody is standing on; this names what
+ * standing on it gets them. Both are needed and neither is a rewording of the
+ * other: "Developing profile" is where you are, "Performance" is what being
+ * there buys you. A reader on day two does not care what their stage is
+ * called — they care what arrives next, and that is a different word.
+ *
+ * Kept here beside the floors rather than in the component that draws them,
+ * because the ladder and the countdown sentences have to name the same thing
+ * the same way. Two vocabularies for five stages is how a page ends up
+ * promising "weekly trends" in one place and "your first patterns" in another
+ * for the same threshold.
+ */
+export const STAGE_BRINGS: Record<Stage, string> = {
+  new: 'Activity',
+  early: 'Patterns',
+  weekly: 'Trends',
+  developing: 'Performance',
+  full: 'Full picture',
 };
 
 /**
@@ -163,7 +193,39 @@ export interface Maturity {
   progress: number;
   /** The most recent day with anything on it, ISO. Null on an empty record. */
   lastActive: string | null;
+  /**
+   * Calendar days since that day. 0 while the record is current.
+   *
+   * The one figure here that is about *absence*, and it is deliberately not a
+   * stage: an account that reached `full` and then stopped has not become less
+   * mature, and nothing it learned about itself became untrue — see the note on
+   * stages being floors. What has happened is that the window on screen is now
+   * mostly empty, and a page showing a month of zeros without saying why reads
+   * as the analytics having broken rather than as the reader having been away.
+   */
+  quietDays: number;
+  /**
+   * Days counted toward the stages from what the account said about itself
+   * at sign-up (utils/background), on top of `activeDays`.
+   *
+   * Never more than `activeDays`: a description of where somebody stands is
+   * context the first weeks cannot give, but it is not a record, so it can at
+   * most halve a wait and never open a stage on its own. Absent on a maturity
+   * built without one, which reads as 0.
+   */
+  credit?: number;
 }
+
+/**
+ * Days of quiet before the page says so.
+ *
+ * Two weeks. Under it there is nothing to remark on — people take a week
+ * off, and a page that says "you have been away for 4 days" to somebody who
+ * took a long weekend is nagging rather than orienting. Past it the window a
+ * reader lands on is mostly empty, and the absence is the most useful thing
+ * the page can explain about what they are looking at.
+ */
+export const DORMANT_AFTER = 14;
 
 /** The highest floor `activeDays` has reached. */
 export function stageFor(activeDays: number): Stage {
@@ -182,25 +244,32 @@ function daysBetween(from: string, to: string): number {
   return Math.max(0, Math.round((end - start) / 86_400_000));
 }
 
-export function dataMaturity(days: GrowthDay[]): Maturity {
+export function dataMaturity(days: GrowthDay[], headStart = 0): Maturity {
   const active = days.filter(isActiveDay);
   const activeDays = countActiveDays(days);
-  const stage = stageFor(activeDays);
+  /* The head start counts for at most as many days as are actually recorded.
+     See `credit` on Maturity. */
+  const credit = Math.max(0, Math.min(headStart, activeDays));
+  const counted = activeDays + credit;
+  const stage = stageFor(counted);
 
   const at = STAGES.indexOf(stage);
   const next = at < STAGES.length - 1 ? STAGES[at + 1]! : null;
-  const toNext = next ? Math.max(0, STAGE_FLOOR[next] - activeDays) : null;
+  /* Real days still to record. Each one also earns a day of head start until
+     the head start runs out, which is why the gap is halved while it lasts. */
+  const toNext = next ? realDaysTo(STAGE_FLOOR[next], activeDays, headStart) : null;
 
   /* Through the current stage, not through the whole ladder. A bar that
-     measures the distance to `full` sits almost empty for a fortnight and
+     measures the distance to `full` sits almost empty for two weeks and
      tells a reader on day six that they have barely begun, which is both
      discouraging and false — they are one day from the next thing opening. */
   const floor = STAGE_FLOOR[stage];
   const ceiling = next ? STAGE_FLOOR[next] : floor;
-  const progress = next && ceiling > floor ? (activeDays - floor) / (ceiling - floor) : 1;
+  const progress = next && ceiling > floor ? (counted - floor) / (ceiling - floor) : 1;
 
   const first = active[0]?.date ?? null;
   const lastRow = days[days.length - 1]?.date ?? null;
+  const lastActive = active[active.length - 1]?.date ?? null;
 
   return {
     activeDays,
@@ -209,6 +278,22 @@ export function dataMaturity(days: GrowthDay[]): Maturity {
     next,
     toNext,
     progress: Math.max(0, Math.min(1, progress)),
-    lastActive: active[active.length - 1]?.date ?? null,
+    lastActive,
+    /* Against the last row of the series rather than the clock, so this stays
+       a pure function of its input — the series runs to today, which is what
+       makes the two the same number in practice. */
+    quietDays: lastActive && lastRow ? daysBetween(lastActive, lastRow) : 0,
+    credit,
   };
+}
+
+/**
+ * Real active days still needed to count `target`, when each day recorded
+ * also earns a day of head start until `headStart` is spent.
+ */
+export function realDaysTo(target: number, activeDays: number, headStart = 0): number {
+  for (let more = 0; ; more += 1) {
+    const days = activeDays + more;
+    if (days + Math.min(headStart, days) >= target) return more;
+  }
 }

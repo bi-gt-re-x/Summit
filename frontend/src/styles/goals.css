@@ -26,41 +26,20 @@
    rule paints with a variable, which is what makes the dark theme one block of
    overrides rather than a second copy of the file.
    ========================================================================== */
-/* The page has to be told to take the width, the same way records.css and
-   notes.css are told.
- *
- * `body` is a centred flex column (dashboard.css: `display: flex;
- * align-items: center`), so its child is *shrink-to-fit* rather than stretched
- * — and `.page-shell` is `width: min(97%, 100%)`, a percentage of that
- * shrink-to-fit box. The result is a page as wide as its own narrowest possible
- * content and no wider.
- *
- * Everything on this page ellipsises, so its min-content width is very nearly
- * nothing: measured at **112px** for a goal card in a 1280px window. It was
- * masked while the rail was here — the two-column grid could not go below the
- * rail's `clamp(300px, …)` — and the rail leaving is what took the floor out.
- *
- * `#root` *and* `.app-main`, because `<main>` is inside the React mount point
- * and `width: 100%` of a shrink-to-fit parent is the shrink-to-fit width;
- * naming only the inner one is why the same rule did nothing on Records for so
- * long. Scoped with `:has` so no other route is touched. */
-body:has(.gx-page) > #root,
-body:has(.gx-page) .app-main {
-    width: 100%;
-    min-width: 0;
-}
+/* Fills the width beside the rail like every signed-in page — the default
+   in styles/layout.css, not a rule of this page's. */
 
 .gx-page  {
     --gx-bg: transparent;
-    --gx-card: #ffffff;
-    --gx-card-2: #f7f8fa;
-    --gx-line: #e6e8ee;
-    --gx-line-soft: #eff1f5;
-    --gx-text: #171a21;
-    --gx-muted: #626a7a;
-    --gx-faint: #9199a8;
+    --gx-card: var(--color-surface);
+    --gx-card-2: var(--color-surface-2);
+    --gx-line: var(--color-line);
+    --gx-line-soft: var(--color-line-soft);
+    --gx-text: var(--color-ink);
+    --gx-muted: var(--color-ink-muted);
+    --gx-faint: var(--color-ink-faint);
 
-    --gx-violet: #6d5ae0;
+    --gx-violet: var(--color-accent);
     --gx-blue: #2f6fd0;
     --gx-teal: #1a9086;
     --gx-amber: #c08324;
@@ -82,7 +61,7 @@ body:has(.gx-page) .app-main {
        with ordinary eyesight can read comfortably. So the fill is darkened in
        light and the ink is flipped in dark, and both land above 5:1.
 
-       Only `.ag-confirm-yes` uses them. Every other filled surface on this page
+       `.ag-verify-yes` and the celebration use them. Every other filled surface on this page
        still hard-codes `#fff` and several have the same problem in dark; that
        is a sweep of its own rather than something to do inside a button. */
     --gx-good-fill: #1a7647;
@@ -104,26 +83,26 @@ body:has(.gx-page) .app-main {
        a right edge because they share this. */
     --gx-pad: 18px;
 
-    --gx-radius: 16px;
-    --gx-shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 6px 18px rgba(16, 24, 40, .05);
+    --gx-radius: var(--radius-lg);
+    --gx-shadow: var(--shadow-md);
 
     position: relative;
     min-height: 100vh;
-    padding: 28px 0 64px;
+    padding: var(--space-6) 0 var(--space-16);
     color: var(--gx-text);
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: var(--font-sans);
 }
 
 html[data-theme="dark"] .gx-page {
-    --gx-card: #161b22;
-    --gx-card-2: #0f141b;
-    --gx-line: #262c36;
-    --gx-line-soft: #1d222b;
-    --gx-text: #f2f4f8;
-    --gx-muted: #9aa4b2;
-    --gx-faint: #6b7684;
+    --gx-card: var(--color-surface);
+    --gx-card-2: var(--color-surface-2);
+    --gx-line: var(--color-line);
+    --gx-line-soft: var(--color-line-soft);
+    --gx-text: var(--color-ink);
+    --gx-muted: var(--color-ink-muted);
+    --gx-faint: var(--color-ink-faint);
 
-    --gx-violet: #9b8bff;
+    --gx-violet: var(--color-accent);
     --gx-blue: #6a9bff;
     --gx-teal: #3fbfae;
     --gx-amber: #e0b23c;
@@ -168,12 +147,12 @@ html[data-theme="dark"] .gx-page {
        short version is that `--shell-fluid` is a share of the content column,
        which is the box being sized, and it is the only term left. */
     --shell-max: 100%;
-    --shell-fluid: 97%;
+    --shell-fluid: 100%;
     position: relative;
     z-index: 1;
     display: flex;
     flex-direction: column;
-    gap: 22px;
+    gap: var(--space-6);
 }
 
 /* ---------- Atoms --------------------------------------------------------- */
@@ -182,18 +161,18 @@ html[data-theme="dark"] .gx-page {
 
 .gx-empty {
     margin: 0;
-    padding: 22px 20px;
+    padding: var(--space-6) var(--space-5);
     border: 1px dashed var(--gx-line);
-    border-radius: 14px;
+    border-radius: var(--radius-lg);
     background: var(--gx-card-2);
     color: var(--gx-muted);
-    font-size: 13px;
+    font-size: var(--text-sm);
     line-height: 1.6;
 }
 
 .gx-hint {
-    margin: 6px 0 18px;
-    font-size: 12px;
+    margin: var(--space-2) 0 var(--space-4);
+    font-size: var(--text-xs);
     line-height: 1.6;
     color: var(--gx-faint);
 }
@@ -201,12 +180,12 @@ html[data-theme="dark"] .gx-page {
 /* The subject field in the wizard and in the edit dialog. Both are a wrapper
    and nothing else: SubjectPicker carries its own styles (styles/subject-picker.css)
    and the only thing either dialog has to say is how much room it gets. */
-.gx-subject { margin: 4px 0 0; }
-.gm-subject { margin: 6px 0 0; }
+.gx-subject { margin: var(--space-1) 0 0; }
+.gm-subject { margin: var(--space-2) 0 0; }
 
 .gx-page .gx-cat  {
     display: inline-block;
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: .07em;
     text-transform: uppercase;
@@ -223,7 +202,7 @@ html[data-theme="dark"] .gx-page {
 .gx-page .gx-link  {
     border: 0; background: none; padding: 0;
     color: var(--gx-violet);
-    font: inherit; font-size: 12px; font-weight: 600;
+    font: inherit; font-size: var(--text-xs); font-weight: 600;
     cursor: pointer;
 }
 
@@ -231,9 +210,9 @@ html[data-theme="dark"] .gx-page {
     border: 1px solid var(--gx-line);
     background: var(--gx-card);
     color: var(--gx-text);
-    border-radius: 999px;
-    padding: 9px 18px;
-    font: inherit; font-size: 13px; font-weight: 600;
+    border-radius: var(--radius-full);
+    padding: var(--space-2) var(--space-4);
+    font: inherit; font-size: var(--text-sm); font-weight: 600;
     cursor: pointer;
     transition: background .15s, border-color .15s, opacity .15s;
 }
@@ -257,7 +236,7 @@ html[data-theme="dark"] .gx-page {
     display: flex;
     align-items: flex-end;
     justify-content: space-between;
-    gap: 20px 24px;
+    gap: var(--space-5) var(--space-6);
     flex-wrap: wrap;
     padding: 20px var(--gx-pad);
     border: 1px solid var(--gx-line);
@@ -286,10 +265,10 @@ html[data-theme="dark"] .gx-page {
 .gx-head h1 {
     display: flex;
     align-items: center;
-    gap: 11px;
-    margin: 0 0 4px;
+    gap: var(--space-3);
+    margin: 0 0 var(--space-1);
     font-size: clamp(1.6rem, 3vw, 2.1rem);
-    font-weight: 800;
+    font-weight: 700;
     letter-spacing: -.025em;
     color: var(--gx-text);
 }
@@ -300,13 +279,13 @@ html[data-theme="dark"] .gx-page {
     display: grid;
     place-items: center;
     width: 34px; height: 34px;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     color: var(--gx-violet);
     background: color-mix(in srgb, var(--gx-violet) 15%, transparent);
 }
 .gx-head-ico svg { width: 20px; height: 20px; }
-.gx-head p { margin: 0; font-size: 13.5px; }
-.gx-head-tools { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.gx-head p { margin: 0; font-size: var(--text-md); }
+.gx-head-tools { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 
 /* ---------- The state block, under the masthead title --------------------
    Three lines, and the sizes are the whole argument. The count is the largest
@@ -319,29 +298,29 @@ html[data-theme="dark"] .gx-page {
    It replaced a "Vision" pill and a greeting stacked on top of each other,
    which between them spent four lines and two font sizes saying one number
    twice. */
-.gx-state { margin: 13px 0 0; }
+.gx-state { margin: var(--space-3) 0 0; }
 .gx-state-count {
     margin: 0;
-    font-size: 15px;
+    font-size: var(--text-lg);
     font-weight: 600;
     color: var(--gx-text);
 }
 .gx-state-count strong {
-    font-size: 21px;
-    font-weight: 800;
+    font-size: var(--text-xl);
+    font-weight: 700;
     /* Tabular, so the figure does not shuffle the words beside it when a goal
        is completed and 10 becomes 9. */
     font-variant-numeric: tabular-nums;
-    margin-right: 3px;
+    margin-right: var(--space-1);
 }
 .gx-state-kinds {
     margin: 2px 0 0;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     color: var(--gx-muted);
 }
 .gx-state-none {
-    margin: 13px 0 0;
-    font-size: 13.5px;
+    margin: var(--space-3) 0 0;
+    font-size: var(--text-md);
     color: var(--gx-muted);
 }
 
@@ -356,14 +335,14 @@ html[data-theme="dark"] .gx-page {
 .gx-state-clear {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
-    margin: 7px 0 0;
-    padding: 4px 10px 4px 8px;
+    gap: var(--space-2);
+    margin: var(--space-2) 0 0;
+    padding: var(--space-1) var(--space-2) var(--space-1) var(--space-2);
     border: 1px solid transparent;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: none;
     font: inherit;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     font-weight: 600;
     line-height: 1.5;
     color: var(--gx-watch);
@@ -376,7 +355,7 @@ html[data-theme="dark"] .gx-page {
     background: currentColor;
     flex: none;
 }
-.gx-state-clear { color: var(--gx-good); padding-left: 8px; }
+.gx-state-clear { color: var(--gx-good); padding-left: var(--space-2); }
 
 button.gx-state-attn {
     cursor: pointer;
@@ -404,43 +383,43 @@ button.gx-state-attn.is-on {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--space-3);
     flex-wrap: wrap;
-    padding: 10px 14px;
+    padding: var(--space-2) var(--space-4);
     border: 1px solid color-mix(in srgb, var(--gx-watch) 30%, transparent);
     border-radius: var(--gx-radius);
     background: color-mix(in srgb, var(--gx-watch) 9%, var(--gx-card));
 }
-.gx-filtered-what { font-size: 13px; color: var(--gx-text); min-width: 0; }
+.gx-filtered-what { font-size: var(--text-sm); color: var(--gx-text); min-width: 0; }
 .gx-filtered-what strong {
     color: var(--gx-watch);
-    font-weight: 800;
+    font-weight: 700;
     font-variant-numeric: tabular-nums;
 }
 
 /* ---------- Bands --------------------------------------------------------- */
-.gx-band { display: flex; flex-direction: column; gap: 13px; min-width: 0; }
+.gx-band { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
 .gx-band-head {
     display: flex;
     align-items: flex-end;
     justify-content: space-between;
-    gap: 16px;
+    gap: var(--space-4);
 }
 .gx-band-head h2 {
     margin: 0 0 2px;
-    font-size: 16px;
+    font-size: var(--text-lg);
     font-weight: 700;
     letter-spacing: -.015em;
     color: var(--gx-text);
 }
-.gx-band-head p { margin: 0; font-size: 12.5px; line-height: 1.5; max-width: 62ch; }
+.gx-band-head p { margin: 0; font-size: var(--text-sm); line-height: 1.5; max-width: 62ch; }
 
 /* Two bands abreast. `minmax(0, 1fr)` on both, so a long milestone title
    inside one cannot push the column wider than its half. */
 .gx-two {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 20px;
+    gap: var(--space-5);
     align-items: start;
 }
 
@@ -453,7 +432,7 @@ button.gx-state-attn.is-on {
 .gx-strip {
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 12px;
+    gap: var(--space-3);
 }
 /* The strip carried five tones and painted none of them on the card itself.
    Five identical boxes in a row is exactly the case where colour does the most
@@ -462,8 +441,8 @@ button.gx-state-attn.is-on {
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 3px;
-    padding: 15px 17px 14px;
+    gap: var(--space-1);
+    padding: var(--space-4) var(--space-4) var(--space-4);
     background:
         linear-gradient(
             165deg,
@@ -480,19 +459,19 @@ button.gx-state-attn.is-on {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--space-2);
     min-height: 20px;
 }
-.gx-stat-label { font-size: 11.5px; font-weight: 600; color: var(--gx-muted); }
+.gx-stat-label { font-size: var(--text-xs); font-weight: 600; color: var(--gx-muted); }
 .gx-stat-value {
-    font-size: 30px;
+    font-size: var(--text-3xl);
     font-weight: 700;
     letter-spacing: -.03em;
     line-height: 1.05;
     color: var(--tone, var(--gx-text));
 }
 .gx-stat-foot {
-    font-size: 11px;
+    font-size: var(--text-2xs);
     color: var(--gx-faint);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -503,7 +482,7 @@ button.gx-state-attn.is-on {
     display: grid;
     place-items: center;
     width: 30px; height: 30px;
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     color: var(--tone, var(--gx-muted));
     background: color-mix(in srgb, var(--tone, var(--gx-muted)) 13%, transparent);
 }
@@ -562,7 +541,7 @@ button.gx-state-attn.is-on {
     display: grid;
     place-items: center;
     width: 34px; height: 34px;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     color: var(--tone, var(--gx-violet));
     background: color-mix(in srgb, var(--tone, var(--gx-violet)) 15%, transparent);
     border: 1px solid color-mix(in srgb, var(--tone, var(--gx-violet)) 26%, transparent);
@@ -572,11 +551,11 @@ button.gx-state-attn.is-on {
 .gx-page .gx-health  {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-2);
     flex: none;
-    padding: 4px 11px;
-    border-radius: 8px;
-    font-size: 11.5px;
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-md);
+    font-size: var(--text-xs);
     font-weight: 700;
     white-space: nowrap;
     border: 1px solid transparent;
@@ -587,22 +566,21 @@ button.gx-state-attn.is-on {
     background: currentColor;
 }
 .gx-page .gx-health.is-on-track    { color: var(--gx-good);  background: color-mix(in srgb, var(--gx-good) 13%, transparent); }
-.gx-page .gx-health.is-at-risk     { color: var(--gx-watch); background: color-mix(in srgb, var(--gx-watch) 15%, transparent); }
-.gx-page .gx-health.is-off-track   { color: var(--gx-bad);   background: color-mix(in srgb, var(--gx-bad) 13%, transparent); }
+.gx-page .gx-health.is-behind     { color: var(--gx-watch); background: color-mix(in srgb, var(--gx-watch) 15%, transparent); }
 .gx-page .gx-health.is-not-started { color: var(--gx-faint); background: var(--gx-card-2); border-color: var(--gx-line); }
 
 /* ---------- Progress ------------------------------------------------------ */
 .gx-track {
     display: block;
     height: 6px;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: var(--gx-line);
     overflow: hidden;
 }
 .gx-fill {
     display: block;
     height: 100%;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: var(--tone, var(--gx-violet));
     transform-origin: left;
 }
@@ -611,7 +589,7 @@ button.gx-state-attn.is-on {
    ProgressBar), and a second easing on top of that would put the bar somewhere
    its own reading is not. */
 
-.gx-steps { display: flex; gap: 3px; }
+.gx-steps { display: flex; gap: var(--space-1); }
 .gx-step { flex: 1 1 0; height: 5px; min-width: 4px; border-radius: 3px; background: var(--gx-line); }
 .gx-step.is-done { background: var(--tone, var(--gx-violet)); }
 .gx-step.is-next { background: color-mix(in srgb, var(--tone, var(--gx-violet)) 45%, transparent); }
@@ -620,7 +598,7 @@ button.gx-state-attn.is-on {
 .gx-cards {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 14px;
+    gap: var(--space-4);
 }
 /* Every card carried `--tone` already and spent it on a 34px tile, a hairline
    sparkline and a hover border — so a screen of goals came out as a grid of
@@ -638,8 +616,8 @@ button.gx-state-attn.is-on {
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 19px 18px 34px;
+    gap: var(--space-3);
+    padding: var(--space-5) var(--space-4) var(--space-8);
     background:
         linear-gradient(
             165deg,
@@ -671,11 +649,11 @@ button.gx-state-attn.is-on {
 /* Same treatment as the strip: the line is the floor of the card. */
 .gx-card .gx-spark { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 40px; opacity: 1; }
 
-.gx-card-head { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.gx-card-head { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
 .gx-card-title { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .gx-card-title h3 {
     margin: 0;
-    font-size: 15px;
+    font-size: var(--text-lg);
     font-weight: 700;
     line-height: 1.3;
     color: var(--gx-text);
@@ -684,12 +662,12 @@ button.gx-state-attn.is-on {
     white-space: nowrap;
 }
 
-.gx-card-bar { display: flex; align-items: center; gap: 11px; }
+.gx-card-bar { display: flex; align-items: center; gap: var(--space-3); }
 /* The biggest number on the card, and now in the card's colour rather than in
    the text colour every other number on the page uses. It is the one figure a
    reader is scanning the grid for, so it is the one worth making findable. */
 .gx-card-pct {
-    font-size: 27px;
+    font-size: var(--text-2xl);
     font-weight: 700;
     letter-spacing: -.03em;
     line-height: 1;
@@ -698,20 +676,20 @@ button.gx-state-attn.is-on {
 }
 .gx-card-bar .gx-track { flex: 1; }
 
-.gx-card-figures { margin: -4px 0 0; font-size: 12.5px; color: var(--gx-muted); }
+.gx-card-figures { margin: -4px 0 0; font-size: var(--text-sm); color: var(--gx-muted); }
 
-.gx-card-facts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.gx-card-facts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .gx-card-facts li {
     display: flex;
     align-items: center;
-    gap: 7px;
-    font-size: 11.5px;
+    gap: var(--space-2);
+    font-size: var(--text-xs);
     color: var(--gx-muted);
     min-width: 0;
 }
 .gx-card-facts svg { flex: none; color: var(--gx-faint); }
 
-.gx-card-foot { display: flex; align-items: center; gap: 8px; }
+.gx-card-foot { display: flex; align-items: center; gap: var(--space-2); }
 
 .gx-rest { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .gx-rest button {
@@ -719,20 +697,20 @@ button.gx-state-attn.is-on {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    padding: 10px 14px;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-4);
     border: 0;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     background: transparent;
     color: var(--gx-text);
-    font: inherit; font-size: 13px;
+    font: inherit; font-size: var(--text-sm);
     cursor: pointer;
     text-align: left;
 }
 .gx-rest button:hover { background: color-mix(in srgb, var(--tone, var(--gx-card-2)) var(--gx-wash), var(--gx-card-2)); }
 .gx-rest-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gx-rest-pct {
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     font-weight: 700;
     color: var(--gx-muted);
     font-variant-numeric: tabular-nums;
@@ -752,8 +730,7 @@ button.gx-state-attn.is-on {
     background: var(--gx-faint);
 }
 .gx-rest-dot.is-on-track { background: var(--gx-good); }
-.gx-rest-dot.is-at-risk { background: var(--gx-watch); }
-.gx-rest-dot.is-off-track { background: var(--gx-bad); }
+.gx-rest-dot.is-behind { background: var(--gx-watch); }
 .gx-rest-dot.is-not-started {
     background: none;
     border: 1.5px solid var(--gx-faint);
@@ -769,7 +746,7 @@ button.gx-state-attn.is-on {
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: var(--space-4);
 }
 /* Same wash as the priority cards, and softer: a ladder is a tall card full of
    checkpoint sentences, so the tint stops well before the reading starts. The
@@ -780,8 +757,8 @@ button.gx-state-attn.is-on {
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 17px 19px 16px;
+    gap: var(--space-3);
+    padding: var(--space-4) var(--space-5) var(--space-4);
     background:
         linear-gradient(
             170deg,
@@ -822,7 +799,7 @@ button.gx-state-attn.is-on {
     to { opacity: 1; transform: none; }
 }
 
-.gx-ladder-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.gx-ladder-head { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
 .gx-ladder-name {
     flex: 1;
     min-width: 0;
@@ -839,14 +816,14 @@ button.gx-state-attn.is-on {
 }
 .gx-ladder-name:hover .gx-ladder-title { color: var(--tone); }
 .gx-ladder-title {
-    font-size: 15.5px;
+    font-size: var(--text-lg);
     font-weight: 700;
     line-height: 1.3;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.gx-ladder-name .gx-quiet { font-size: 11.5px; }
+.gx-ladder-name .gx-quiet { font-size: var(--text-xs); }
 
 .gx-ladder-pct {
     flex: none;
@@ -857,13 +834,13 @@ button.gx-state-attn.is-on {
     text-align: right;
 }
 .gx-ladder-pct strong {
-    font-size: 26px;
+    font-size: var(--text-2xl);
     font-weight: 700;
     letter-spacing: -.03em;
     line-height: 1;
     font-variant-numeric: tabular-nums;
 }
-.gx-ladder-pct .gx-quiet { font-size: 11px; }
+.gx-ladder-pct .gx-quiet { font-size: var(--text-2xs); }
 
 /* ---- The rungs ----------------------------------------------------------- */
 .gx-rungs {
@@ -879,14 +856,14 @@ button.gx-state-attn.is-on {
     display: grid;
     grid-template-columns: 24px minmax(0, 1fr) auto;
     align-items: center;
-    gap: 11px;
-    padding: 5px 0;
-    font-size: 13px;
+    gap: var(--space-3);
+    padding: var(--space-1) 0;
+    font-size: var(--text-sm);
     min-width: 0;
 }
-.gx-rung.is-empty { grid-template-columns: 1fr; padding: 8px 0 4px; }
+.gx-rung.is-empty { grid-template-columns: 1fr; padding: var(--space-2) 0 var(--space-1); }
 .gx-rung-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gx-rung-when { font-size: 11px; white-space: nowrap; }
+.gx-rung-when { font-size: var(--text-2xs); white-space: nowrap; }
 
 /* Reached checkpoints stay legible rather than being greyed to the floor:
    what you have done is the part of the plan worth being able to read. */
@@ -904,7 +881,7 @@ button.gx-state-attn.is-on {
     background: var(--gx-card-2);
     color: var(--gx-faint);
     font: inherit;
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     cursor: pointer;
     transition: background .14s ease, border-color .14s ease, color .14s ease;
@@ -925,53 +902,53 @@ button.gx-state-attn.is-on {
     place-items: center;
     width: 24px;
     height: 24px;
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     color: var(--gx-faint);
 }
 .gx-rung-input {
     grid-column: 2 / -1;
     width: 100%;
-    padding: 7px 10px;
+    padding: var(--space-2) var(--space-2);
     border: 1px solid var(--gx-line);
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     background: var(--gx-card-2);
     color: var(--gx-text);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--text-sm);
 }
 .gx-rung-input:focus { outline: 2px solid var(--tone); outline-offset: 1px; border-color: transparent; }
 .gx-rung-input::placeholder { color: var(--gx-faint); }
 
-.gx-ladder-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.gx-ladder-tools .gx-quiet { font-size: 12px; }
-.gx-ladder-note { margin: 0; font-size: 12px; color: var(--gx-bad); }
+.gx-ladder-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.gx-ladder-tools .gx-quiet { font-size: var(--text-xs); }
+.gx-ladder-note { margin: 0; font-size: var(--text-xs); color: var(--gx-bad); }
 
 /* ---------- The three counts above the strip ------------------------------ */
 .gx-counts {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
+    gap: var(--space-3);
 }
 .gx-count {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding: 16px 18px;
+    gap: var(--space-1);
+    padding: var(--space-4) var(--space-4);
     background: var(--gx-card);
     border: 1px solid var(--gx-line);
     border-radius: var(--gx-radius);
     box-shadow: var(--gx-shadow);
     min-width: 0;
 }
-.gx-count .gx-quiet { font-size: 12px; }
-.gx-count-of { font-size: 20px; font-weight: 600; color: var(--gx-faint); }
+.gx-count .gx-quiet { font-size: var(--text-xs); }
+.gx-count-of { font-size: var(--text-xl); font-weight: 600; color: var(--gx-faint); }
 
 /* ---------- One rail per goal --------------------------------------------- */
 .gx-rails {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-    gap: 14px;
+    gap: var(--space-4);
     align-items: start;
 }
 
@@ -989,33 +966,33 @@ button.gx-state-attn.is-on {
    end of a line. */
 .gx-chain {
     list-style: none;
-    margin: 6px 0 0;
+    margin: var(--space-2) 0 0;
     padding: 0;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 4px 0;
+    gap: var(--space-1) 0;
 }
 .gx-link { display: flex; align-items: center; min-width: 0; }
 .gx-link:not(:first-child)::before {
     content: '→';
     flex: none;
-    padding: 0 5px;
-    font-size: 11px;
+    padding: 0 var(--space-1);
+    font-size: var(--text-2xs);
     color: var(--gx-faint);
 }
 .gx-link button {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: var(--space-1);
     max-width: 190px;
-    padding: 4px 9px;
+    padding: var(--space-1) var(--space-2);
     border: 1px solid transparent;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: var(--gx-card-2);
     color: var(--gx-muted);
     font: inherit;
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     font-weight: 600;
     cursor: pointer;
     transition: border-color .14s ease, color .14s ease;
@@ -1030,7 +1007,7 @@ button.gx-state-attn.is-on {
 .gx-link button > i {
     flex: none;
     font-style: normal;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     line-height: 1;
 }
 
@@ -1049,7 +1026,7 @@ button.gx-state-attn.is-on {
     background: color-mix(in srgb, var(--tone) 16%, transparent);
     border-color: color-mix(in srgb, var(--tone) 48%, transparent);
     color: var(--tone);
-    font-weight: 800;
+    font-weight: 700;
     max-width: 240px;
 }
 .gx-link.is-rest button {
@@ -1058,7 +1035,7 @@ button.gx-state-attn.is-on {
     font-weight: 600;
 }
 .gx-rail {
-    padding: 15px 18px 12px;
+    padding: var(--space-4) var(--space-4) var(--space-3);
     background: var(--gx-card);
     border: 1px solid var(--gx-line);
     border-radius: var(--gx-radius);
@@ -1070,8 +1047,8 @@ button.gx-state-attn.is-on {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 4px;
+    gap: var(--space-3);
+    margin-bottom: var(--space-1);
     padding: 0;
     border: 0;
     background: transparent;
@@ -1082,13 +1059,13 @@ button.gx-state-attn.is-on {
 }
 .gx-rail-title {
     min-width: 0;
-    font-size: 13.5px;
+    font-size: var(--text-md);
     font-weight: 700;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.gx-rail-head .gx-quiet { flex: none; font-size: 12px; font-variant-numeric: tabular-nums; }
+.gx-rail-head .gx-quiet { flex: none; font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 
 /* ---------- Panels the bands sit in -------------------------------------- */
 /* A band's content is one surface, so the page reads as a handful of slabs
@@ -1097,7 +1074,7 @@ button.gx-state-attn.is-on {
    rails, the counts, the priority grid and the overflow list under it would
    otherwise be cards inside a card. */
 .gx-band > :not(.gx-band-head):not(.gx-cards):not(.gx-rest):not(.gx-ladders):not(.gx-rails):not(.gx-counts):not(.gx-strip):not(.gx-sys-lead) {
-    padding: 16px 18px;
+    padding: var(--space-4) var(--space-4);
     background: var(--gx-card);
     border: 1px solid var(--gx-line);
     border-radius: var(--gx-radius);
@@ -1112,39 +1089,38 @@ button.gx-state-attn.is-on {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
-    gap: 12px;
-    padding: 11px 12px;
-    border-radius: 12px;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-3);
+    border-radius: var(--radius-md);
 }
 .gx-next-row:hover { background: var(--gx-card-2); }
 .gx-next-body {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: var(--space-1);
     border: 0; background: none; padding: 0;
     text-align: left;
     cursor: pointer;
     min-width: 0;
     font: inherit;
 }
-.gx-next-title { font-size: 13.5px; font-weight: 650; color: var(--gx-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gx-next-goal { font-size: 11px; color: var(--gx-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gx-next-bar { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
+.gx-next-title { font-size: var(--text-md); font-weight: 600; color: var(--gx-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gx-next-goal { font-size: var(--text-2xs); color: var(--gx-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gx-next-bar { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-1); }
 .gx-next-bar .gx-track { flex: 1; max-width: 190px; }
-.gx-next-count { font-size: 10.5px; font-weight: 600; color: var(--gx-muted); font-variant-numeric: tabular-nums; }
+.gx-next-count { font-size: var(--text-2xs); font-weight: 600; color: var(--gx-muted); font-variant-numeric: tabular-nums; }
 .gx-next-when { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; white-space: nowrap; }
-.gx-next-when strong { font-size: 12px; font-weight: 650; color: var(--gx-text); }
-.gx-next-when span { font-size: 10.5px; color: var(--gx-faint); }
+.gx-next-when strong { font-size: var(--text-xs); font-weight: 600; color: var(--gx-text); }
+.gx-next-when span { font-size: var(--text-2xs); color: var(--gx-faint); }
 
 /* ---------- Health distribution ------------------------------------------ */
-.gx-dist { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+.gx-dist { display: flex; align-items: center; gap: var(--space-6); flex-wrap: wrap; }
 .gx-dist-ring { position: relative; width: 132px; height: 132px; flex: none; }
 .gx-dist-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
 .gx-dist-ring circle { fill: none; stroke-width: 5; }
 .gx-dist-arc { stroke-linecap: butt; }
 .gx-dist-arc.is-on-track    { stroke: var(--gx-good); }
-.gx-dist-arc.is-at-risk     { stroke: var(--gx-watch); }
-.gx-dist-arc.is-off-track   { stroke: var(--gx-bad); }
+.gx-dist-arc.is-behind     { stroke: var(--gx-watch); }
 .gx-dist-arc.is-not-started { stroke: var(--gx-faint); }
 .gx-dist-centre {
     position: absolute;
@@ -1155,19 +1131,18 @@ button.gx-state-attn.is-on {
     justify-content: center;
     gap: 1px;
 }
-.gx-dist-centre strong { font-size: 29px; font-weight: 700; letter-spacing: -.03em; color: var(--gx-text); }
-.gx-dist-centre span { font-size: 10.5px; color: var(--gx-faint); }
+.gx-dist-centre strong { font-size: var(--text-3xl); font-weight: 700; letter-spacing: -.03em; color: var(--gx-text); }
+.gx-dist-centre span { font-size: var(--text-2xs); color: var(--gx-faint); }
 
-.gx-dist-key { list-style: none; margin: 0; padding: 0; flex: 1; min-width: 150px; display: flex; flex-direction: column; gap: 10px; }
-.gx-dist-key li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 12.5px; }
+.gx-dist-key { list-style: none; margin: 0; padding: 0; flex: 1; min-width: 150px; display: flex; flex-direction: column; gap: var(--space-2); }
+.gx-dist-key li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
 .gx-dist-key i { width: 9px; height: 9px; border-radius: 3px; }
 .gx-dist-key i.is-on-track    { background: var(--gx-good); }
-.gx-dist-key i.is-at-risk     { background: var(--gx-watch); }
-.gx-dist-key i.is-off-track   { background: var(--gx-bad); }
+.gx-dist-key i.is-behind     { background: var(--gx-watch); }
 .gx-dist-key i.is-not-started { background: var(--gx-faint); }
 .gx-dist-key span { color: var(--gx-muted); }
-.gx-dist-key strong { font-weight: 650; color: var(--gx-text); font-variant-numeric: tabular-nums; }
-.gx-dist-key strong .gx-quiet { font-weight: 400; font-size: 11.5px; }
+.gx-dist-key strong { font-weight: 600; color: var(--gx-text); font-variant-numeric: tabular-nums; }
+.gx-dist-key strong .gx-quiet { font-weight: 400; font-size: var(--text-xs); }
 
 /* ---------- Insight rows --------------------------------------------------
    Three columns on every row — mark, reading, way in — so the icons line up
@@ -1182,14 +1157,14 @@ button.gx-state-attn.is-on {
    The dead half came later and won, turning this grid into a column flex —
    the icon stacked over the text and every row measured itself. It is gone,
    and these names belong to this component alone. */
-.gx-notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.gx-notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
 .gx-note {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
-    gap: 12px;
-    padding: 12px 14px;
-    border-radius: 12px;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
     text-align: left;
 }
 /* One width for every row's link, so the arrows sit on a line rather than
@@ -1200,14 +1175,14 @@ button.gx-state-attn.is-on {
     flex: none;
     display: grid; place-items: center;
     width: 30px; height: 30px;
-    border-radius: 9px;
+    border-radius: var(--radius-md);
 }
 .gx-note.tone-good  .gx-note-ico { color: var(--gx-good);  background: color-mix(in srgb, var(--gx-good) 13%, transparent); }
 .gx-note.tone-watch .gx-note-ico { color: var(--gx-watch); background: color-mix(in srgb, var(--gx-watch) 15%, transparent); }
 .gx-note.tone-note  .gx-note-ico { color: var(--gx-blue);  background: color-mix(in srgb, var(--gx-blue) 15%, transparent); }
 .gx-note > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.gx-note strong { font-size: 13px; font-weight: 650; color: var(--gx-text); line-height: 1.4; }
-.gx-note .gx-quiet { font-size: 11.5px; line-height: 1.5; }
+.gx-note strong { font-size: var(--text-sm); font-weight: 600; color: var(--gx-text); line-height: 1.4; }
+.gx-note .gx-quiet { font-size: var(--text-xs); line-height: 1.5; }
 
 /* ---------- What is behind you -------------------------------------------- */
 .gx-done { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -1215,9 +1190,9 @@ button.gx-state-attn.is-on {
     display: grid;
     grid-template-columns: 24px minmax(0, 1fr) auto;
     align-items: center;
-    gap: 11px;
-    padding: 10px 12px;
-    border-radius: 11px;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
 }
 .gx-done-row:hover { background: var(--gx-card-2); }
 .gx-done-mark {
@@ -1229,13 +1204,13 @@ button.gx-state-attn.is-on {
 }
 .gx-done-row.is-goal .gx-done-mark { background: var(--gx-violet); }
 .gx-done-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.gx-done-title { font-size: 13px; font-weight: 600; color: var(--gx-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gx-done-body .gx-quiet { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gx-done-title { font-size: var(--text-sm); font-weight: 600; color: var(--gx-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gx-done-body .gx-quiet { font-size: var(--text-2xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gx-tag {
     flex: none;
-    padding: 3px 9px;
-    border-radius: 7px;
-    font-size: 10px;
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: .04em;
     text-transform: uppercase;
@@ -1249,8 +1224,8 @@ button.gx-state-attn.is-on {
 .gx-cta {
     display: flex;
     align-items: center;
-    gap: 14px;
-    padding: 16px 18px;
+    gap: var(--space-4);
+    padding: var(--space-4) var(--space-4);
     border-radius: var(--gx-radius);
     background: linear-gradient(
         100deg,
@@ -1260,8 +1235,8 @@ button.gx-state-attn.is-on {
     border: 1px solid color-mix(in srgb, var(--gx-violet) 24%, var(--gx-line));
 }
 .gx-cta > div { flex: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.gx-cta strong { font-size: 13.5px; font-weight: 700; color: var(--gx-violet); }
-.gx-cta .gx-quiet { font-size: 12px; }
+.gx-cta strong { font-size: var(--text-md); font-weight: 700; color: var(--gx-violet); }
+.gx-cta .gx-quiet { font-size: var(--text-xs); }
 
 /* ---------- The drawer ---------------------------------------------------- */
 .gx-drawer-backdrop {
@@ -1282,8 +1257,8 @@ button.gx-state-attn.is-on {
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 16px;
-    padding: 26px 28px 40px;
+    gap: var(--space-4);
+    padding: var(--space-6) var(--space-6) var(--space-10);
     background: var(--gx-card-2, #fff);
     border-left: 1px solid var(--gx-line);
     color: var(--gx-text);
@@ -1291,80 +1266,80 @@ button.gx-state-attn.is-on {
 }
 @keyframes gx-slide { from { transform: translateX(28px); opacity: 0; } to { transform: none; opacity: 1; } }
 
-.gx-drawer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.gx-drawer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
 .gx-drawer-head h2 {
-    margin: 4px 0 6px;
-    font-size: 23px;
-    font-weight: 750;
+    margin: var(--space-1) 0 var(--space-2);
+    font-size: var(--text-2xl);
+    font-weight: 700;
     letter-spacing: -.02em;
     line-height: 1.25;
 }
-.gx-drawer-head p { margin: 0; font-size: 13px; line-height: 1.55; }
+.gx-drawer-head p { margin: 0; font-size: var(--text-sm); line-height: 1.55; }
 
 .gx-page .gx-close  {
     flex: none;
     width: 32px; height: 32px;
-    border: 0; border-radius: 9px;
+    border: 0; border-radius: var(--radius-md);
     background: transparent;
     color: var(--gx-muted);
-    font-size: 22px; line-height: 1;
+    font-size: var(--text-2xl); line-height: 1;
     cursor: pointer;
 }
 .gx-page .gx-close:hover { background: var(--gx-line-soft); color: var(--gx-text); }
 
 .gx-why {
     margin: 0;
-    padding: 14px 16px;
-    border-radius: 12px;
+    padding: var(--space-4) var(--space-4);
+    border-radius: var(--radius-md);
     background: color-mix(in srgb, var(--tone, var(--gx-violet)) 8%, transparent);
     border: 1px solid color-mix(in srgb, var(--tone, var(--gx-violet)) 22%, transparent);
-    font-size: 13.5px;
+    font-size: var(--text-md);
     line-height: 1.6;
     font-style: italic;
 }
 .gx-why-label {
     display: block;
     font-style: normal;
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: .07em;
     text-transform: uppercase;
     color: var(--tone, var(--gx-violet));
-    margin-bottom: 5px;
+    margin-bottom: var(--space-1);
 }
 
 .gx-panel {
     display: flex;
     flex-direction: column;
-    gap: 13px;
-    padding: 18px 20px;
+    gap: var(--space-3);
+    padding: var(--space-4) var(--space-5);
     background: var(--gx-card);
     border: 1px solid var(--gx-line);
     border-radius: var(--gx-radius);
 }
-.gx-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.gx-panel-head h3 { margin: 0; font-size: 14.5px; font-weight: 700; }
-.gx-panel-head .gx-quiet { font-size: 12px; }
+.gx-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.gx-panel-head h3 { margin: 0; font-size: var(--text-md); font-weight: 700; }
+.gx-panel-head .gx-quiet { font-size: var(--text-xs); }
 
-.gx-detail-progress { display: flex; align-items: center; gap: 16px; }
-.gx-detail-progress > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
-.gx-detail-progress p { margin: 0; font-size: 12.5px; }
-.gx-detail-reason { margin: 0; font-size: 12.5px; line-height: 1.55; }
+.gx-detail-progress { display: flex; align-items: center; gap: var(--space-4); }
+.gx-detail-progress > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.gx-detail-progress p { margin: 0; font-size: var(--text-sm); }
+.gx-detail-reason { margin: 0; font-size: var(--text-sm); line-height: 1.55; }
 
-.gx-value-row { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
-.gx-value-row label { font-size: 12px; color: var(--gx-muted); }
+.gx-value-row { display: flex; align-items: flex-end; gap: var(--space-2); flex-wrap: wrap; }
+.gx-value-row label { font-size: var(--text-xs); color: var(--gx-muted); }
 
 .gx-facts {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 10px;
+    gap: var(--space-2);
     margin: 0;
-    padding-top: 12px;
+    padding-top: var(--space-3);
     border-top: 1px solid var(--gx-line-soft);
 }
 .gx-facts > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.gx-facts dt { font-size: 11px; color: var(--gx-faint); }
-.gx-facts dd { margin: 0; font-size: 13px; font-weight: 600; color: var(--gx-text); }
+.gx-facts dt { font-size: var(--text-2xs); color: var(--gx-faint); }
+.gx-facts dd { margin: 0; font-size: var(--text-sm); font-weight: 600; color: var(--gx-text); }
 
 /* ---------- Milestones ---------------------------------------------------- */
 .gx-milestones { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
@@ -1372,8 +1347,8 @@ button.gx-state-attn.is-on {
     display: grid;
     grid-template-columns: 26px minmax(0, 1fr) auto;
     align-items: center;
-    gap: 11px;
-    padding: 9px 0;
+    gap: var(--space-3);
+    padding: var(--space-2) 0;
     border-bottom: 1px solid var(--gx-line-soft);
 }
 .gx-ms:last-child { border-bottom: 0; }
@@ -1384,22 +1359,22 @@ button.gx-state-attn.is-on {
     border: 1px solid var(--gx-line);
     background: var(--gx-card-2);
     color: var(--gx-muted);
-    font-size: 12px; font-weight: 700;
+    font-size: var(--text-xs); font-weight: 700;
     cursor: pointer;
 }
 .gx-ms.is-done .gx-ms-tick { background: var(--gx-good); border-color: var(--gx-good); color: #fff; }
 .gx-ms-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.gx-ms-title { font-size: 13.5px; font-weight: 600; color: var(--gx-text); }
+.gx-ms-title { font-size: var(--text-md); font-weight: 600; color: var(--gx-text); }
 .gx-ms.is-done .gx-ms-title { color: var(--gx-muted); text-decoration: line-through; text-decoration-thickness: 1px; }
-.gx-ms-body .gx-quiet { font-size: 11px; }
+.gx-ms-body .gx-quiet { font-size: var(--text-2xs); }
 .gx-ms-tools { display: flex; gap: 2px; opacity: 0; transition: opacity .14s; }
 .gx-ms:hover .gx-ms-tools, .gx-ms:focus-within .gx-ms-tools { opacity: 1; }
 .gx-page .gx-ms-tools button  {
     width: 24px; height: 24px;
-    border: 0; border-radius: 7px;
+    border: 0; border-radius: var(--radius-sm);
     background: transparent;
     color: var(--gx-faint);
-    font-size: 13px;
+    font-size: var(--text-sm);
     cursor: pointer;
 }
 .gx-page .gx-ms-tools button:hover:not(:disabled) { background: var(--gx-line-soft); color: var(--gx-text); }
@@ -1415,10 +1390,10 @@ button.gx-state-attn.is-on {
     flex-direction: column;
     align-items: flex-start;
     gap: 1px;
-    padding: 4px 7px;
-    margin: -4px -7px;
+    padding: var(--space-1) var(--space-2);
+    margin: -4px -8px;
     border: 0;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: transparent;
     text-align: left;
     cursor: pointer;
@@ -1427,7 +1402,7 @@ button.gx-state-attn.is-on {
 .gx-page .gx-ms-body.is-pickable:disabled { cursor: default; }
 .gx-ms.is-active .gx-ms-title { color: var(--gx-accent, var(--gx-text)); }
 .gx-ms-focus-tag {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: .07em;
     text-transform: uppercase;
@@ -1440,45 +1415,45 @@ button.gx-state-attn.is-on {
    cards, and the checkpoints are the list here — the steps are detail. */
 .gx-checklist {
     grid-column: 2 / -1;
-    margin: 4px 0 2px;
+    margin: var(--space-1) 0 2px;
 }
 .gx-checklist-head {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 10px;
+    gap: var(--space-2);
 }
-.gx-checklist-head .gx-quiet { font-size: 11px; }
+.gx-checklist-head .gx-quiet { font-size: var(--text-2xs); }
 .gx-page .gx-checklist-add  {
-    padding: 2px 6px;
+    padding: 2px var(--space-2);
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     background: transparent;
     color: var(--gx-muted);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     cursor: pointer;
 }
 .gx-page .gx-checklist-add:hover:not(:disabled) { background: var(--gx-line-soft); color: var(--gx-text); }
 .gx-page .gx-checklist-add:disabled { opacity: .35; cursor: default; }
 
-.gx-checklist-list { list-style: none; margin: 5px 0 0; padding: 0; }
+.gx-checklist-list { list-style: none; margin: var(--space-1) 0 0; padding: 0; }
 .gx-cstep {
     display: grid;
     grid-template-columns: 18px minmax(0, 1fr) auto 20px;
     align-items: center;
-    gap: 9px;
-    padding: 3px 0;
+    gap: var(--space-2);
+    padding: var(--space-1) 0;
 }
 .gx-page .gx-cstep-tick  {
     width: 16px; height: 16px;
     display: grid; place-items: center;
     padding: 0;
     border: 1.5px solid var(--gx-line);
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     background: transparent;
     color: #fff;
-    font-size: 10px; font-weight: 700;
+    font-size: var(--text-2xs); font-weight: 700;
     cursor: pointer;
     transition: border-color .14s ease, background .14s ease;
 }
@@ -1492,14 +1467,14 @@ button.gx-state-attn.is-on {
 /* The text is a button so a click opens the editor. Styled as text, for the
    same reason the checkpoint body above is. */
 .gx-page .gx-cstep-text  {
-    padding: 2px 5px;
-    margin: 0 -5px;
+    padding: 2px var(--space-1);
+    margin: 0 -4px;
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     background: transparent;
     color: var(--gx-text);
     font: inherit;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     text-align: left;
     cursor: text;
     overflow: hidden;
@@ -1513,14 +1488,14 @@ button.gx-state-attn.is-on {
 
 .gx-page .gx-cstep-input  {
     width: 100%;
-    padding: 2px 5px;
-    margin: 0 -5px;
+    padding: 2px var(--space-1);
+    margin: 0 -4px;
     border: 1px solid var(--gx-accent, var(--gx-line));
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     background: var(--gx-card);
     color: var(--gx-text);
     font: inherit;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
 }
 /* The checkpoint's own date, in the tools cluster beside the arrows — so it
    is held back on hover with them. That is right here and would not be
@@ -1532,9 +1507,9 @@ button.gx-state-attn.is-on {
     display: grid;
     place-items: center;
     width: 24px; height: 24px;
-    border-radius: 7px;
+    border-radius: var(--radius-sm);
     color: var(--gx-faint);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     cursor: pointer;
 }
 .gx-page .gx-ms-date:hover { background: var(--gx-line-soft); color: var(--gx-text); }
@@ -1554,9 +1529,9 @@ button.gx-state-attn.is-on {
     display: inline-grid;
     place-items: center;
     min-width: 54px;
-    padding: 2px 6px;
-    border-radius: 6px;
-    font-size: 11px;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-2xs);
     color: var(--gx-faint);
     white-space: nowrap;
     cursor: pointer;
@@ -1577,10 +1552,10 @@ button.gx-state-attn.is-on {
 
 .gx-page .gx-cstep-cut  {
     width: 20px; height: 20px;
-    border: 0; border-radius: 6px;
+    border: 0; border-radius: var(--radius-sm);
     background: transparent;
     color: var(--gx-faint);
-    font-size: 12px;
+    font-size: var(--text-xs);
     cursor: pointer;
     opacity: 0;
     transition: opacity .14s;
@@ -1597,58 +1572,58 @@ button.gx-state-attn.is-on {
     align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;
-    gap: 10px 14px;
-    margin: 0 0 12px;
-    padding: 12px 13px;
+    gap: var(--space-2) var(--space-4);
+    margin: 0 0 var(--space-3);
+    padding: var(--space-3) var(--space-3);
     border: 1px dashed var(--gx-line);
-    border-radius: 11px;
+    border-radius: var(--radius-md);
     background: var(--gx-card-2);
 }
 .gx-ms-empty > span {
     min-width: 0;
     flex: 1 1 240px;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     line-height: 1.55;
     color: var(--gx-muted);
 }
 
-.gx-ms-add { display: flex; gap: 9px; }
+.gx-ms-add { display: flex; gap: var(--space-2); }
 .gx-ms-add input { flex: 1; min-width: 0; }
 
 /* ---------- The readings -------------------------------------------------- */
 .gx-readings {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-    gap: 12px;
+    gap: var(--space-3);
 }
 .gx-readings > div {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    padding: 12px 13px;
-    border-radius: 11px;
+    padding: var(--space-3) var(--space-3);
+    border-radius: var(--radius-md);
     background: var(--gx-card-2);
     border: 1px solid var(--gx-line);
     min-width: 0;
 }
-.gx-readings strong { font-size: 17px; font-weight: 700; letter-spacing: -.01em; color: var(--gx-text); }
+.gx-readings strong { font-size: var(--text-lg); font-weight: 700; letter-spacing: -.01em; color: var(--gx-text); }
 .gx-readings strong.is-accelerating { color: var(--gx-good); }
 .gx-readings strong.is-slowing { color: var(--gx-watch); }
 .gx-readings strong.is-stalled { color: var(--gx-bad); }
-.gx-readings .gx-quiet { font-size: 11px; line-height: 1.45; }
+.gx-readings .gx-quiet { font-size: var(--text-2xs); line-height: 1.45; }
 
 .gx-bottleneck {
     margin: 0;
-    padding: 12px 14px;
-    border-radius: 11px;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
     background: color-mix(in srgb, var(--gx-watch) 10%, transparent);
     border: 1px solid color-mix(in srgb, var(--gx-watch) 26%, transparent);
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     line-height: 1.6;
 }
 .gx-bottleneck strong { display: block; color: var(--gx-text); font-weight: 700; margin-bottom: 2px; }
 
-.gx-pattern { margin: 0; font-size: 12.5px; line-height: 1.55; }
+.gx-pattern { margin: 0; font-size: var(--text-sm); line-height: 1.55; }
 /* ---------- Summit's read, in the goal drawer -----------------------------
    Last panel, below everything counted, and marked as a model's writing
    throughout. A paragraph written by a model and a percentage counted from the
@@ -1656,45 +1631,45 @@ button.gx-state-attn.is-on {
    pages is that somebody can tell which is which — so the panel says so twice:
    a chip in its header while the read is on screen, and a caveat under it. */
 .gx-read-mark {
-    padding: 2px 8px;
-    border-radius: 999px;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-full);
     background: color-mix(in srgb, var(--gx-violet) 13%, transparent);
     color: var(--gx-violet);
-    font-size: 9.5px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: .07em;
     text-transform: uppercase;
 }
 .gx-read-gate,
 .gx-read-lead {
-    margin: 0 0 10px;
-    font-size: 12.5px;
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-sm);
     line-height: 1.6;
     color: var(--gx-muted);
 }
 .gx-read-gate strong { color: var(--gx-text); font-weight: 700; }
 .gx-read-say {
-    margin: 0 0 14px;
-    font-size: 13.5px;
+    margin: 0 0 var(--space-4);
+    font-size: var(--text-md);
     line-height: 1.65;
     color: var(--gx-text);
 }
-.gx-read-block { margin-bottom: 14px; }
+.gx-read-block { margin-bottom: var(--space-4); }
 .gx-read-block h4 {
-    margin: 0 0 6px;
-    font-size: 10px;
-    font-weight: 800;
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-2xs);
+    font-weight: 700;
     letter-spacing: .08em;
     text-transform: uppercase;
     color: var(--gx-muted);
 }
-.gx-read-week { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.gx-read-week { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
 .gx-read-week > li {
     position: relative;
-    padding: 7px 11px 7px 24px;
-    border-radius: 9px;
+    padding: var(--space-2) var(--space-3) var(--space-2) var(--space-6);
+    border-radius: var(--radius-md);
     background: var(--gx-card-2);
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     line-height: 1.5;
 }
 .gx-read-week > li::before {
@@ -1707,34 +1682,34 @@ button.gx-state-attn.is-on {
     border-radius: 50%;
     background: var(--gx-violet);
 }
-.gx-read-phases { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.gx-read-phases { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .gx-read-phases > li { display: flex; flex-direction: column; gap: 1px; }
-.gx-read-phase-head { display: flex; align-items: baseline; gap: 8px; }
-.gx-read-phase-head strong { font-size: 12.5px; font-weight: 700; }
+.gx-read-phase-head { display: flex; align-items: baseline; gap: var(--space-2); }
+.gx-read-phase-head strong { font-size: var(--text-sm); font-weight: 700; }
 .gx-read-phase-head em {
     font-style: normal;
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     color: var(--gx-violet);
     font-variant-numeric: tabular-nums;
 }
-.gx-read-phases .gx-quiet { font-size: 11.5px; line-height: 1.5; }
+.gx-read-phases .gx-quiet { font-size: var(--text-xs); line-height: 1.5; }
 .gx-read-failed {
-    margin: 10px 0 0;
-    font-size: 12px;
+    margin: var(--space-2) 0 0;
+    font-size: var(--text-xs);
     color: var(--gx-bad);
 }
 
-.gx-caveat { margin: 0; font-size: 11px; line-height: 1.55; color: var(--gx-faint); }
+.gx-caveat { margin: 0; font-size: var(--text-2xs); line-height: 1.55; color: var(--gx-faint); }
 
 /* ---------- Recommendations ----------------------------------------------- */
-.gx-actions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.gx-actions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .gx-action {
     display: flex;
     flex-direction: column;
-    gap: 3px;
-    padding: 13px 15px;
-    border-radius: 12px;
+    gap: var(--space-1);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
     background: var(--gx-card-2);
     border: 1px solid var(--gx-line);
     border-left: 3px solid var(--gx-line);
@@ -1742,11 +1717,11 @@ button.gx-state-attn.is-on {
 .gx-action.is-urgent { border-left-color: var(--gx-bad); }
 .gx-action.is-nudge  { border-left-color: var(--gx-watch); }
 .gx-action.is-good   { border-left-color: var(--gx-good); }
-.gx-action strong { font-size: 13.5px; font-weight: 700; color: var(--gx-text); }
-.gx-action .gx-quiet { font-size: 12px; line-height: 1.55; }
-.gx-effect { font-size: 11px; color: var(--gx-faint); font-style: italic; }
+.gx-action strong { font-size: var(--text-md); font-weight: 700; color: var(--gx-text); }
+.gx-action .gx-quiet { font-size: var(--text-xs); line-height: 1.55; }
+.gx-effect { font-size: var(--text-2xs); color: var(--gx-faint); font-style: italic; }
 
-.gx-drawer-foot { display: flex; gap: 10px; justify-content: flex-end; padding-top: 4px; }
+.gx-drawer-foot { display: flex; gap: var(--space-2); justify-content: flex-end; padding-top: var(--space-1); }
 
 /* ---------- Fields -------------------------------------------------------- */
 .gx-page input[type="text"],
@@ -1756,13 +1731,13 @@ button.gx-state-attn.is-on {
 .gx-page textarea  {
     width: 100%;
     box-sizing: border-box;
-    padding: 10px 13px;
+    padding: var(--space-2) var(--space-3);
     border: 1px solid var(--gx-line);
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     background: var(--gx-card);
     color: var(--gx-text);
     font: inherit;
-    font-size: 13.5px;
+    font-size: var(--text-md);
     outline: none;
     transition: border-color .15s, box-shadow .15s;
 }
@@ -1772,11 +1747,11 @@ button.gx-state-attn.is-on {
     border-color: var(--gx-violet);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--gx-violet) 18%, transparent);
 }
-.gx-page label { display: block; font-size: 12px; font-weight: 600; color: var(--gx-muted); margin-bottom: 6px; }
+.gx-page label { display: block; font-size: var(--text-xs); font-weight: 600; color: var(--gx-muted); margin-bottom: var(--space-2); }
 .gx-page input[type="range"] { accent-color: var(--gx-violet); padding: 0; border: 0; background: none; }
 
 /* ---------- The wizard ---------------------------------------------------- */
-.gx-drawer-backdrop:has(.gx-wizard) { justify-content: center; align-items: center; padding: 20px; }
+.gx-drawer-backdrop:has(.gx-wizard) { justify-content: center; align-items: center; padding: var(--space-5); }
 
 .gx-wizard {
     width: min(96vw, 620px);
@@ -1786,53 +1761,53 @@ button.gx-state-attn.is-on {
     background: var(--gx-card, #fff);
     color: var(--gx-text);
     border: 1px solid var(--gx-line);
-    border-radius: 20px;
-    box-shadow: 0 24px 64px rgba(16, 24, 40, .3);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
     overflow: hidden;
     animation: gx-rise .2s cubic-bezier(.22, .68, .3, 1) both;
 }
 @keyframes gx-rise { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
 
-.gx-wizard-head { padding: 24px 26px 0; position: relative; }
+.gx-wizard-head { padding: var(--space-6) var(--space-6) 0; position: relative; }
 .gx-wizard-head h2 {
-    margin: 6px 0 0;
-    font-size: 21px;
-    font-weight: 750;
+    margin: var(--space-2) 0 0;
+    font-size: var(--text-xl);
+    font-weight: 700;
     letter-spacing: -.02em;
-    padding-right: 40px;
+    padding-right: var(--space-10);
 }
 .gx-wizard-head .gx-close { position: absolute; top: 18px; right: 18px; }
 .gx-wizard-step {
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: .08em;
     text-transform: uppercase;
     color: var(--gx-violet);
 }
 
-.gx-wizard-rail { display: flex; gap: 4px; padding: 18px 26px 0; }
+.gx-wizard-rail { display: flex; gap: var(--space-1); padding: var(--space-4) var(--space-6) 0; }
 .gx-wizard-rail i { flex: 1; height: 3px; border-radius: 2px; background: var(--gx-line); transition: background .2s; }
 .gx-wizard-rail i.is-on { background: var(--gx-violet); }
 
-.gx-wizard-body { padding: 22px 26px 6px; overflow-y: auto; flex: 1; min-height: 0; }
-.gx-wizard-body > label:not(:first-child) { margin-top: 16px; }
+.gx-wizard-body { padding: var(--space-6) var(--space-6) var(--space-2); overflow-y: auto; flex: 1; min-height: 0; }
+.gx-wizard-body > label:not(:first-child) { margin-top: var(--space-4); }
 
 .gx-wizard-foot {
     display: flex;
     justify-content: space-between;
-    gap: 10px;
-    padding: 16px 26px 22px;
+    gap: var(--space-2);
+    padding: var(--space-4) var(--space-6) var(--space-6);
     border-top: 1px solid var(--gx-line-soft);
 }
 
-.gx-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.gx-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .gx-page .gx-chip  {
     border: 1px solid var(--gx-line);
     background: var(--gx-card-2);
     color: var(--gx-muted);
-    border-radius: 999px;
-    padding: 6px 14px;
-    font: inherit; font-size: 12.5px; font-weight: 600;
+    border-radius: var(--radius-full);
+    padding: var(--space-2) var(--space-4);
+    font: inherit; font-size: var(--text-sm); font-weight: 600;
     cursor: pointer;
 }
 .gx-page .gx-chip.is-on  {
@@ -1841,38 +1816,55 @@ button.gx-state-attn.is-on {
     color: var(--tone);
 }
 
-.gx-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+.gx-choices { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
 .gx-page .gx-choice  {
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: var(--space-1);
     text-align: left;
-    padding: 15px 16px;
+    padding: var(--space-4) var(--space-4);
     border: 1px solid var(--gx-line);
-    border-radius: 13px;
+    border-radius: var(--radius-md);
     background: var(--gx-card-2);
     color: var(--gx-text);
     font: inherit;
     cursor: pointer;
 }
 .gx-page .gx-choice.is-on { border-color: var(--gx-violet); background: color-mix(in srgb, var(--gx-violet) 8%, transparent); }
-.gx-page .gx-choice strong { font-size: 13.5px; font-weight: 700; }
-.gx-page .gx-choice span { font-size: 11.5px; line-height: 1.5; color: var(--gx-muted); }
+.gx-page .gx-choice strong { font-size: var(--text-md); font-weight: 700; }
+.gx-page .gx-choice span { font-size: var(--text-xs); line-height: 1.5; color: var(--gx-muted); }
 
-.gx-number-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
-.gx-number-row label { margin-bottom: 5px; }
+/* The chart step: eight small tiles rather than two big ones. */
+.gx-chart-choices { grid-template-columns: repeat(4, 1fr); gap: var(--space-2); }
+.gx-page .gx-chart-choices .gx-choice { padding: var(--space-3); gap: var(--space-1); }
+.gx-page .gx-chart-choices .gx-choice strong { font-size: var(--text-sm); }
+.gx-chart-thumb { width: 100%; height: 34px; margin-bottom: var(--space-1); }
+.gx-chart-thumb rect { fill: var(--gx-violet); }
+.gx-chart-thumb rect.is-track { fill: var(--gx-line); }
+.gx-chart-thumb path.is-line {
+    fill: none;
+    stroke: var(--gx-violet);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.gx-chart-thumb path.is-line[d$="Z"] { fill: var(--gx-violet); stroke: none; }
+.gx-page .gx-choice:not(.is-on) .gx-chart-thumb { opacity: .55; }
 
-.gx-draft-list { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 6px; counter-reset: gx-step; }
+.gx-number-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2); margin-top: var(--space-4); }
+.gx-number-row label { margin-bottom: var(--space-1); }
+
+.gx-draft-list { list-style: none; margin: 0 0 var(--space-3); padding: 0; display: flex; flex-direction: column; gap: var(--space-2); counter-reset: gx-step; }
 .gx-draft-list li {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
-    padding: 10px 13px;
-    border-radius: 10px;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
     background: var(--gx-card-2);
     border: 1px solid var(--gx-line);
-    font-size: 13px;
+    font-size: var(--text-sm);
 }
 .gx-draft-list li::before {
     counter-increment: gx-step;
@@ -1883,23 +1875,23 @@ button.gx-state-attn.is-on {
     border-radius: 50%;
     background: var(--gx-violet);
     color: #fff;
-    font-size: 10.5px; font-weight: 700;
+    font-size: var(--text-2xs); font-weight: 700;
 }
 .gx-draft-list li span { flex: 1; min-width: 0; }
 .gx-page .gx-draft-list li button  {
     border: 0; background: none; padding: 0;
     width: 22px; height: 22px;
     color: var(--gx-faint);
-    font-size: 15px;
+    font-size: var(--text-lg);
     cursor: pointer;
 }
 .gx-page .gx-draft-list li button:hover { color: var(--gx-bad); }
 
 /* The model's button on the checkpoints step, and what it says when it could
    not draft anything. */
-.gx-ms-suggest { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; }
-.gx-ms-suggest .gx-quiet { font-size: 11.5px; }
-.gx-ms-problem { margin: 0 0 12px; font-size: 12px; line-height: 1.5; color: var(--gx-bad); }
+.gx-ms-suggest { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-3); }
+.gx-ms-suggest .gx-quiet { font-size: var(--text-xs); }
+.gx-ms-problem { margin: 0 0 var(--space-3); font-size: var(--text-xs); line-height: 1.5; color: var(--gx-bad); }
 
 /* ---------- Drafting the whole goal ---------------------------------------
    The box at the top of the wizard's first step. Set apart from the fields
@@ -1908,17 +1900,27 @@ button.gx-state-attn.is-on {
    the four below it would read as another thing to answer rather than as the
    way past them. */
 .gx-idea {
-    margin: 0 0 20px;
-    padding: 13px 14px 11px;
+    margin: 0 0 var(--space-5);
+    padding: var(--space-3) var(--space-4) var(--space-3);
     border: 1px solid color-mix(in srgb, var(--gx-violet) var(--gx-edge), transparent);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     background: color-mix(in srgb, var(--gx-violet) var(--gx-wash-soft), transparent);
 }
 .gx-idea > label { margin-top: 0; }
+.gx-idea-head {
+    margin: 0 0 var(--space-2);
+    font-weight: var(--weight-semibold);
+    color: var(--gx-violet);
+}
+.gx-idea > label + textarea { margin-bottom: var(--space-2); }
+.gx-idea .gx-idea-head + label { margin-top: 0; }
+/* The starting-point box on the checkpoints step, under that step's heading. */
+.gx-sub-label { font-weight: 500; }
 .gx-idea-row {
     display: flex;
+    justify-content: flex-end;
     align-items: center;
-    gap: 9px;
+    gap: var(--space-2);
     flex-wrap: wrap;
 }
 .gx-idea-row input { flex: 1 1 220px; min-width: 0; }
@@ -1927,20 +1929,20 @@ button.gx-state-attn.is-on {
    box reads as a submit for a form this is not part of. */
 .gx-idea-row .gx-ai { align-self: center; flex: none; }
 .gx-idea .gx-hint { margin-bottom: 0; }
-.gx-idea .gx-ms-problem { margin: 8px 0 0; }
+.gx-idea .gx-ms-problem { margin: var(--space-2) 0 0; }
 
 /* ---------- The system goal setup ---------------------------------------- */
 /* The four counters, as a list: each needs a sentence on what exactly it
    counts, and four of those do not fit two-up. See SystemGoalWizard. */
-.gx-syspick { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.gx-syspick { list-style: none; margin: var(--space-4) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .gx-page .gx-syspick-row {
     width: 100%;
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 12px 14px;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
     border: 1px solid var(--gx-line);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     background: var(--gx-card-2);
     color: var(--gx-text);
     font: inherit;
@@ -1953,15 +1955,15 @@ button.gx-state-attn.is-on {
     background: color-mix(in srgb, var(--gx-violet) 8%, transparent);
 }
 .gx-syspick-text { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
-.gx-syspick-text strong { font-size: 13.5px; font-weight: 700; }
-.gx-syspick-text span { font-size: 11.5px; line-height: 1.45; color: var(--gx-muted); }
+.gx-syspick-text strong { font-size: var(--text-md); font-weight: 700; }
+.gx-syspick-text span { font-size: var(--text-xs); line-height: 1.45; color: var(--gx-muted); }
 .gx-syspick-note {
     flex: none;
-    padding: 2px 8px;
-    border-radius: 999px;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-full);
     background: var(--gx-line-soft);
     color: var(--gx-muted);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     font-weight: 700;
 }
 
@@ -1977,20 +1979,21 @@ button.gx-state-attn.is-on {
 @media (max-width: 720px) {
     .gx-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .gx-choices, .gx-number-row { grid-template-columns: 1fr; }
+    .gx-chart-choices { grid-template-columns: 1fr 1fr; }
     .gx-head-tools { width: 100%; }
-    .gx-drawer { padding: 20px 18px 34px; }
+    .gx-drawer { padding: var(--space-5) var(--space-4) var(--space-8); }
     .gx-cta { flex-wrap: wrap; }
     .gx-cta .gx-btn { width: 100%; }
     /* The percentage moves under the title rather than shrinking to fit
        beside it — a goal's name is the part that has to stay readable. */
     .gx-ladder-head { flex-wrap: wrap; }
-    .gx-ladder-pct { flex-direction: row; align-items: baseline; gap: 8px; }
+    .gx-ladder-pct { flex-direction: row; align-items: baseline; gap: var(--space-2); }
     .gx-counts { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 460px) {
     .gx-strip { grid-template-columns: minmax(0, 1fr); }
-    .gx-ladder { padding: 15px 14px 14px; }
-    .gx-rail { padding: 14px 14px 10px; }
+    .gx-ladder { padding: var(--space-4) var(--space-4) var(--space-4); }
+    .gx-rail { padding: var(--space-4) var(--space-4) var(--space-2); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2021,14 +2024,14 @@ button.gx-state-attn.is-on {
     gap: clamp(16px, 1.6vw, 26px);
     align-items: start;
 }
-.gx-main { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+.gx-main { display: flex; flex-direction: column; gap: var(--space-6); min-width: 0; }
 
 .gx-rail-col {
     position: sticky;
     top: calc(var(--topnav-h, 0px) + 18px);
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--space-3);
     min-width: 0;
 }
 
@@ -2036,20 +2039,20 @@ button.gx-state-attn.is-on {
 .gx-tabs {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 4px;
-    padding: 4px;
+    gap: var(--space-1);
+    padding: var(--space-1);
     border: 1px solid var(--gx-line);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     background: var(--gx-card-2);
 }
 .gx-tab {
-    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-    padding: 8px 10px;
+    display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+    padding: var(--space-2) var(--space-2);
     border: 0;
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     background: none;
     color: var(--gx-muted);
-    font: inherit; font-size: 12.5px; font-weight: 650;
+    font: inherit; font-size: var(--text-sm); font-weight: 600;
     cursor: pointer;
     transition: background .15s ease, color .15s ease;
 }
@@ -2061,16 +2064,16 @@ button.gx-state-attn.is-on {
 }
 .gx-tab-count {
     min-width: 18px;
-    padding: 1px 5px;
-    border-radius: 999px;
+    padding: 1px var(--space-1);
+    border-radius: var(--radius-full);
     background: color-mix(in srgb, var(--gx-violet) 13%, transparent);
     color: var(--gx-violet);
-    font-size: 10.5px; font-weight: 700;
+    font-size: var(--text-2xs); font-weight: 700;
 }
 
 /* ---------- The panel under them ------------------------------------------ */
 .gx-panel {
-    display: flex; flex-direction: column; gap: 10px;
+    display: flex; flex-direction: column; gap: var(--space-2);
     padding: 14px var(--gx-pad);
     border: 1px solid var(--gx-line);
     border-radius: var(--gx-radius);
@@ -2080,17 +2083,17 @@ button.gx-state-attn.is-on {
 .gx-panel-empty, .gx-panel-note {
     margin: 0;
     color: var(--gx-faint);
-    font-size: 12px;
+    font-size: var(--text-xs);
     line-height: 1.55;
 }
 .gx-panel-note { text-align: center; }
 .gx-panel-cta {
-    padding: 9px 12px;
+    padding: var(--space-2) var(--space-3);
     border: 1px dashed var(--gx-line);
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     background: none;
     color: var(--gx-violet);
-    font: inherit; font-size: 12.5px; font-weight: 650;
+    font: inherit; font-size: var(--text-sm); font-weight: 600;
     cursor: pointer;
     transition: background .15s ease, border-color .15s ease;
 }
@@ -2103,10 +2106,10 @@ button.gx-state-attn.is-on {
 .gx-raillist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .gx-railrow {
     width: 100%;
-    display: flex; flex-direction: column; gap: 5px;
-    padding: 9px 10px;
+    display: flex; flex-direction: column; gap: var(--space-1);
+    padding: var(--space-2) var(--space-2);
     border: 0;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     background: none;
     text-align: left;
     font: inherit;
@@ -2114,18 +2117,18 @@ button.gx-state-attn.is-on {
     transition: background .15s ease;
 }
 .gx-railrow:hover { background: var(--gx-card-2); }
-.gx-railrow-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.gx-railrow-top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
 .gx-railrow-title {
-    color: var(--gx-text); font-size: 13px; font-weight: 600;
+    color: var(--gx-text); font-size: var(--text-sm); font-weight: 600;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
 }
-.gx-railrow-pct { color: var(--gx-muted); font-size: 11.5px; font-weight: 700; flex: none; }
-.gx-railrow-sub { font-size: 11.5px; }
+.gx-railrow-pct { color: var(--gx-muted); font-size: var(--text-xs); font-weight: 700; flex: none; }
+.gx-railrow-sub { font-size: var(--text-xs); }
 .gx-railrow-track {
-    height: 4px; border-radius: 999px; background: var(--gx-line-soft); overflow: hidden;
+    height: 4px; border-radius: var(--radius-full); background: var(--gx-line-soft); overflow: hidden;
 }
 .gx-railrow-track i {
-    display: block; height: 100%; border-radius: 999px;
+    display: block; height: 100%; border-radius: var(--radius-full);
     background: var(--gx-violet);
     transition: width .3s ease;
 }
@@ -2145,67 +2148,79 @@ button.gx-state-attn.is-on {
    the list this replaced was protecting, and it survives the change; what does
    not survive is four counters dressed as four more goals. */
 .gx-sys-lead {
-    margin: 0 0 12px;
-    font-size: 12.5px;
+    margin: 0 0 var(--space-3);
+    font-size: var(--text-sm);
     line-height: 1.55;
     color: var(--gx-muted);
     max-width: 64ch;
 }
-.gx-metrics {
+/* ---- System goals, as cards ----
+   The four counters are drawn on the Active tab's `.ag-card` shell so the page
+   has one idea of what a goal looks like. Everything below is the difference
+   between a counter and an outcome goal, and nothing below restates the shell.
+
+   A stack rather than the wrapping grid these were: a card carrying a header,
+   two panels and a footer is far too tall to sit beside another one, which is
+   the same reason the Active tab's cards are full width. */
+.gx-sys-cards {
     list-style: none;
     margin: 0;
     padding: 0;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-    gap: 1px;
-    /* The hairline between columns is the gap over the line colour, the same
-       trick the goal card's two panels use, so there is no border to double up
-       at the outer edge. */
-    background: var(--gx-line);
-    border: 1px solid var(--gx-line);
-    border-radius: 13px;
-    overflow: hidden;
-}
-.gx-metric {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    min-width: 0;
-    padding: 14px 16px 13px;
-    background: var(--gx-card-2);
+    gap: var(--space-4);
 }
-.gx-metric.is-done { background: color-mix(in srgb, var(--gx-good) 7%, var(--gx-card-2)); }
+/* The shell draws a tone band across the top, and takes the colour from the
+   goal's category. A counter has no useful category — all four are filed under
+   "other", which is grey — so the tone is the counter's own here, the colour
+   already used for its bar and its glyph. The band then says which of the four
+   this is before a word of it is read. `Ring` is told the same colour by name
+   from the component; the two lists are kept in step by hand. */
+.gx-sys-card.is-xp     { --tone: var(--gx-violet); }
+.gx-sys-card.is-streak { --tone: var(--gx-amber); }
+.gx-sys-card.is-tasks  { --tone: var(--gx-blue); }
+.gx-sys-card.is-focus  { --tone: var(--gx-teal); }
+/* Reached: green wins over the counter's own colour, as it does on an outcome
+   card whose every checkpoint is behind it. */
+.gx-sys-card.is-done { --tone: var(--gx-good); }
 
-.gx-metric-head {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    font-size: 10.5px;
-    font-weight: 700;
-    letter-spacing: .07em;
-    text-transform: uppercase;
-    color: var(--gx-muted);
+/* The counter's glyph, in the slot `.gx-top > .gx-tile` holds on an outcome
+   card and at the same size, so the two headers line up down the page. */
+.gx-sys-tile {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    flex: none;
+    border-radius: var(--radius-md);
+    border: 1px solid color-mix(in srgb, var(--tone) var(--gx-edge), transparent);
+    background: color-mix(in srgb, var(--tone) var(--gx-wash), transparent);
+    color: var(--tone);
 }
-.gx-metric-ico {
-    width: 22px; height: 22px; flex: none;
-    display: grid; place-items: center;
-    border-radius: 7px;
-    background: color-mix(in srgb, currentColor 13%, transparent);
-}
-.gx-metric-ico svg { width: 13px; height: 13px; }
-.gx-metric-ico.is-xp     { color: var(--gx-violet); }
-.gx-metric-ico.is-streak { color: var(--gx-amber); }
-.gx-metric-ico.is-tasks  { color: var(--gx-blue); }
-.gx-metric-ico.is-focus  { color: var(--gx-teal); }
+.gx-sys-tile svg { width: 22px; height: 22px; }
+/* No tone of its own: it inherits the card's, so a reached counter turns green
+   here too rather than keeping its glyph in the colour of an unmet target. */
 
-/* The same four glyphs, in the wizard that makes one of these. It borrowed the
-   list's icon rule and outlived it — the list is a strip of metrics now and
-   `.gx-metric-ico` is sized for a column head, which is smaller than a row in
-   a picker wants. See `gx-syspick-row` in components/Goals/SystemGoalWizard. */
+/* The badge itself needs no rule: `.ag-badge` already draws it in the card's
+   tone, which here is the counter's own colour, so "System goal" arrives in the
+   same violet or amber as the band above it and the ring beside it.
+
+   The sentence in the right-hand panel. `.ag-empty` already styles a line of
+   prose in a panel; this only stops it being centred as an empty state is. */
+.gx-sys-how { text-align: left; margin: 0 0 var(--space-3); }
+
+/* No "View Details" on a counter — there is no drawer behind it — so the facts
+   have the footer to themselves and start at its left edge. */
+.gx-sys-foot { justify-content: flex-start; }
+
+/* The same four glyphs, in the wizard that makes one of these. It has its own
+   rule because a row in a picker wants a size of its own: `.gx-sys-tile` above
+   is 44px, sized to sit in a card header beside a title.
+   See `gx-syspick-row` in components/Goals/SystemGoalWizard. */
 .gx-sys-ico {
     width: 30px; height: 30px; flex: none;
     display: grid; place-items: center;
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     background: color-mix(in srgb, currentColor 12%, transparent);
 }
 .gx-sys-ico svg { width: 16px; height: 16px; }
@@ -2216,38 +2231,42 @@ button.gx-state-attn.is-on {
 
 /* The count, and the biggest thing in the column — it is the reason the column
    exists, and it is the one figure on this page nobody can type. */
+/* Larger than it was as a column head. It has a panel to itself now and it is
+   still meant to be the first thing read on the card — the figure the whole
+   tab is about, against a target beside it in small text. */
 .gx-metric-now {
-    font-size: 25px;
-    font-weight: 800;
-    line-height: 1.1;
-    letter-spacing: -.02em;
+    display: block;
+    font-size: var(--text-3xl);
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: -.03em;
     color: var(--gx-text);
     font-variant-numeric: tabular-nums;
 }
 .gx-metric-of {
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     color: var(--gx-faint);
     font-variant-numeric: tabular-nums;
 }
 .gx-metric-pct {
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     font-weight: 700;
     color: var(--gx-muted);
     font-variant-numeric: tabular-nums;
 }
 .gx-metric-pct.is-done { color: var(--gx-good); }
 
-.gx-metric-do { display: flex; gap: 12px; margin-top: 2px; white-space: nowrap; }
+.gx-metric-do { display: flex; gap: var(--space-3); margin-top: 2px; white-space: nowrap; }
 .gx-metric-do button {
     border: 0; background: none; padding: 0;
-    color: var(--gx-muted); font: inherit; font-size: 11.5px; font-weight: 600;
+    color: var(--gx-muted); font: inherit; font-size: var(--text-xs); font-weight: 600;
     cursor: pointer;
 }
 .gx-metric-do button:hover { color: var(--gx-text); text-decoration: underline; }
 .gx-metric-do button.is-bad:hover { color: var(--gx-bad); }
 
-.gx-sys-track { margin-top: 3px; height: 6px; border-radius: 999px; background: var(--gx-line-soft); overflow: hidden; }
-.gx-sys-fill { display: block; height: 100%; border-radius: 999px; transition: width .3s ease; }
+.gx-sys-track { margin-top: var(--space-1); height: 6px; border-radius: var(--radius-full); background: var(--gx-line-soft); overflow: hidden; }
+.gx-sys-fill { display: block; height: 100%; border-radius: var(--radius-full); transition: width .3s ease; }
 .gx-sys-fill.is-xp     { background: var(--gx-violet); }
 .gx-sys-fill.is-streak { background: var(--gx-amber); }
 .gx-sys-fill.is-tasks  { background: var(--gx-blue); }
@@ -2256,16 +2275,16 @@ button.gx-state-attn.is-on {
 /* The way to another one, under the list rather than in the page header: the
    header's button makes the kind of goal the tab you are on is about. */
 .gx-page .gx-sys-add {
-    margin-top: 10px;
+    margin-top: var(--space-2);
     width: 100%;
-    padding: 11px 16px;
+    padding: var(--space-3) var(--space-4);
     border: 1px dashed var(--gx-line);
-    border-radius: 13px;
+    border-radius: var(--radius-md);
     background: transparent;
     color: var(--gx-muted);
     font: inherit;
-    font-size: 12.5px;
-    font-weight: 650;
+    font-size: var(--text-sm);
+    font-weight: 600;
     text-align: left;
     cursor: pointer;
 }
@@ -2293,14 +2312,14 @@ button.gx-state-attn.is-on {
 .gx-wizard-tip {
     display: flex;
     align-items: flex-start;
-    gap: 9px;
-    margin: 0 0 16px;
-    padding: 11px 13px;
+    gap: var(--space-2);
+    margin: 0 0 var(--space-4);
+    padding: var(--space-3) var(--space-3);
     border: 1px solid color-mix(in srgb, var(--gx-violet) 26%, transparent);
-    border-radius: 11px;
+    border-radius: var(--radius-md);
     background: color-mix(in srgb, var(--gx-violet) 7%, transparent);
     color: var(--gx-muted);
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     line-height: 1.55;
 }
 .gx-wizard-tip > span {
@@ -2320,26 +2339,26 @@ button.gx-state-attn.is-on {
    its own state rather than from the goal's category. A grid mixing nine
    category hues stops being readable as density, which is the only thing this
    view is for. */
-.gx-cal { display: flex; flex-direction: column; gap: 14px; }
+.gx-cal { display: flex; flex-direction: column; gap: var(--space-4); }
 
 .gx-cal-head {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
+    gap: var(--space-2);
 }
-.gx-cal-nav { display: flex; align-items: center; gap: 6px; }
+.gx-cal-nav { display: flex; align-items: center; gap: var(--space-2); }
 .gx-cal-arrow {
     display: grid;
     place-items: center;
     width: 26px; height: 26px;
     padding: 0;
     border: 1px solid var(--gx-line);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: var(--gx-card-2);
     color: var(--gx-muted);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     cursor: pointer;
     transition: border-color .15s ease, color .15s ease;
 }
@@ -2347,18 +2366,18 @@ button.gx-state-attn.is-on {
 .gx-cal-span {
     min-width: 15ch;
     text-align: center;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     font-weight: 700;
     color: var(--gx-text);
     font-variant-numeric: tabular-nums;
 }
 .gx-cal-today {
-    padding: 4px 10px;
+    padding: var(--space-1) var(--space-2);
     border: 1px solid var(--gx-line);
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: transparent;
     color: var(--gx-muted);
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     cursor: pointer;
 }
 .gx-cal-today:hover { border-color: var(--gx-violet); color: var(--gx-violet); }
@@ -2366,14 +2385,14 @@ button.gx-state-attn.is-on {
 .gx-cal-key {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
     margin: 0;
     padding: 0;
     list-style: none;
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     color: var(--gx-muted);
 }
-.gx-cal-key li { display: flex; align-items: center; gap: 5px; }
+.gx-cal-key li { display: flex; align-items: center; gap: var(--space-1); }
 .gx-cal-dot { width: 9px; height: 9px; border-radius: 3px; }
 .gx-cal-dot.is-done { background: var(--gx-good); }
 .gx-cal-dot.is-due  { background: var(--gx-violet); }
@@ -2385,12 +2404,12 @@ button.gx-state-attn.is-on {
 .gx-cal-months {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(212px, 1fr));
-    gap: 16px;
+    gap: var(--space-4);
 }
 .gx-cal-month { min-width: 0; }
 .gx-cal-month h3 {
-    margin: 0 0 7px;
-    font-size: 12px;
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-xs);
     font-weight: 700;
     letter-spacing: .02em;
     color: var(--gx-text);
@@ -2398,11 +2417,11 @@ button.gx-state-attn.is-on {
 .gx-cal-dow, .gx-cal-grid {
     display: grid;
     grid-template-columns: repeat(7, minmax(0, 1fr));
-    gap: 3px;
+    gap: var(--space-1);
 }
 .gx-cal-dow {
-    margin-bottom: 4px;
-    font-size: 10px;
+    margin-bottom: var(--space-1);
+    font-size: var(--text-2xs);
     font-weight: 600;
     color: var(--gx-faint);
     text-align: center;
@@ -2416,11 +2435,11 @@ button.gx-state-attn.is-on {
     place-items: center;
     padding: 0;
     border: 1px solid transparent;
-    border-radius: 7px;
+    border-radius: var(--radius-sm);
     background: var(--gx-card-2);
     color: var(--gx-muted);
     font: inherit;
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     font-variant-numeric: tabular-nums;
     cursor: default;
     transition: transform .12s ease, border-color .12s ease;
@@ -2455,39 +2474,39 @@ button.gx-state-attn.is-on {
 }
 
 /* ---------- What the picked day holds ------------------------------------ */
-.gx-cal-hint { margin: 0; font-size: 12px; line-height: 1.5; color: var(--gx-muted); }
+.gx-cal-hint { margin: 0; font-size: var(--text-xs); line-height: 1.5; color: var(--gx-muted); }
 .gx-cal-day {
-    padding-top: 12px;
+    padding-top: var(--space-3);
     border-top: 1px solid var(--gx-line-soft);
 }
 .gx-cal-day h4 {
-    margin: 0 0 8px;
-    font-size: 12.5px;
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-sm);
     font-weight: 700;
     color: var(--gx-text);
 }
-.gx-cal-day ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.gx-cal-day ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
 .gx-cal-day li { min-width: 0; }
 .gx-cal-day button {
     width: 100%;
     display: grid;
     grid-template-columns: 16px auto minmax(0, 1fr);
     align-items: baseline;
-    gap: 9px;
-    padding: 6px 8px;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-2);
     border: 0;
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     background: transparent;
     color: var(--gx-text);
     font: inherit;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     text-align: left;
     cursor: pointer;
 }
 .gx-cal-day button:hover { background: var(--gx-card-2); }
-.gx-cal-mark { color: var(--tone); font-size: 11px; text-align: center; }
+.gx-cal-mark { color: var(--tone); font-size: var(--text-2xs); text-align: center; }
 .gx-cal-goal {
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     color: var(--tone);
     text-transform: uppercase;
@@ -2517,15 +2536,15 @@ button.gx-state-attn.is-on {
 .gx-two-wide { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
 
 /* ---------- Next moves ---------------------------------------------------- */
-.gx-moves { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.gx-moves { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .gx-move {
     display: grid;
     grid-template-columns: 26px minmax(0, 1fr) auto;
     align-items: center;
-    gap: 12px;
-    padding: 11px 13px;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-3);
     border: 1px solid var(--gx-line-soft);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     background: var(--gx-card-2);
     transition: border-color .15s ease, opacity .2s ease;
 }
@@ -2557,7 +2576,7 @@ button.gx-state-attn.is-on {
 
 .gx-move-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .gx-move-title {
-    font-size: 13.5px;
+    font-size: var(--text-md);
     font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2571,7 +2590,7 @@ button.gx-state-attn.is-on {
     background: transparent;
     color: var(--tone);
     font: inherit;
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     font-weight: 600;
     text-align: left;
     cursor: pointer;
@@ -2584,43 +2603,43 @@ button.gx-state-attn.is-on {
 .gx-move-facts {
     display: flex;
     align-items: center;
-    gap: 9px;
-    font-size: 11.5px;
+    gap: var(--space-2);
+    font-size: var(--text-xs);
     color: var(--gx-faint);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }
 .gx-move-late { color: var(--gx-bad); font-weight: 600; }
 .gx-move-xp {
-    padding: 2px 7px;
-    border-radius: 999px;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-full);
     background: color-mix(in srgb, var(--gx-violet) 15%, transparent);
     color: var(--gx-violet);
     font-weight: 600;
 }
 
 /* ---------- Momentum ------------------------------------------------------ */
-.gx-mo { display: flex; flex-direction: column; gap: 12px; }
-.gx-mo-line { margin: 0; font-size: 13px; line-height: 1.55; color: var(--gx-muted); }
-.gx-mo-line strong { color: var(--gx-text); font-size: 15px; }
+.gx-mo { display: flex; flex-direction: column; gap: var(--space-3); }
+.gx-mo-line { margin: 0; font-size: var(--text-sm); line-height: 1.55; color: var(--gx-muted); }
+.gx-mo-line strong { color: var(--gx-text); font-size: var(--text-lg); }
 .gx-mo-bar {
     height: 9px;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: var(--gx-card-2);
     overflow: hidden;
 }
 .gx-mo-bar > span {
     display: block;
     height: 100%;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: linear-gradient(90deg, var(--gx-violet), var(--gx-teal));
     transition: width .5s cubic-bezier(.22, 1, .36, 1);
 }
-.gx-mo-days { display: flex; gap: 5px; }
+.gx-mo-days { display: flex; gap: var(--space-1); }
 .gx-mo-days i {
     flex: 1;
     height: 20px;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     background: var(--gx-card-2);
     border: 1px solid var(--gx-line-soft);
 }
@@ -2630,15 +2649,15 @@ button.gx-state-attn.is-on {
 }
 
 /* ---------- Trajectory ---------------------------------------------------- */
-.gx-traj { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 20px; }
+.gx-traj { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-5); }
 .gx-traj-row { min-width: 0; }
 .gx-traj-head {
     width: 100%;
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 11px;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
     padding: 0;
     border: 0;
     background: transparent;
@@ -2649,14 +2668,14 @@ button.gx-state-attn.is-on {
 }
 .gx-traj-title {
     min-width: 0;
-    font-size: 13.5px;
+    font-size: var(--text-md);
     font-weight: 700;
     color: color-mix(in srgb, var(--tone, var(--gx-text)) 72%, var(--gx-text));
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.gx-traj-head .gx-quiet { flex: none; font-size: 12px; font-variant-numeric: tabular-nums; }
+.gx-traj-head .gx-quiet { flex: none; font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 
 /* The scale. A track, the covered part of it, and a mark where the value is —
    the mark is what makes it a position rather than a bar. */
@@ -2667,14 +2686,14 @@ button.gx-state-attn.is-on {
 .gx-traj-rail {
     position: relative;
     height: 8px;
-    margin: 0 0 14px;
-    border-radius: 999px;
+    margin: 0 0 var(--space-4);
+    border-radius: var(--radius-full);
     background: color-mix(in srgb, var(--tone, var(--gx-card-2)) 15%, var(--gx-card-2));
 }
 .gx-traj-fill {
     position: absolute;
     inset: 0 auto 0 0;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: linear-gradient(90deg, color-mix(in srgb, var(--tone) 55%, transparent), var(--tone));
     transition: width .6s cubic-bezier(.22, 1, .36, 1);
 }
@@ -2682,7 +2701,7 @@ button.gx-state-attn.is-on {
     position: absolute;
     top: 50%;
     width: 15px; height: 15px;
-    margin-left: -7.5px;
+    margin-left: -8px;
     border-radius: 50%;
     background: var(--tone);
     border: 2.5px solid var(--gx-card);
@@ -2700,18 +2719,18 @@ button.gx-state-attn.is-on {
     transform: translateY(-50%);
 }
 
-.gx-traj-figs { display: flex; gap: 26px; margin: 0; }
+.gx-traj-figs { display: flex; gap: var(--space-6); margin: 0; }
 .gx-traj-figs div { display: flex; flex-direction: column; gap: 2px; }
-.gx-traj-figs dt { font-size: 11px; color: var(--gx-faint); }
+.gx-traj-figs dt { font-size: var(--text-2xs); color: var(--gx-faint); }
 .gx-traj-figs dd {
     margin: 0;
-    font-size: 15px;
+    font-size: var(--text-lg);
     font-weight: 700;
     font-variant-numeric: tabular-nums;
 }
-.gx-traj-figs dd em { font-style: normal; font-size: 11.5px; font-weight: 500; color: var(--gx-muted); }
-.gx-traj-figs dd.is-there { color: var(--gx-good); font-size: 13.5px; }
-.gx-traj-none { margin: 0; font-size: 12.5px; color: var(--gx-faint); }
+.gx-traj-figs dd em { font-style: normal; font-size: var(--text-xs); font-weight: 500; color: var(--gx-muted); }
+.gx-traj-figs dd.is-there { color: var(--gx-good); font-size: var(--text-md); }
+.gx-traj-none { margin: 0; font-size: var(--text-sm); color: var(--gx-faint); }
 
 /* Checkpoint goals: stops on a line, not a scale. */
 .gx-stops {
@@ -2726,7 +2745,7 @@ button.gx-state-attn.is-on {
     position: relative;
     flex: 1;
     min-width: 0;
-    padding-top: 20px;
+    padding-top: var(--space-5);
     text-align: center;
 }
 /* The line between the stops, drawn on each so it stops at the last one. */
@@ -2742,7 +2761,7 @@ button.gx-state-attn.is-on {
     position: absolute;
     top: 0; left: 50%;
     width: 13px; height: 13px;
-    margin-left: -6.5px;
+    margin-left: -8px;
     border-radius: 50%;
     border: 2px solid var(--gx-line);
     background: var(--gx-card);
@@ -2750,8 +2769,8 @@ button.gx-state-attn.is-on {
 }
 .gx-stop > span {
     display: block;
-    padding: 0 5px;
-    font-size: 10.5px;
+    padding: 0 var(--space-1);
+    font-size: var(--text-2xs);
     line-height: 1.35;
     color: var(--gx-faint);
     overflow: hidden;
@@ -2767,7 +2786,7 @@ button.gx-state-attn.is-on {
 .gx-stop.is-active > span { color: var(--gx-text); font-weight: 600; }
 
 /* ---------- Growth areas -------------------------------------------------- */
-.gx-areas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.gx-areas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
 .gx-area > button {
     width: 100%;
     display: grid;
@@ -2776,10 +2795,10 @@ button.gx-state-attn.is-on {
        to how much of the outstanding work it is. */
     grid-template-columns: minmax(88px, 1.1fr) minmax(90px, 2fr) 44px auto;
     align-items: center;
-    gap: 14px;
-    padding: 9px 10px;
+    gap: var(--space-4);
+    padding: var(--space-2) var(--space-2);
     border: 0;
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     background: transparent;
     color: var(--gx-text);
     font: inherit;
@@ -2788,18 +2807,18 @@ button.gx-state-attn.is-on {
 }
 .gx-area > button:not(:disabled) { cursor: pointer; }
 .gx-area > button:not(:disabled):hover { background: var(--gx-card-2); }
-.gx-area-name { font-size: 13px; font-weight: 600; }
-.gx-area-n { font-size: 11.5px; color: var(--gx-faint); white-space: nowrap; }
-.gx-area-bar { height: 7px; border-radius: 999px; background: var(--gx-card-2); overflow: hidden; }
+.gx-area-name { font-size: var(--text-sm); font-weight: 600; }
+.gx-area-n { font-size: var(--text-xs); color: var(--gx-faint); white-space: nowrap; }
+.gx-area-bar { height: 7px; border-radius: var(--radius-full); background: var(--gx-card-2); overflow: hidden; }
 .gx-area-bar > i {
     display: block;
     height: 100%;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: var(--tone);
     transition: width .55s cubic-bezier(.22, 1, .36, 1);
 }
 .gx-area-pct {
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     font-weight: 700;
     text-align: right;
     font-variant-numeric: tabular-nums;
@@ -2812,8 +2831,8 @@ button.gx-state-attn.is-on {
    that its figures come from the reader's own work. */
 .gx-area-goals {
     list-style: none;
-    margin: 2px 0 8px;
-    padding: 0 0 0 10px;
+    margin: 2px 0 var(--space-2);
+    padding: 0 0 0 var(--space-2);
     border-left: 2px solid color-mix(in srgb, var(--tone) 35%, transparent);
 }
 .gx-area-goals > li > button {
@@ -2821,14 +2840,14 @@ button.gx-state-attn.is-on {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 12px;
-    padding: 6px 10px;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-2);
     border: 0;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: transparent;
     color: var(--gx-muted);
     font: inherit;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     text-align: left;
 }
 .gx-area-goals > li > button:not(:disabled) { cursor: pointer; }
@@ -2845,7 +2864,7 @@ button.gx-state-attn.is-on {
 
 @media (max-width: 1080px) {
     .gx-two-wide { grid-template-columns: minmax(0, 1fr); }
-    .gx-traj-figs { gap: 18px; }
+    .gx-traj-figs { gap: var(--space-4); }
 }
 @media (prefers-reduced-motion: reduce) {
     .gx-mo-bar > span, .gx-traj-fill, .gx-traj-dot, .gx-area-bar > i { transition: none; }
@@ -2857,21 +2876,21 @@ button.gx-state-attn.is-on {
 .gx-tabs {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
-    padding: 4px;
+    gap: var(--space-1);
+    padding: var(--space-1);
     border: 1px solid var(--gx-line);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     background: var(--gx-card);
     align-self: flex-start;
 }
 .gx-tab {
-    padding: 8px 16px;
+    padding: var(--space-2) var(--space-4);
     border: 0;
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     background: transparent;
     color: var(--gx-muted);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--text-sm);
     font-weight: 600;
     cursor: pointer;
     transition: background .14s ease, color .14s ease;
@@ -2890,13 +2909,13 @@ button.gx-state-attn.is-on {
     width: 100%;
     min-width: 860px;
     border-collapse: collapse;
-    font-size: 13px;
+    font-size: var(--text-sm);
 }
 .gx-table thead th {
-    padding: 0 14px 10px;
+    padding: 0 var(--space-4) var(--space-2);
     border-bottom: 1px solid var(--gx-line);
     color: var(--gx-faint);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: .05em;
     text-transform: uppercase;
@@ -2915,8 +2934,8 @@ button.gx-state-attn.is-on {
 }
 .gx-table tbody tr:last-child { border-bottom: 0; }
 .gx-table tbody tr:hover { background: color-mix(in srgb, var(--tone, var(--gx-card-2)) var(--gx-wash), var(--gx-card-2)); }
-.gx-table td { padding: 13px 14px; vertical-align: middle; }
-.gx-table td .gx-quiet { display: block; margin-top: 2px; font-size: 11px; }
+.gx-table td { padding: var(--space-3) var(--space-4); vertical-align: middle; }
+.gx-table td .gx-quiet { display: block; margin-top: 2px; font-size: var(--text-2xs); }
 .gx-table td .gx-quiet.is-late { color: var(--gx-bad); }
 
 .gx-table-goal {
@@ -2931,32 +2950,32 @@ button.gx-state-attn.is-on {
     text-align: left;
     cursor: pointer;
 }
-.gx-table-title { font-size: 13.5px; font-weight: 600; }
+.gx-table-title { font-size: var(--text-md); font-weight: 600; }
 .gx-table-goal:hover .gx-table-title { color: var(--tone); text-decoration: underline; }
 
-.gx-table-pct { display: flex; align-items: center; gap: 9px; }
-.gx-table-pct strong { min-width: 38px; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.gx-table-pct { display: flex; align-items: center; gap: var(--space-2); }
+.gx-table-pct strong { min-width: 38px; font-size: var(--text-md); font-variant-numeric: tabular-nums; }
 .gx-table-bar {
     flex: 1;
     min-width: 70px;
     height: 6px;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: var(--gx-card-2);
     overflow: hidden;
 }
 .gx-table-bar > i {
     display: block;
     height: 100%;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: var(--tone);
     transition: width .5s cubic-bezier(.22, 1, .36, 1);
 }
 
 .gx-pill {
     display: inline-block;
-    padding: 4px 11px;
-    border-radius: 999px;
-    font-size: 11.5px;
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-full);
+    font-size: var(--text-xs);
     font-weight: 600;
     white-space: nowrap;
 }
@@ -2964,20 +2983,16 @@ button.gx-state-attn.is-on {
     background: color-mix(in srgb, var(--gx-good) 16%, transparent);
     color: var(--gx-good);
 }
-.gx-pill.is-at-risk {
+.gx-pill.is-behind {
     background: color-mix(in srgb, var(--gx-watch) 18%, transparent);
     color: var(--gx-watch);
-}
-.gx-pill.is-off-track {
-    background: color-mix(in srgb, var(--gx-bad) 16%, transparent);
-    color: var(--gx-bad);
 }
 .gx-pill.is-not-started {
     background: var(--gx-card-2);
     color: var(--gx-faint);
 }
 
-.gx-table-date, .gx-table-next { font-size: 12.5px; }
+.gx-table-date, .gx-table-next { font-size: var(--text-sm); }
 .gx-table-next {
     display: block;
     max-width: 20ch;
@@ -2991,7 +3006,7 @@ button.gx-state-attn.is-on {
     width: 28px; height: 28px;
     padding: 0;
     border: 0;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: transparent;
     color: var(--gx-faint);
     cursor: pointer;
@@ -3018,7 +3033,7 @@ button.gx-state-attn.is-on {
    inside that one would be the box-in-a-box the masthead was fixed for. */
 .gx-verdict { display: flex; flex-direction: column; gap: 2px; }
 .gx-verdict-label {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: .09em;
     text-transform: uppercase;
@@ -3027,7 +3042,7 @@ button.gx-state-attn.is-on {
 .gx-verdict-say {
     display: flex;
     align-items: center;
-    gap: 9px;
+    gap: var(--space-2);
     margin: 0;
 }
 .gx-verdict-say > i {
@@ -3038,32 +3053,31 @@ button.gx-state-attn.is-on {
     background: var(--gx-faint);
 }
 .gx-verdict-say > strong {
-    font-size: 21px;
-    font-weight: 800;
+    font-size: var(--text-xl);
+    font-weight: 700;
     letter-spacing: -.02em;
     color: var(--gx-text);
 }
 .gx-verdict-say > em {
     font-style: normal;
-    font-size: 14px;
+    font-size: var(--text-md);
     font-weight: 700;
     color: var(--gx-muted);
     font-variant-numeric: tabular-nums;
 }
-.gx-verdict-counts { margin: 0; font-size: 12.5px; color: var(--gx-muted); }
-.gx-verdict-none { margin: 0; font-size: 13px; color: var(--gx-muted); }
+.gx-verdict-counts { margin: 0; font-size: var(--text-sm); color: var(--gx-muted); }
+.gx-verdict-none { margin: 0; font-size: var(--text-sm); color: var(--gx-muted); }
 
 /* The same four colours as the ring's arcs and the rows' dots, so one fact is
    not three colour schemes. */
 .gx-verdict.is-on-track    .gx-verdict-say > i { background: var(--gx-good); }
-.gx-verdict.is-at-risk     .gx-verdict-say > i { background: var(--gx-watch); }
-.gx-verdict.is-off-track   .gx-verdict-say > i { background: var(--gx-bad); }
+.gx-verdict.is-behind     .gx-verdict-say > i { background: var(--gx-watch); }
 .gx-verdict.is-not-started .gx-verdict-say > i { background: var(--gx-faint); }
 
 .gx-health-list {
     list-style: none;
-    margin: 18px 0 0;
-    padding: 16px 0 0;
+    margin: var(--space-4) 0 0;
+    padding: var(--space-4) 0 0;
     border-top: 1px solid var(--gx-line-soft);
     display: flex;
     flex-direction: column;
@@ -3078,10 +3092,10 @@ button.gx-state-attn.is-on {
        can be two of them and neither gets cut. */
     grid-template-columns: 9px minmax(0, 1fr) auto;
     align-items: baseline;
-    gap: 10px;
-    padding: 7px 8px;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-2);
     border: 0;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: transparent;
     color: var(--gx-text);
     font: inherit;
@@ -3099,12 +3113,11 @@ button.gx-state-attn.is-on {
 /* The same four colours the ring's arcs use, so a dot here and a slice there
    are read as the same fact rather than as two colour schemes. */
 .gx-health-row.is-on-track i { background: var(--gx-good); }
-.gx-health-row.is-at-risk i { background: var(--gx-watch); }
-.gx-health-row.is-off-track i { background: var(--gx-bad); }
+.gx-health-row.is-behind i { background: var(--gx-watch); }
 .gx-health-row.is-not-started i { background: var(--gx-faint); }
 
 .gx-health-name {
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -3113,63 +3126,30 @@ button.gx-state-attn.is-on {
 .gx-health-score {
     display: flex;
     align-items: baseline;
-    gap: 6px;
-    font-size: 13px;
-    font-weight: 800;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+    font-weight: 700;
     font-variant-numeric: tabular-nums;
     color: var(--gx-text);
 }
 .gx-health-score em {
     font-style: normal;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: .05em;
     text-transform: uppercase;
     color: var(--gx-muted);
 }
 .gx-health-row.is-on-track .gx-health-score em { color: var(--gx-good); }
-.gx-health-row.is-at-risk .gx-health-score em { color: var(--gx-watch); }
-.gx-health-row.is-off-track .gx-health-score em { color: var(--gx-bad); }
+.gx-health-row.is-behind .gx-health-score em { color: var(--gx-watch); }
 
-/* The working under the score. Two columns where there is room, because
-   "helping" and "holding it back" are a pair and reading one without the other
-   is how a goal that is 80% fine reads as a disaster. Holding-back comes first
-   in the source, so on a narrow card — where they stack — the reader meets the
-   actionable half first. */
+/* The rule that decided the state, in one sentence under the row. */
 .gx-health-why {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-    gap: 10px 16px;
-    margin: 2px 0 10px;
-    padding: 9px 10px 9px 27px;
-}
-.gx-health-side h5 {
-    margin: 0 0 4px;
-    font-size: 9.5px;
-    font-weight: 800;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-}
-.gx-health-side.is-bad h5 { color: var(--gx-bad); }
-.gx-health-side.is-good h5 { color: var(--gx-good); }
-.gx-health-side ul { list-style: none; margin: 0; padding: 0; }
-.gx-health-side li {
-    position: relative;
-    padding-left: 11px;
-    font-size: 11.5px;
+    margin: 2px 0 var(--space-2);
+    padding: 0 var(--space-2) 0 var(--space-6);
+    font-size: var(--text-xs);
     line-height: 1.5;
     color: var(--gx-muted);
-}
-.gx-health-side li::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: .62em;
-    width: 5px;
-    height: 1.5px;
-    border-radius: 1px;
-    background: currentColor;
-    opacity: .5;
 }
 
 /* A short card beside a tall one left a hole under it. Two things are needed,
@@ -3223,7 +3203,7 @@ button.gx-state-attn.is-on {
        page were the ones *inside* a card and the boundary between two of them
        was the weakest. Scrolling, that reads as one unbroken run of bands
        rather than as a stack of separate goals. */
-    gap: 34px;
+    gap: var(--space-8);
 }
 
 /* The fallback tone, for a card that somehow arrives without one of the
@@ -3284,7 +3264,7 @@ button.gx-state-attn.is-on {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: start;
-    gap: 14px;
+    gap: var(--space-4);
     /* An extra 3px of top padding for the band the card draws over this
        edge, so the tile and the title sit where they did before it existed. */
     padding: calc(var(--gx-pad) + 3px) var(--gx-pad) var(--gx-pad);
@@ -3301,13 +3281,13 @@ button.gx-state-attn.is-on {
             color-mix(in srgb, var(--tone) var(--gx-wash), transparent),
             transparent 88%);
 }
-.ag-top > .gx-tile { width: 44px; height: 44px; border-radius: 13px; }
+.ag-top > .gx-tile { width: 44px; height: 44px; border-radius: var(--radius-md); }
 
-.ag-top-text { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
-.ag-title-row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; min-width: 0; }
+.ag-top-text { min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.ag-title-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; min-width: 0; }
 .ag-title-row h3 {
     margin: 0;
-    font-size: 19px;
+    font-size: var(--text-xl);
     font-weight: 700;
     letter-spacing: -.02em;
     overflow: hidden;
@@ -3316,32 +3296,32 @@ button.gx-state-attn.is-on {
 }
 .ag-badge {
     flex: none;
-    padding: 2px 9px;
-    border-radius: 999px;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-full);
     border: 1px solid color-mix(in srgb, var(--tone) var(--gx-edge), transparent);
     background: color-mix(in srgb, var(--tone) var(--gx-wash), transparent);
     color: var(--tone);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     white-space: nowrap;
 }
 .ag-why {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--text-sm);
     line-height: 1.5;
     color: var(--gx-muted);
     max-width: 74ch;
 }
-.ag-tags { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.ag-tags { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .ag-tags li {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
-    padding: 2px 9px;
-    border-radius: 999px;
+    gap: var(--space-1);
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-full);
     background: var(--gx-card-2);
     color: var(--gx-faint);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-weight: 600;
 }
 /* A 4px dot before each tag, which is what separates a tag from a button at a
@@ -3356,10 +3336,10 @@ button.gx-state-attn.is-on {
 .ag-tags li.is-hot { color: var(--gx-watch); }
 .ag-tags li.is-late { color: var(--gx-bad); background: color-mix(in srgb, var(--gx-bad) 10%, transparent); }
 
-.ag-top-right { display: flex; align-items: center; gap: 12px; }
+.ag-top-right { display: flex; align-items: center; gap: var(--space-3); }
 .ag-progress { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.1; }
-.ag-progress strong { font-size: 21px; font-weight: 800; letter-spacing: -.03em; }
-.ag-progress span { font-size: 11px; color: var(--gx-faint); }
+.ag-progress strong { font-size: var(--text-xl); font-weight: 700; letter-spacing: -.03em; }
+.ag-progress span { font-size: var(--text-2xs); color: var(--gx-faint); }
 
 .ag-ring { width: 46px; height: 46px; flex: none; }
 .ag-ring-track { fill: none; stroke: var(--gx-line); }
@@ -3370,7 +3350,7 @@ button.gx-state-attn.is-on {
     place-items: center;
     width: 30px; height: 30px;
     border: 0;
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     background: transparent;
     color: var(--gx-faint);
     cursor: pointer;
@@ -3398,25 +3378,30 @@ button.gx-state-attn.is-on {
     min-width: 148px;
     display: flex;
     flex-direction: column;
-    padding: 5px;
+    padding: var(--space-1);
     border: 1px solid var(--gx-line);
-    border-radius: 11px;
+    border-radius: var(--radius-md);
     background: var(--gx-card);
-    box-shadow: 0 10px 30px rgba(16, 24, 40, .14);
+    box-shadow: var(--shadow-lg);
 }
 .ag-menu button {
-    padding: 8px 10px;
+    padding: var(--space-2) var(--space-2);
     border: 0;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: transparent;
     color: var(--gx-text);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--text-sm);
     text-align: left;
     cursor: pointer;
 }
 .ag-menu button:hover { background: var(--gx-card-2); }
 .ag-menu button.is-bad { color: var(--gx-bad); }
+/* The chart picker marks the one in use rather than listing actions. */
+.ag-chart-menu { min-width: 164px; }
+.ag-chart-menu button.is-on { color: var(--tone); font-weight: 600; }
+.ag-chart-menu button.is-on::after { content: '✓'; float: right; margin-left: var(--space-3); }
+.ag-panel-tools { display: flex; align-items: center; gap: var(--space-1); }
 
 /* ---------- Body ---------------------------------------------------------- */
 .ag-body {
@@ -3442,7 +3427,7 @@ button.gx-state-attn.is-on {
 .ag-panel {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--space-3);
     min-width: 0;
     /* A little more below than above. The last thing in either column is a
        control — "+ Add another step", "View details" — and a button sitting
@@ -3469,83 +3454,111 @@ button.gx-state-attn.is-on {
    height; this stops the shorter one's content from stretching to fill it, and
    leaves whatever is left over at the foot of the column. */
 .ag-panel > * { flex: none; }
-/* ...except the plot, which is the one visual that reads better bigger. A line
-   over time says the same thing at any height, so on a goal whose focus list
-   runs long it takes the leftover rather than leaving it under the chart.
 
-   Nothing else grows, and nothing centres. A roadmap of one checkpoint centred
-   in a tall panel looks like a card that failed to load; the same row sitting
-   under its heading with the space trailing below just looks like a goal with
-   one checkpoint, which is what it is. The slack belongs at the bottom of the
-   column, in one piece, not wrapped around the content. */
+/* ...except the visual, which takes the leftover.
+
+   The right-hand column is a checklist and it is usually the taller of the two,
+   so the left column had two hundred and fifty empty pixels under a chart drawn
+   at its minimum size — five bars in the top third of the panel and nothing
+   underneath. The chart is the reason the card is open; it should not be the
+   smallest thing on it.
+
+   ## Growth is per row, and capped
+
+   The list grows, and its rows share what it gained, so a chart expands by as
+   much as it has rows to expand with. That is the distinction the earlier
+   version of this rule was reaching for and got backwards by refusing to grow
+   anything: the problem was never that space is *distributed*, it was that a
+   sparse chart stretched to fill a tall panel reads as a rendering fault. A
+   roadmap of one checkpoint must not become one sixty-pixel bar floating in the
+   middle of nothing.
+
+   So each row may grow to about two and a half times its natural height and no
+   further, and the list itself may grow only as far as its rows can use —
+   `--rows` is the count, set on the element by `Bars` and `Roadmap`. Five bars
+   fill the panel; one bar takes one row's worth and leaves the rest of the
+   slack at the foot of the column, in one piece, where it was always meant to
+   be. The cap is what makes "expand to fit" and "do not stretch a lone row"
+   the same rule rather than opposite ones.
+
+   Without the second half of that the caption ends up pinned to the panel's
+   floor with a field of white above it, because a list that grows and then
+   caps its rows has simply moved the empty space inside itself.
+
+   The heatmap and the scale are not in this: both are fixed geometry. The grid
+   is deliberately capped small so the pattern reads rather than the days (see
+   `.ag-heat`), and the scale is one bar whose height is not a variable. Neither
+   has rows to spend the space on, so theirs falls to the foot of the column. */
 .ag-chart { flex: 1 1 auto; }
+.ag-bars, .ag-roadmap { flex: 1 1 auto; }
+.ag-bars { max-height: calc(var(--rows, 5) * 46px + (var(--rows, 5) - 1) * var(--space-2)); }
+.ag-roadmap { max-height: calc(var(--rows, 5) * 68px + (var(--rows, 5) - 1) * 2px); }
 
 .ag-panel-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
+    gap: var(--space-2);
     min-height: 24px;
 }
-.ag-panel-head-tight { margin-top: 4px; }
+.ag-panel-head-tight { margin-top: var(--space-1); }
 
 /* The health reason, printed rather than left in the chip's tooltip. Only
    drawn when the attention filter put this card on screen — see `explain` in
    components/Goals/ActiveGoalCard. It takes its colour from the state so the
    sentence and the chip above it cannot read as two different verdicts. */
 .ag-why-here {
-    margin: 8px 0 0;
-    padding: 7px 10px;
+    margin: var(--space-2) 0 0;
+    padding: var(--space-2) var(--space-2);
     border-left: 2px solid currentColor;
-    border-radius: 0 6px 6px 0;
-    font-size: 12.5px;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    font-size: var(--text-sm);
     line-height: 1.45;
     background: color-mix(in srgb, currentColor 8%, transparent);
 }
-.ag-why-here.is-at-risk { color: var(--gx-watch); }
-.ag-why-here.is-off-track { color: var(--gx-bad); }
+.ag-why-here.is-behind { color: var(--gx-watch); }
 .ag-why-here.is-not-started,
 .ag-why-here.is-on-track { color: var(--gx-muted); }
 
 .ag-panel-head h4 {
     margin: 0;
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: .08em;
     text-transform: uppercase;
     color: var(--gx-faint);
 }
-.ag-quiet { font-size: 11.5px; color: var(--gx-faint); }
+.ag-quiet { font-size: var(--text-xs); color: var(--gx-faint); }
 .ag-quiet.is-late { color: var(--gx-bad); font-weight: 600; }
 
 .ag-range select {
-    padding: 3px 22px 3px 8px;
+    padding: var(--space-1) var(--space-6) var(--space-1) var(--space-2);
     border: 1px solid var(--gx-line);
-    border-radius: 7px;
+    border-radius: var(--radius-sm);
     background: var(--gx-card-2);
     color: var(--gx-muted);
     font: inherit;
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     cursor: pointer;
 }
 
 .ag-empty {
     margin: 0;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     line-height: 1.6;
     color: var(--gx-faint);
     max-width: 56ch;
 }
-.ag-empty-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.ag-empty-tools { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .ag-more {
     align-self: flex-start;
-    padding: 6px 12px;
+    padding: var(--space-2) var(--space-3);
     border: 1px solid var(--gx-line);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: transparent;
     color: var(--gx-muted);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--text-xs);
     font-weight: 600;
     cursor: pointer;
 }
@@ -3568,7 +3581,7 @@ button.gx-state-attn.is-on {
        to its minimum left the difference as a void between chart and caption.
        Row one takes the slack, so the space is spent on the picture. */
     grid-template-rows: minmax(118px, 1fr) 16px;
-    column-gap: 6px;
+    column-gap: var(--space-2);
 }
 .ag-chart-scale {
     list-style: none;
@@ -3577,7 +3590,7 @@ button.gx-state-attn.is-on {
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    font-size: 9.5px;
+    font-size: var(--text-2xs);
     color: var(--gx-faint);
     text-align: right;
     /* Half a line up, so each label sits on its gridline rather than under it. */
@@ -3608,7 +3621,7 @@ button.gx-state-attn.is-on {
 .ag-chart-months li {
     position: absolute;
     transform: translateX(-50%);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--gx-faint);
 }
 .ag-chart-months li:first-child { transform: none; }
@@ -3621,14 +3634,14 @@ button.gx-state-attn.is-on {
     display: grid;
     grid-template-columns: 18px minmax(0, 1fr) auto;
     align-items: center;
-    gap: 10px;
-    padding: 5px 6px;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2);
     border: 0;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: transparent;
     color: var(--gx-muted);
     font: inherit;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     text-align: left;
     cursor: pointer;
 }
@@ -3639,7 +3652,7 @@ button.gx-state-attn.is-on {
     width: 16px; height: 16px;
     border: 1.5px solid var(--gx-line);
     border-radius: 50%;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     color: transparent;
 }
 .ag-stones li.is-done .ag-stone-tick {
@@ -3657,26 +3670,32 @@ button.gx-state-attn.is-on {
 }
 
 /* ---------- Roadmap ------------------------------------------------------- */
+/* Rows share the leftover, capped, exactly as the bars do. 68px against a
+   natural ~37px: eight checkpoints fill the panel and one checkpoint stays a
+   row rather than becoming a banner. */
+.ag-roadmap { display: flex; flex-direction: column; gap: 2px; }
+.ag-roadmap > li { flex: 1 1 auto; max-height: 68px; display: flex; }
 .ag-roadmap li button {
+    flex: 1 1 auto;
     width: 100%;
     display: grid;
     grid-template-columns: minmax(0, 1fr) 34% auto;
     align-items: center;
-    gap: 12px;
-    padding: 6px;
+    gap: var(--space-3);
+    padding: var(--space-2);
     border: 0;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: transparent;
     color: var(--gx-muted);
     font: inherit;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     text-align: left;
     cursor: pointer;
 }
 .ag-roadmap li.is-done .ag-road-name { color: var(--gx-text); }
 .ag-road-bar {
     height: 5px;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: var(--gx-line);
     overflow: hidden;
 }
@@ -3699,7 +3718,7 @@ button.gx-state-attn.is-on {
 .ag-caption {
     margin: 0;
     padding-top: 2px;
-    font-size: 11px;
+    font-size: var(--text-2xs);
     line-height: 1.5;
     color: var(--gx-faint);
 }
@@ -3711,30 +3730,37 @@ button.gx-state-attn.is-on {
    subordinate to the other, and making this one fainter than an already faint
    caption would put it below the floor at which it is worth printing. */
 .ag-why-chart {
-    margin: 6px 0 0;
-    padding-top: 6px;
+    margin: var(--space-2) 0 0;
+    padding-top: var(--space-2);
     border-top: 1px dashed color-mix(in srgb, var(--gx-line) 80%, transparent);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     line-height: 1.45;
     color: var(--gx-faint);
 }
 
 /* ---------- Labelled bars: difficulty, subjects, weekdays ----------------- */
-.ag-bars { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.ag-bars { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .ag-bars li {
+    /* Shares the panel's leftover with its siblings, up to the cap — see the
+       note by `.ag-chart`. 46px against a natural ~18px, so five bars fill a
+       tall panel and two bars do not become two stripes with a canyon between
+       them. The grid inside stays centred, so what grows is the air around the
+       bar rather than the bar. */
+    flex: 1 1 auto;
+    max-height: 46px;
     display: grid;
     /* Wide enough for the longest label any of the three charts produces — a
        subject name, which "Computer Science" was being cut in half by at 74px.
        "Very hard" and "Mon" both fit inside it with room to spare. */
     grid-template-columns: 92px minmax(0, 1fr) auto;
     align-items: center;
-    gap: 10px;
-    font-size: 12px;
+    gap: var(--space-2);
+    font-size: var(--text-xs);
 }
 .ag-bar-label { color: var(--gx-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ag-bar-track {
     height: 7px;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: var(--gx-line);
     overflow: hidden;
 }
@@ -3747,7 +3773,7 @@ button.gx-state-attn.is-on {
 }
 .ag-bar-value {
     color: var(--gx-text);
-    font-weight: 650;
+    font-weight: 600;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }
@@ -3765,10 +3791,10 @@ button.gx-state-attn.is-on {
 .ag-heat {
     display: grid;
     grid-template-columns: 14px auto;
-    gap: 6px;
+    gap: var(--space-2);
     justify-content: center;
     align-content: center;
-    padding: 6px 0;
+    padding: var(--space-2) 0;
 }
 .ag-heat-days {
     list-style: none;
@@ -3776,8 +3802,8 @@ button.gx-state-attn.is-on {
     padding: 0;
     display: grid;
     grid-template-rows: repeat(7, 18px);
-    gap: 3px;
-    font-size: 8.5px;
+    gap: var(--space-1);
+    font-size: var(--text-2xs);
     line-height: 1;
     color: var(--gx-faint);
     align-items: center;
@@ -3789,7 +3815,7 @@ button.gx-state-attn.is-on {
     grid-template-rows: repeat(7, 1fr);
     grid-auto-flow: column;
     grid-auto-columns: 18px;
-    gap: 3px;
+    gap: var(--space-1);
 }
 .ag-heat-grid i {
     height: 18px;
@@ -3802,11 +3828,11 @@ button.gx-state-attn.is-on {
 .ag-heat-grid i.is-l4 { background: var(--tone); }
 
 /* ---------- Distance to target -------------------------------------------- */
-.ag-scale { display: flex; flex-direction: column; gap: 7px; padding-top: 14px; }
+.ag-scale { display: flex; flex-direction: column; gap: var(--space-2); padding-top: var(--space-4); }
 .ag-scale-track {
     position: relative;
     height: 9px;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: var(--gx-line);
 }
 .ag-scale-track > i {
@@ -3821,34 +3847,69 @@ button.gx-state-attn.is-on {
     position: absolute;
     bottom: calc(100% + 5px);
     transform: translateX(-50%);
-    font-size: 13px;
-    font-weight: 800;
+    font-size: var(--text-sm);
+    font-weight: 700;
     letter-spacing: -.02em;
     color: var(--tone);
     white-space: nowrap;
 }
-.ag-scale-ends { display: flex; justify-content: space-between; font-size: 11px; color: var(--gx-faint); }
-.ag-scale-left { margin: 2px 0 0; font-size: 12.5px; font-weight: 600; }
+.ag-scale-ends { display: flex; justify-content: space-between; font-size: var(--text-2xs); color: var(--gx-faint); }
+.ag-scale-left { margin: 2px 0 0; font-size: var(--text-sm); font-weight: 600; }
+
+/* The divisions of a small whole target, drawn over the fill rather than under
+   it, so the segment you are inside is divided too. The card's own surface
+   colour rather than a line colour: these are gaps in the bar, not marks on
+   it. */
+.ag-scale-ticks { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; pointer-events: none; }
+.ag-scale-ticks i {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    transform: translateX(-1px);
+    background: var(--gx-card-2);
+}
+
+/* Today, on the same scale as the work. Taller than the track it crosses so it
+   reads as a mark *against* the bar rather than a segment of it, and in the
+   muted grey rather than in `--tone`: the goal's colour is spent on what has
+   been done, and the clock is not an achievement. */
+.ag-scale-clock {
+    position: absolute;
+    top: -4px;
+    bottom: -4px;
+    width: 2px;
+    transform: translateX(-1px);
+    border-radius: var(--radius-full);
+    background: var(--gx-muted);
+}
+
+.ag-scale-pace {
+    margin: 0;
+    font-size: var(--text-2xs);
+    line-height: 1.45;
+    color: var(--gx-faint);
+}
 
 /* ---------- Current focus ------------------------------------------------- */
 .ag-focus {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
-    gap: 11px;
-    padding: 12px 13px;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-3);
     border: 1px solid color-mix(in srgb, var(--tone) var(--gx-edge), transparent);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     background: color-mix(in srgb, var(--tone) var(--gx-wash), transparent);
 }
-.ag-focus-ico .gx-tile { width: 30px; height: 30px; border-radius: 9px; }
+.ag-focus-ico .gx-tile { width: 30px; height: 30px; border-radius: var(--radius-md); }
 .ag-focus-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .ag-focus-text strong {
     /* The name of the thing being worked on, and the largest text in either
        panel below the goal's own title. It was 13.5px — the same size as the
        chart's heading opposite, which made the two columns read as a pair of
        equal sections rather than as the answer and its explanation. */
-    font-size: 15.5px;
+    font-size: var(--text-lg);
     font-weight: 700;
     letter-spacing: -.01em;
     overflow: hidden;
@@ -3856,7 +3917,7 @@ button.gx-state-attn.is-on {
     white-space: nowrap;
 }
 .ag-focus-text span {
-    font-size: 12px;
+    font-size: var(--text-xs);
     color: var(--gx-muted);
     /* The step count leads this line, so it is the one figure on the card that
        changes every time a box is ticked. Tabular, or "3 / 5" and "4 / 5" set
@@ -3866,12 +3927,12 @@ button.gx-state-attn.is-on {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.ag-focus-pct { font-size: 14px; font-weight: 800; color: var(--tone); letter-spacing: -.02em; }
-.ag-focus-when { font-size: 11.5px; color: var(--gx-muted); white-space: nowrap; }
+.ag-focus-pct { font-size: var(--text-md); font-weight: 700; color: var(--tone); letter-spacing: -.02em; }
+.ag-focus-when { font-size: var(--text-xs); color: var(--gx-muted); white-space: nowrap; }
 .ag-focus-bar {
     grid-column: 1 / -1;
     height: 4px;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: color-mix(in srgb, var(--tone) 18%, transparent);
     overflow: hidden;
 }
@@ -3894,7 +3955,7 @@ button.gx-state-attn.is-on {
 .ag-focus.is-pickable:disabled { cursor: default; }
 .ag-focus.is-pickable:not(:disabled) .ag-focus-text strong::after {
     content: '⌄';
-    margin-left: 6px;
+    margin-left: var(--space-2);
     color: var(--gx-faint);
     font-weight: 600;
 }
@@ -3905,10 +3966,10 @@ button.gx-state-attn.is-on {
    already has a drawer over a card. */
 .ag-focus-pick {
     list-style: none;
-    margin: 6px 0 0;
-    padding: 4px;
+    margin: var(--space-2) 0 0;
+    padding: var(--space-1);
     border: 1px solid var(--gx-line);
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     background: var(--gx-card);
     display: flex;
     flex-direction: column;
@@ -3919,19 +3980,19 @@ button.gx-state-attn.is-on {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 10px;
-    padding: 6px 8px;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-2);
     border: 0;
-    border-radius: 7px;
+    border-radius: var(--radius-sm);
     background: transparent;
     color: var(--gx-text);
     font: inherit;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     text-align: left;
     cursor: pointer;
 }
 .ag-focus-pick button:hover:not(:disabled) { background: var(--gx-card-2); }
-.ag-focus-pick button.is-current { color: var(--tone); font-weight: 650; }
+.ag-focus-pick button.is-current { color: var(--tone); font-weight: 600; }
 .ag-focus-pick button span {
     min-width: 0;
     overflow: hidden;
@@ -3941,7 +4002,7 @@ button.gx-state-attn.is-on {
 .ag-focus-pick button em {
     flex: none;
     font-style: normal;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: .07em;
     text-transform: uppercase;
@@ -3958,7 +4019,7 @@ button.gx-state-attn.is-on {
 .ag-steps {
     counter-reset: ag-step calc(var(--ag-step-from, 1) - 1);
     list-style: none;
-    margin: 10px 0 0;
+    margin: var(--space-2) 0 0;
     padding: 0;
     display: flex;
     flex-direction: column;
@@ -3966,7 +4027,7 @@ button.gx-state-attn.is-on {
        a finished row is a tinted band rather than a tick, they have to be
        separable — the gap is what makes the tint read as three rows in two
        states instead of as one shape with a ragged edge. */
-    gap: 4px;
+    gap: var(--space-1);
 }
 .ag-step {
     /* The containing block for the tick's sweep — see `.is-just-done::after`. */
@@ -3974,10 +4035,10 @@ button.gx-state-attn.is-on {
     display: grid;
     grid-template-columns: 17px 17px minmax(0, 1fr) auto 22px;
     align-items: center;
-    gap: 9px;
-    padding: 6px 8px;
-    border-radius: 9px;
-    font-size: 12.5px;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-2);
+    border-radius: var(--radius-md);
+    font-size: var(--text-sm);
     color: var(--gx-text);
     counter-increment: ag-step;
     transition: background .14s ease;
@@ -3986,7 +4047,7 @@ button.gx-state-attn.is-on {
     content: counter(ag-step) ".";
     color: var(--gx-faint);
     font-weight: 700;
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     text-align: right;
     font-variant-numeric: tabular-nums;
 }
@@ -4013,7 +4074,7 @@ button.gx-state-attn.is-on {
    every step finished last month; animating it would replay the whole
    checklist on every page load. `.is-just-done` is worn for 600ms by the one
    row the reader touched. */
-.ag-step-check { border-radius: 5px; }
+.ag-step-check { border-radius: var(--radius-sm); }
 .ag-step-check svg {
     width: 11px; height: 11px;
     fill: none;
@@ -4084,7 +4145,7 @@ button.gx-state-attn.is-on {
     min-width: 0;
     display: flex;
     align-items: baseline;
-    gap: 7px;
+    gap: var(--space-2);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -4102,7 +4163,7 @@ button.gx-state-attn.is-on {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 11px;
+    font-size: var(--text-2xs);
     color: var(--gx-muted);
 }
 .ag-step-name.is-empty {
@@ -4111,7 +4172,7 @@ button.gx-state-attn.is-on {
     background: transparent;
     color: var(--gx-faint);
     font: inherit;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     font-style: italic;
     text-align: left;
     cursor: pointer;
@@ -4122,7 +4183,7 @@ button.gx-state-attn.is-on {
    card — naming and dating are both planning, and the drawer is where
    planning happens. */
 .ag-step-due {
-    font-size: 11px;
+    font-size: var(--text-2xs);
     color: var(--gx-faint);
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
@@ -4138,7 +4199,7 @@ button.gx-state-attn.is-on {
     display: grid; place-items: center;
     padding: 0;
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     background: transparent;
     color: var(--gx-faint);
     cursor: pointer;
@@ -4152,7 +4213,7 @@ button.gx-state-attn.is-on {
 .ag-step-link:hover:not(:disabled) { background: var(--gx-line-soft); color: var(--gx-text); }
 .ag-step-link:disabled { opacity: 0; cursor: default; }
 
-.ag-steps-rest { margin: 7px 0 0; font-size: 11px; }
+.ag-steps-rest { margin: var(--space-2) 0 0; font-size: var(--text-2xs); }
 
 /* ---------- The line the card is for -------------------------------------- */
 /* "Next · Complete the Level 4 set". The chart explains why, the checkpoint
@@ -4177,25 +4238,25 @@ button.gx-state-attn.is-on {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
     align-items: baseline;
-    gap: 9px;
-    margin: 12px 0 0;
-    padding: 10px 12px;
-    border-radius: 10px;
+    gap: var(--space-2);
+    margin: var(--space-3) 0 0;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
     border: 1px solid color-mix(in srgb, var(--tone) var(--gx-edge), transparent);
     border-left: 3px solid var(--tone);
     background: color-mix(in srgb, var(--tone) var(--gx-wash), transparent);
 }
 .ag-next > span {
-    font-size: 9.5px;
-    font-weight: 800;
+    font-size: var(--text-2xs);
+    font-weight: 700;
     letter-spacing: .09em;
     text-transform: uppercase;
     color: var(--tone);
 }
 .ag-next > strong {
     min-width: 0;
-    font-size: 13px;
-    font-weight: 650;
+    font-size: var(--text-sm);
+    font-weight: 600;
     color: var(--gx-text);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -4207,21 +4268,21 @@ button.gx-state-attn.is-on {
     background: none;
     color: var(--gx-violet, var(--tone));
     font: inherit;
-    font-size: 11px;
+    font-size: var(--text-2xs);
     text-decoration: underline;
     cursor: pointer;
 }
 
 /* The task search, when one step is choosing what it points at. */
 .ag-link-box {
-    margin: 8px 0 0;
-    padding: 8px;
+    margin: var(--space-2) 0 0;
+    padding: var(--space-2);
     border: 1px solid var(--gx-line);
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     background: var(--gx-card);
 }
 .ag-link-box input { width: 100%; }
-.ag-found-none { margin: 8px 2px 2px; font-size: 11.5px; line-height: 1.5; }
+.ag-found-none { margin: var(--space-2) 2px 2px; font-size: var(--text-xs); line-height: 1.5; }
 
 /* ---------- Finishing something ------------------------------------------
    Green, full width, and only on screen when the thing it names is genuinely
@@ -4230,14 +4291,14 @@ button.gx-state-attn.is-on {
    because the reader ticked the last box rather than saying they were done. */
 .ag-finish {
     width: 100%;
-    margin: 12px 0 0;
-    padding: 10px 14px;
+    margin: var(--space-3) 0 0;
+    padding: var(--space-2) var(--space-4);
     border: 1px solid color-mix(in srgb, var(--gx-good) 45%, transparent);
-    border-radius: 11px;
+    border-radius: var(--radius-md);
     background: color-mix(in srgb, var(--gx-good) 13%, transparent);
     color: var(--gx-good);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--text-sm);
     font-weight: 700;
     cursor: pointer;
     transition: background .14s ease, transform .14s ease;
@@ -4248,68 +4309,217 @@ button.gx-state-attn.is-on {
     transform: translateY(-1px);
 }
 .ag-finish:disabled { opacity: .55; cursor: default; }
-/* The goal's button is the *quieter* of the two, which is the opposite of
-   where it started. It was filled solid green and full width — the loudest
-   thing on the card, asking for the one action with a consequence, on a card
-   whose actual primary action is View Details. A reader arriving at a goal is
-   nearly always reading it.
-
-   So it is an outline, and the weight moved to the second step: the reader
-   confirms, and the confirm button is the filled one. Nothing is loud until
-   somebody has asked for it. */
-.ag-finish.is-goal {
-    border-color: color-mix(in srgb, var(--gx-line) 100%, transparent);
-    background: none;
-    color: var(--gx-muted);
-    font-weight: 600;
+/* ---------- "Is this goal done?" -------------------------------------------
+   The one thing on a reached goal's card that wants an answer, so it is the
+   loudest thing on it: full width above the body, green, with Yes as the big
+   filled button. An outline and a second confirm step was the earlier answer,
+   on the argument that a control with a consequence should not shout; at this
+   moment the work is already done and the reader is only being asked to say
+   so. See the note in components/Goals/ActiveGoalCard.test.tsx. */
+.ag-verify {
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4);
+    margin: 0 var(--space-5) var(--space-4);
+    padding: var(--space-4) var(--space-5);
+    border: 1.5px solid color-mix(in srgb, var(--gx-good) 45%, transparent);
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--gx-good) 10%, var(--gx-card));
+    animation: ag-verify-in .45s cubic-bezier(.2, .9, .3, 1.2) both;
 }
-.ag-finish.is-goal:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--gx-good) 10%, transparent);
-    border-color: color-mix(in srgb, var(--gx-good) 45%, transparent);
-    color: var(--gx-good);
-}
-
-/* ---------- and the step that follows it ---------------------------------- */
-.ag-confirm {
-    margin: 12px 0 0;
-    padding: 12px 13px;
-    border: 1px solid color-mix(in srgb, var(--gx-good) 38%, transparent);
-    border-radius: 11px;
-    background: color-mix(in srgb, var(--gx-good) 8%, var(--gx-card));
-    animation: ag-finish-in .22s var(--gx-ease, ease) both;
-}
-.ag-confirm p {
-    margin: 0 0 10px;
-    font-size: 12.5px;
-    line-height: 1.5;
-    color: var(--gx-text);
-}
-.ag-confirm strong { font-weight: 700; }
-.ag-confirm-do { display: flex; gap: 8px; }
-.ag-confirm-no,
-.ag-confirm-yes {
-    flex: 1;
-    padding: 8px 12px;
-    border-radius: 9px;
-    font: inherit;
-    font-size: 12.5px;
-    font-weight: 700;
+.ag-verify-text { display: grid; gap: 2px; flex: 1 1 260px; min-width: 0; }
+.ag-verify-text strong { font-size: var(--text-lg); font-weight: 800; color: var(--gx-text); letter-spacing: -.01em; }
+.ag-verify-text span { font-size: var(--text-sm); color: var(--gx-muted); line-height: 1.45; }
+.ag-verify-do { display: flex; gap: var(--space-2); flex: 0 0 auto; }
+.ag-verify-yes,
+.ag-verify-no {
+    border-radius: var(--radius-md);
+    font: inherit; font-weight: 700;
     cursor: pointer;
-    transition: background .14s ease;
+    transition: transform .14s ease, filter .14s ease, background .14s ease;
 }
-.ag-confirm-no {
-    border: 1px solid var(--gx-line);
-    background: none;
-    color: var(--gx-muted);
-}
-.ag-confirm-no:hover { background: color-mix(in srgb, var(--gx-muted) 10%, transparent); }
-.ag-confirm-yes {
+.ag-verify-yes {
+    min-height: 52px;
+    padding: 0 var(--space-6);
     border: 1px solid var(--gx-good-fill);
     background: var(--gx-good-fill);
     color: var(--gx-good-ink);
+    font-size: var(--text-md);
+    box-shadow: 0 8px 22px -10px color-mix(in srgb, var(--gx-good) 70%, transparent);
 }
-.ag-confirm-yes:hover:not(:disabled) { filter: brightness(1.08); }
-.ag-confirm-yes:disabled { opacity: .55; cursor: default; }
+.ag-verify-yes:hover:not(:disabled) { filter: brightness(1.08); transform: translateY(-1px); }
+.ag-verify-no {
+    min-height: 52px;
+    padding: 0 var(--space-4);
+    border: 1px solid var(--gx-line);
+    background: var(--gx-card);
+    color: var(--gx-muted);
+    font-size: var(--text-sm);
+}
+.ag-verify-no:hover:not(:disabled) { background: color-mix(in srgb, var(--gx-muted) 10%, var(--gx-card)); }
+.ag-verify-yes:disabled, .ag-verify-no:disabled { opacity: .55; cursor: default; transform: none; }
+@media (max-width: 640px) {
+    .ag-verify { margin-inline: var(--space-3); }
+    .ag-verify-do { width: 100%; }
+    .ag-verify-yes { flex: 1; }
+}
+@keyframes ag-verify-in {
+    from { opacity: 0; transform: translateY(8px) scale(.98); }
+    to { opacity: 1; transform: none; }
+}
+
+/* ---------- Every step, on the spot ----------------------------------------
+   A ticked step changes the goal before the server answers (pages/Goals,
+   `quietWrite`), so the pieces it moves ease to their new values instead of
+   jumping: the route's bars and dots, the window's fill and today's marker,
+   the bar charts, the checkpoint ticks. The ring has its own transition and
+   the percentage counts up (useCountUp), over the same stretch of time. */
+.ag-road-bar i,
+.ag-bars i,
+.ag-scale-track > i,
+.ag-focus-bar i { transition: width .5s cubic-bezier(.2, .8, .2, 1); }
+.ag-scale-track > b { transition: left .5s cubic-bezier(.2, .8, .2, 1); }
+.ag-road-dot,
+.ag-stone-tick { transition: background-color .3s ease, border-color .3s ease, color .3s ease; }
+.ag-ring-arc { transition: stroke-dasharray .5s cubic-bezier(.2, .8, .2, 1); }
+
+/* ---------- The celebration ------------------------------------------------
+   The whole window, for the biggest thing the app tracks. See
+   components/Goals/GoalCelebration. The burst is pieces placed by nth-child,
+   flung out from the middle on a delay each; the card springs in under it. */
+.gc-veil {
+    position: fixed; inset: 0;
+    z-index: 1200;
+    display: grid; place-items: center;
+    padding: var(--space-4);
+    background: color-mix(in srgb, #0b0d1a 55%, transparent);
+    backdrop-filter: blur(3px);
+    animation: gc-fade .3s ease both;
+}
+.gc-card {
+    position: relative;
+    width: min(440px, 100%);
+    padding: var(--space-8) var(--space-6) var(--space-6);
+    border-radius: 22px;
+    background: var(--gx-card);
+    color: var(--gx-text);
+    text-align: center;
+    box-shadow: 0 30px 80px -20px rgba(0, 0, 0, .45);
+    animation: gc-pop .55s cubic-bezier(.2, 1.2, .3, 1) .05s both;
+}
+.gc-mark {
+    display: inline-grid; place-items: center;
+    width: 76px; height: 76px;
+    margin-bottom: var(--space-3);
+    border-radius: 50%;
+    background: var(--gx-good-fill);
+    color: var(--gx-good-ink);
+    box-shadow: 0 0 0 10px color-mix(in srgb, var(--gx-good) 16%, transparent);
+    animation: gc-mark .6s cubic-bezier(.2, 1.4, .3, 1) .2s both;
+}
+.gc-mark svg { width: 40px; height: 40px; }
+.gc-mark path { stroke-dasharray: 24; stroke-dashoffset: 24; animation: gc-draw .4s ease .55s forwards; }
+.gc-kicker {
+    margin: 0;
+    color: var(--gx-good);
+    font-size: var(--text-xs); font-weight: 800;
+    letter-spacing: .14em; text-transform: uppercase;
+}
+.gc-title { margin: var(--space-1) 0 var(--space-2); font-size: var(--text-2xl, 1.6rem); font-weight: 800; letter-spacing: -.02em; line-height: 1.15; }
+.gc-line { margin: 0 0 var(--space-5); color: var(--gx-muted); font-size: var(--text-md); }
+.gc-figures {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-2);
+    min-height: 58px;
+    margin: 0 0 var(--space-4); padding: 0;
+    list-style: none;
+    opacity: 0; transform: translateY(6px);
+    transition: opacity .4s ease, transform .4s ease;
+}
+.gc-figures.is-in { opacity: 1; transform: none; }
+.gc-figures li {
+    display: grid; gap: 1px;
+    min-width: 76px;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    background: var(--gx-card-2);
+}
+.gc-figures strong { font-size: var(--text-xl); font-weight: 800; font-variant-numeric: tabular-nums; }
+.gc-figures span { color: var(--gx-faint); font-size: var(--text-xs); }
+.gc-saved { margin: 0 0 var(--space-5); color: var(--gx-faint); font-size: var(--text-sm); transition: color .3s ease; }
+.gc-saved.is-in { color: var(--gx-muted); }
+.gc-saved a { color: var(--gx-good); font-weight: 700; }
+.gc-done {
+    min-width: 160px; min-height: 48px;
+    border: 0; border-radius: var(--radius-full);
+    background: var(--gx-good-fill);
+    color: var(--gx-good-ink);
+    font: inherit; font-size: var(--text-md); font-weight: 800;
+    cursor: pointer;
+    transition: filter .14s ease, transform .14s ease;
+}
+.gc-done:hover { filter: brightness(1.08); transform: translateY(-1px); }
+.gc-done:focus-visible { outline: 3px solid color-mix(in srgb, var(--gx-good) 50%, transparent); outline-offset: 3px; }
+
+.gc-burst { position: fixed; left: 50%; top: 42%; width: 0; height: 0; pointer-events: none; }
+.gc-burst i {
+    position: absolute; left: 0; top: 0;
+    width: 10px; height: 14px;
+    border-radius: 2px;
+    background: var(--c, var(--gx-good));
+    opacity: 0;
+    animation: gc-fling 1.6s cubic-bezier(.15, .7, .3, 1) var(--d, 0s) both;
+}
+.gc-burst i:nth-child(1) { --x: 260px; --y: 0px; --r: 0deg; --c: var(--gx-good); --d: 0.00s; }
+.gc-burst i:nth-child(2) { --x: 187px; --y: 26px; --r: 47deg; --c: var(--gx-violet); --d: 0.04s; }
+.gc-burst i:nth-child(3) { --x: 301px; --y: 88px; --r: 94deg; --c: var(--gx-amber); --d: 0.08s; }
+.gc-burst i:nth-child(4) { --x: 225px; --y: 104px; --r: 141deg; --c: var(--gx-pink); --d: 0.12s; }
+.gc-burst i:nth-child(5) { --x: 146px; --y: 98px; --r: 188deg; --c: var(--gx-blue); --d: 0.16s; }
+.gc-burst i:nth-child(6) { --x: 206px; --y: 196px; --r: 235deg; --c: var(--gx-teal); --d: 0.00s; }
+.gc-burst i:nth-child(7) { --x: 130px; --y: 180px; --r: 282deg; --c: var(--gx-good); --d: 0.04s; }
+.gc-burst i:nth-child(8) { --x: 65px; --y: 143px; --r: 329deg; --c: var(--gx-violet); --d: 0.08s; }
+.gc-burst i:nth-child(9) { --x: 56px; --y: 252px; --r: 16deg; --c: var(--gx-amber); --d: 0.12s; }
+.gc-burst i:nth-child(10) { --x: 0px; --y: 208px; --r: 63deg; --c: var(--gx-pink); --d: 0.16s; }
+.gc-burst i:nth-child(11) { --x: -33px; --y: 150px; --r: 110deg; --c: var(--gx-blue); --d: 0.00s; }
+.gc-burst i:nth-child(12) { --x: -109px; --y: 241px; --r: 157deg; --c: var(--gx-teal); --d: 0.04s; }
+.gc-burst i:nth-child(13) { --x: -130px; --y: 180px; --r: 204deg; --c: var(--gx-good); --d: 0.08s; }
+.gc-burst i:nth-child(14) { --x: -122px; --y: 116px; --r: 251deg; --c: var(--gx-violet); --d: 0.12s; }
+.gc-burst i:nth-child(15) { --x: -245px; --y: 165px; --r: 298deg; --c: var(--gx-amber); --d: 0.16s; }
+.gc-burst i:nth-child(16) { --x: -225px; --y: 104px; --r: 345deg; --c: var(--gx-pink); --d: 0.00s; }
+.gc-burst i:nth-child(17) { --x: -179px; --y: 52px; --r: 32deg; --c: var(--gx-blue); --d: 0.04s; }
+.gc-burst i:nth-child(18) { --x: -315px; --y: 44px; --r: 79deg; --c: var(--gx-teal); --d: 0.08s; }
+.gc-burst i:nth-child(19) { --x: -260px; --y: 0px; --r: 126deg; --c: var(--gx-good); --d: 0.12s; }
+.gc-burst i:nth-child(20) { --x: -187px; --y: -26px; --r: 173deg; --c: var(--gx-violet); --d: 0.16s; }
+.gc-burst i:nth-child(21) { --x: -301px; --y: -88px; --r: 220deg; --c: var(--gx-amber); --d: 0.00s; }
+.gc-burst i:nth-child(22) { --x: -225px; --y: -104px; --r: 267deg; --c: var(--gx-pink); --d: 0.04s; }
+.gc-burst i:nth-child(23) { --x: -146px; --y: -98px; --r: 314deg; --c: var(--gx-blue); --d: 0.08s; }
+.gc-burst i:nth-child(24) { --x: -206px; --y: -196px; --r: 1deg; --c: var(--gx-teal); --d: 0.12s; }
+.gc-burst i:nth-child(25) { --x: -130px; --y: -180px; --r: 48deg; --c: var(--gx-good); --d: 0.16s; }
+.gc-burst i:nth-child(26) { --x: -65px; --y: -143px; --r: 95deg; --c: var(--gx-violet); --d: 0.00s; }
+.gc-burst i:nth-child(27) { --x: -56px; --y: -252px; --r: 142deg; --c: var(--gx-amber); --d: 0.04s; }
+.gc-burst i:nth-child(28) { --x: 0px; --y: -208px; --r: 189deg; --c: var(--gx-pink); --d: 0.08s; }
+.gc-burst i:nth-child(29) { --x: 33px; --y: -150px; --r: 236deg; --c: var(--gx-blue); --d: 0.12s; }
+.gc-burst i:nth-child(30) { --x: 109px; --y: -241px; --r: 283deg; --c: var(--gx-teal); --d: 0.16s; }
+.gc-burst i:nth-child(31) { --x: 130px; --y: -180px; --r: 330deg; --c: var(--gx-good); --d: 0.00s; }
+.gc-burst i:nth-child(32) { --x: 122px; --y: -116px; --r: 17deg; --c: var(--gx-violet); --d: 0.04s; }
+.gc-burst i:nth-child(33) { --x: 245px; --y: -165px; --r: 64deg; --c: var(--gx-amber); --d: 0.08s; }
+.gc-burst i:nth-child(34) { --x: 225px; --y: -104px; --r: 111deg; --c: var(--gx-pink); --d: 0.12s; }
+.gc-burst i:nth-child(35) { --x: 179px; --y: -52px; --r: 158deg; --c: var(--gx-blue); --d: 0.16s; }
+.gc-burst i:nth-child(36) { --x: 315px; --y: -44px; --r: 205deg; --c: var(--gx-teal); --d: 0.00s; }
+@keyframes gc-fling {
+    0% { opacity: 0; transform: translate(0, 0) rotate(0) scale(.4); }
+    12% { opacity: 1; }
+    70% { opacity: 1; }
+    100% { opacity: 0; transform: translate(var(--x), calc(var(--y) + 140px)) rotate(var(--r)) scale(1); }
+}
+@keyframes gc-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes gc-pop { from { opacity: 0; transform: translateY(18px) scale(.9); } to { opacity: 1; transform: none; } }
+@keyframes gc-mark { from { transform: scale(0); } to { transform: scale(1); } }
+@keyframes gc-draw { to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) {
+    .gc-burst { display: none; }
+    .gc-veil, .gc-card, .gc-mark, .ag-verify { animation: none; }
+    .gc-mark path { animation: none; stroke-dashoffset: 0; }
+    .ag-road-bar i, .ag-bars i, .ag-scale-track > i, .ag-focus-bar i,
+    .ag-scale-track > b, .ag-ring-arc { transition: none; }
+}
 @keyframes ag-finish-in {
     from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: none; }
@@ -4358,12 +4568,12 @@ button.gx-state-attn.is-on {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
-    padding: 18px 26px;
-    border-radius: 16px;
+    gap: var(--space-1);
+    padding: var(--space-4) var(--space-6);
+    border-radius: var(--radius-lg);
     border: 1px solid color-mix(in srgb, var(--gx-good) 40%, transparent);
     background: var(--gx-card);
-    box-shadow: 0 18px 40px rgba(16, 24, 40, .16);
+    box-shadow: var(--shadow-lg);
     text-align: center;
     animation: ag-cheer-card-life 2s cubic-bezier(.22, .9, .3, 1) both;
 }
@@ -4374,8 +4584,8 @@ button.gx-state-attn.is-on {
     border-radius: 50%;
     background: var(--gx-good);
     color: #fff;
-    font-size: 17px;
-    font-weight: 800;
+    font-size: var(--text-lg);
+    font-weight: 700;
     animation: ag-cheer-mark-in .5s cubic-bezier(.2, 1.25, .4, 1) .06s both;
 }
 /* One ring leaving the tick. This is the piece doing most of the work — a
@@ -4389,10 +4599,10 @@ button.gx-state-attn.is-on {
     border: 2px solid var(--gx-good);
     animation: ag-cheer-ring .8s cubic-bezier(.2, .7, .3, 1) .1s both;
 }
-.ag-cheer-card strong { font-size: 14.5px; font-weight: 750; color: var(--gx-text); }
+.ag-cheer-card strong { font-size: var(--text-md); font-weight: 700; color: var(--gx-text); }
 .ag-cheer-card span:last-child {
     max-width: 240px;
-    font-size: 12px;
+    font-size: var(--text-xs);
     color: var(--gx-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -4484,10 +4694,10 @@ button.gx-state-attn.is-on {
     display: grid;
     grid-template-columns: 18px minmax(0, 1fr) auto;
     align-items: center;
-    gap: 10px;
-    padding: 5px 6px;
-    border-radius: 8px;
-    font-size: 12.5px;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-md);
+    font-size: var(--text-sm);
     color: var(--gx-muted);
 }
 .ag-actions li:hover { background: var(--gx-card-2); }
@@ -4495,7 +4705,7 @@ button.gx-state-attn.is-on {
     width: 17px; height: 17px;
     padding: 0;
     border: 1.6px solid var(--gx-line);
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     background: transparent;
     cursor: pointer;
     transition: border-color .14s ease, background .14s ease;
@@ -4530,7 +4740,7 @@ button.gx-state-attn.is-on {
 .gx-btn-ai {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
+    gap: var(--space-2);
     border-color: color-mix(in srgb, var(--gx-violet) var(--gx-edge), transparent);
     background: color-mix(in srgb, var(--gx-violet) var(--gx-wash-soft), transparent);
     color: var(--gx-violet);
@@ -4548,7 +4758,7 @@ button.gx-state-attn.is-on {
     display: inline-grid;
     place-items: center;
     width: 13px; height: 13px;
-    margin-right: 7px;
+    margin-right: var(--space-2);
     vertical-align: -2px;
     color: var(--tone);
 }
@@ -4559,15 +4769,15 @@ button.gx-state-attn.is-on {
     align-self: flex-start;
     display: inline-flex;
     align-items: center;
-    gap: 7px;
-    padding: 6px 12px 6px 10px;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3) var(--space-2) var(--space-2);
     border: 1px solid color-mix(in srgb, var(--tone) var(--gx-edge), transparent);
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     background: color-mix(in srgb, var(--tone) var(--gx-wash-soft), transparent);
     color: var(--tone);
     font: inherit;
-    font-size: 12px;
-    font-weight: 650;
+    font-size: var(--text-xs);
+    font-weight: 600;
     cursor: pointer;
     transition: background .14s ease, border-color .14s ease;
 }
@@ -4599,18 +4809,18 @@ button.gx-state-attn.is-on {
     display: flex;
     align-items: baseline;
     flex-wrap: wrap;
-    gap: 4px 14px;
+    gap: var(--space-1) var(--space-4);
     margin-top: 2px;
 }
 
 .ag-add-btn {
     align-self: flex-start;
-    padding: 5px 2px;
+    padding: var(--space-1) 2px;
     border: 0;
     background: transparent;
     color: var(--tone);
     font: inherit;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     font-weight: 600;
     cursor: pointer;
 }
@@ -4618,38 +4828,38 @@ button.gx-state-attn.is-on {
 .ag-add-btn:disabled { opacity: .5; cursor: default; }
 .ag-add input {
     width: 100%;
-    padding: 8px 10px;
+    padding: var(--space-2) var(--space-2);
     border: 1px solid color-mix(in srgb, var(--tone) var(--gx-edge), transparent);
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     background: var(--gx-card-2);
     color: var(--gx-text);
     font: inherit;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
 }
 .ag-add input:focus-visible { outline: 2px solid var(--tone); outline-offset: 1px; }
 
 /* The existing-task search under the box. Sits in the flow rather than floating:
    the card is tall and the list is short, so there is nothing to overlap. */
 .ag-found {
-    margin: 6px 0 0;
-    padding: 4px;
+    margin: var(--space-2) 0 0;
+    padding: var(--space-1);
     list-style: none;
     border: 1px solid var(--gx-line);
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     background: var(--gx-card-2);
 }
 .ag-found-row {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-2);
     width: 100%;
-    padding: 6px 8px;
+    padding: var(--space-2) var(--space-2);
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     background: transparent;
     color: var(--gx-text);
     font: inherit;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     text-align: left;
     cursor: pointer;
 }
@@ -4670,21 +4880,21 @@ button.gx-state-attn.is-on {
     align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;
-    gap: 16px;
+    gap: var(--space-4);
     padding: 13px var(--gx-pad);
     background: var(--gx-card-2);
 }
 .ag-details {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
-    padding: 7px 13px;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
     border: 1px solid var(--gx-line);
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     background: var(--gx-card);
     color: var(--gx-text);
     font: inherit;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     font-weight: 600;
     cursor: pointer;
 }
@@ -4695,11 +4905,11 @@ button.gx-state-attn.is-on {
     margin: 0;
     display: flex;
     flex-wrap: wrap;
-    gap: 26px;
+    gap: var(--space-6);
 }
-.ag-facts > div { display: flex; flex-direction: column; gap: 3px; }
+.ag-facts > div { display: flex; flex-direction: column; gap: var(--space-1); }
 .ag-facts dt {
-    font-size: 9.5px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: .07em;
     text-transform: uppercase;
@@ -4709,8 +4919,8 @@ button.gx-state-attn.is-on {
     margin: 0;
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: 12.5px;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
     font-weight: 600;
 }
 .ag-facts dd.is-late { color: var(--gx-bad); }
@@ -4732,13 +4942,13 @@ button.gx-state-attn.is-on {
     .ag-top-right {
         grid-column: 1 / -1;
         justify-content: flex-start;
-        padding-top: 4px;
+        padding-top: var(--space-1);
         border-top: 1px solid var(--gx-line-soft);
     }
     .ag-top-right .ag-menu-wrap { margin-left: auto; }
-    .ag-title-row h3 { font-size: 17px; }
+    .ag-title-row h3 { font-size: var(--text-lg); }
     .ag-foot { flex-direction: column; align-items: stretch; }
-    .ag-facts { gap: 18px; justify-content: space-between; }
+    .ag-facts { gap: var(--space-4); justify-content: space-between; }
     .ag-details { align-self: flex-start; }
 }
 
@@ -4760,3 +4970,363 @@ button.gx-state-attn.is-on {
    The one thing worth repeating: the class comes off once the last band has
    landed (hooks/usePageEntrance), so switching tabs afterwards swaps content
    without replaying the whole page. */
+
+/* ---------- The smart plan row ------------------------------------------
+   The model's offers for a goal, gathered somewhere that does not depend on
+   the goal being empty. See components/Goals/SmartPlan for the argument; this
+   only has to make the row read as one offer rather than as loose buttons.
+
+   Set off by a rule above it rather than by a box. It sits at the foot of a
+   section that already has a border, and a second bordered thing inside the
+   first is how a panel becomes a stack of panels. */
+.gx-smart {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--gx-line);
+}
+.gx-smart-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+}
+/* `.gx-ai` is `align-self: flex-start`, which in a row means the top edge. In
+   this one they sit side by side and should share a baseline. */
+.gx-smart-row .gx-ai { align-self: auto; }
+
+.gx-smart-note {
+    margin: 0;
+    max-width: 62ch;
+    color: var(--gx-muted);
+    font-size: var(--text-xs);
+    line-height: 1.55;
+}
+
+/* On the card. No sentence, a lighter rule, and tighter — the card is a
+   summary and this is a way in, not the place the work is done. */
+.gx-smart.is-compact {
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top-color: color-mix(in srgb, var(--gx-line) 70%, transparent);
+}
+.gx-smart.is-compact .gx-ai { font-size: var(--text-xs); padding: var(--space-1) var(--space-2) var(--space-1) var(--space-2); }
+
+/* The goal dialog's save button — the shared Button (components/ui); this is
+   only the air above it. */
+.gx-modal-submit { margin-top: var(--space-5); }
+
+/* ==========================================================================
+   The goal card, drawn to the reference design (2026-10-09)
+
+   Two framed panels inside the card instead of one field split by a line:
+   the evidence on the left (the chart, its note, View Details) and the plan
+   on the right (the checkpoint, its checklist, the dates). Each panel ends
+   in its own foot, so the card no longer needs a footer of its own.
+
+   In the dark theme the card is navy, washed with the goal's own colour from
+   the top, and the panels are a deeper navy with a hairline edge.
+   ========================================================================== */
+.ag-card {
+    --ag-panel: var(--gx-card-2);
+    --ag-panel-line: var(--gx-line);
+    --ag-gap: 14px;
+}
+
+/* ---- header ---- */
+.ag-top {
+    gap: var(--space-5);
+    padding: calc(22px + 3px) 26px 18px;
+}
+.ag-top > .gx-tile {
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    border: 1px solid color-mix(in srgb, var(--tone) 28%, transparent);
+}
+.ag-title-row { gap: var(--space-3); }
+.ag-title-row h3 { font-size: 22px; letter-spacing: -.02em; }
+.ag-badge { padding: 3px 10px; font-size: var(--text-xs); font-weight: 650; }
+.ag-why { font-size: var(--text-md); color: var(--gx-muted); }
+.ag-tags { gap: var(--space-5); }
+.ag-tags li { padding: 0; background: none; font-size: var(--text-sm); font-weight: 500; color: var(--gx-muted); }
+.ag-tags li::before { width: 5px; height: 5px; opacity: .8; }
+.ag-tags li.is-hot { font-weight: 650; }
+.ag-tags li.is-late { padding: 1px 8px; }
+.ag-progress strong { font-size: 26px; }
+.ag-progress span { font-size: var(--text-xs); color: var(--gx-muted); }
+.ag-ring { width: 58px; height: 58px; }
+
+/* ---- the two panels ---- */
+.ag-body {
+    /* 3 : 4 — the reference gives the roadmap a little more than the old 5 : 7,
+       enough for a checkpoint's name to be read whole. */
+    grid-template-columns: minmax(0, 3fr) minmax(0, 4fr);
+    gap: var(--ag-gap);
+    padding: 4px 6px 6px;
+    background: transparent;
+    border: 0;
+}
+.ag-panel,
+.ag-body > .ag-panel:first-child {
+    gap: 14px;
+    padding: 22px 24px;
+    border: 1px solid var(--ag-panel-line);
+    border-radius: 14px;
+    background: var(--ag-panel);
+}
+.ag-panel-head h4 { font-size: var(--text-xs); letter-spacing: .07em; color: var(--gx-text); }
+.ag-panel-head .ag-kebab { opacity: .55; }
+.ag-panel-head .ag-kebab:hover,
+.ag-panel-head .ag-kebab[aria-expanded="true"] { opacity: 1; }
+
+/* Each panel's last row sits on its floor. */
+.ag-panel-foot { margin-top: auto; padding-top: var(--space-2); }
+.ag-panel-foot-split {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4) var(--space-6);
+    padding-top: 18px;
+    border-top: 1px solid var(--ag-panel-line);
+}
+.ag-panel-foot-split .gx-smart.is-compact { margin: 0; padding: 0; border: 0; }
+.ag-panel-foot-split .gx-smart.is-compact .gx-ai {
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-full);
+    font-size: var(--text-sm);
+}
+.ag-facts { gap: var(--space-6); margin-left: auto; }
+.ag-facts dt { font-size: var(--text-2xs); color: var(--gx-muted); }
+.ag-facts dd { font-size: var(--text-md); font-weight: 600; color: var(--gx-text); }
+
+.ag-details {
+    padding: 10px 20px;
+    border-radius: 12px;
+    background: transparent;
+    font-size: var(--text-md);
+}
+
+/* ---- roadmap: a route of dots with a line down the left ---- */
+.ag-roadmap { position: relative; gap: 0; }
+.ag-roadmap::before {
+    content: '';
+    position: absolute;
+    top: 22px;
+    bottom: 22px;
+    left: 13px;
+    width: 2px;
+    border-radius: 1px;
+    background: var(--ag-panel-line);
+}
+.ag-roadmap li button {
+    grid-template-columns: 14px minmax(0, 1.7fr) minmax(56px, 1fr) 62px;
+    gap: var(--space-4);
+    padding: 12px 6px;
+    color: var(--gx-text);
+    font-size: var(--text-md);
+}
+.ag-roadmap li button:hover { background: color-mix(in srgb, var(--tone) 7%, transparent); }
+.ag-road-dot {
+    position: relative;
+    z-index: 1;
+    box-sizing: border-box;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid var(--gx-faint);
+    background: var(--ag-panel);
+}
+.ag-roadmap li.is-done .ag-road-dot { border-color: var(--gx-good); background: var(--gx-good); }
+.ag-roadmap li.is-active .ag-road-dot,
+.ag-roadmap li.is-current .ag-road-dot {
+    border-color: var(--tone);
+    background: var(--tone);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--tone) 22%, transparent);
+}
+/* Two lines before it cuts off: a checkpoint's name is the point of the row. */
+.ag-road-name {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    line-height: 1.3;
+    white-space: normal;
+}
+.ag-roadmap li:not(.is-done):not(.is-active):not(.is-current) .ag-road-name { color: var(--gx-muted); }
+.ag-road-bar { height: 6px; background: color-mix(in srgb, var(--gx-faint) 22%, transparent); }
+.ag-roadmap li .ag-quiet { text-align: right; font-size: var(--text-sm); color: var(--gx-muted); }
+
+/* ---- the boxed note under the chart ---- */
+.ag-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 14px 16px;
+    border: 1px solid var(--ag-panel-line);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--gx-card) 55%, transparent);
+}
+.ag-note-ico { flex: none; width: 22px; height: 22px; margin-top: 1px; color: var(--gx-muted); }
+.ag-note .ag-caption { padding: 0; font-size: var(--text-sm); color: var(--gx-text); }
+.ag-note .ag-why-chart { margin: 4px 0 0; padding: 0; border: 0; font-size: var(--text-xs); color: var(--gx-muted); }
+
+/* ---- the current checkpoint ---- */
+.ag-focus {
+    gap: var(--space-4);
+    padding: 14px 18px 14px 14px;
+    border-radius: 12px;
+    color: var(--gx-text);
+}
+/* A disabled button greys its text in every browser; this one is only
+   disabled because there is nothing to switch to, and still names the work. */
+.ag-focus:disabled { color: var(--gx-text); opacity: 1; }
+.ag-focus-ico .gx-tile { width: 42px; height: 42px; border-radius: 10px; }
+.ag-focus-text { gap: 4px; }
+.ag-focus-text span { font-size: var(--text-sm); color: color-mix(in srgb, var(--tone) 45%, var(--gx-muted)); }
+.ag-focus-when { display: inline-flex; align-items: center; gap: var(--space-3); font-size: var(--text-sm); }
+.ag-focus-when svg { width: 15px; height: 15px; color: var(--gx-muted); }
+
+/* ---- checklist, next, add ---- */
+.ag-steps { gap: 2px; }
+.ag-check { width: 19px; height: 19px; border-radius: 5px; border-color: color-mix(in srgb, var(--gx-faint) 70%, transparent); }
+.ag-step-name { font-size: var(--text-md); }
+.ag-next {
+    align-items: center;
+    gap: var(--space-4);
+    padding: 9px 14px;
+    border-radius: 10px;
+    border-left-width: 1px;
+}
+.ag-next > span {
+    padding: 3px 9px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--tone) 22%, transparent);
+    font-size: var(--text-xs);
+}
+.ag-next > strong { font-size: var(--text-md); }
+.ag-add-btn { font-size: var(--text-md); font-weight: 600; color: var(--tone); }
+
+/* ---- dark: navy, tinted by the goal ---- */
+html[data-theme="dark"] .gx-page .ag-card {
+    --ag-navy: #0c1526;
+    --ag-panel: #0b1322;
+    --ag-panel-line: rgba(148, 170, 214, .13);
+    --gx-text: #e8eef9;
+    --gx-muted: #97a6c0;
+    --gx-faint: #64738e;
+    --gx-card: #0e1830;
+    border: 1px solid color-mix(in srgb, var(--tone) 24%, rgba(148, 170, 214, .14));
+    background:
+        linear-gradient(180deg,
+            color-mix(in srgb, var(--tone) 18%, var(--ag-navy)) 0,
+            color-mix(in srgb, var(--tone) 7%, var(--ag-navy)) 150px,
+            color-mix(in srgb, var(--tone) 4%, var(--ag-navy)) 100%);
+    box-shadow: 0 18px 40px rgba(2, 6, 18, .45);
+}
+html[data-theme="dark"] .gx-page .ag-card::before {
+    background: linear-gradient(90deg, color-mix(in srgb, var(--tone) 70%, #fff), var(--tone));
+    opacity: .85;
+}
+html[data-theme="dark"] .gx-page .ag-top { background: none; }
+html[data-theme="dark"] .gx-page .ag-top > .gx-tile { background: color-mix(in srgb, var(--tone) 22%, var(--ag-navy)); color: color-mix(in srgb, var(--tone) 80%, #fff); }
+html[data-theme="dark"] .gx-page .ag-badge { background: color-mix(in srgb, var(--tone) 16%, transparent); color: color-mix(in srgb, var(--tone) 70%, #fff); }
+html[data-theme="dark"] .gx-page .ag-focus {
+    background: color-mix(in srgb, var(--tone) 16%, var(--ag-panel));
+    border-color: color-mix(in srgb, var(--tone) 30%, transparent);
+}
+html[data-theme="dark"] .gx-page .ag-focus-ico .gx-tile { background: color-mix(in srgb, var(--tone) 34%, var(--ag-panel)); }
+html[data-theme="dark"] .gx-page .ag-next {
+    background: color-mix(in srgb, var(--tone) 12%, var(--ag-panel));
+    border-color: color-mix(in srgb, var(--tone) 34%, transparent);
+}
+html[data-theme="dark"] .gx-page .ag-next > span { color: color-mix(in srgb, var(--tone) 55%, #fff); }
+html[data-theme="dark"] .gx-page .ag-details { border-color: var(--ag-panel-line); }
+html[data-theme="dark"] .gx-page .ag-note { background: rgba(14, 24, 44, .6); }
+
+/* Stacked below 1080px, as before — repeated here because the 3 : 4 split
+   above comes later in the file than the original narrow rule. */
+@media (max-width: 1080px) {
+    .ag-body { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+    .ag-top { padding: calc(18px + 3px) 18px 16px; }
+    .ag-panel, .ag-body > .ag-panel:first-child { padding: 18px; }
+    /* The name gets the row; its bar runs under it. */
+    .ag-roadmap li button { grid-template-columns: 14px minmax(0, 1fr) auto; gap: var(--space-2) var(--space-3); }
+    .ag-road-dot { grid-row: 1; }
+    .ag-road-name { grid-column: 2; grid-row: 1; }
+    .ag-roadmap li .ag-quiet { grid-column: 3; grid-row: 1; }
+    .ag-road-bar { grid-column: 2 / 4; grid-row: 2; }
+    .ag-roadmap::before { left: 12px; }
+    .ag-focus-text strong { white-space: normal; }
+    .ag-focus { grid-template-columns: auto minmax(0, 1fr); row-gap: var(--space-1); }
+    .ag-focus-when { grid-column: 2; }
+    /* A step name wraps rather than being cut mid-letter. */
+    .ag-step-name { white-space: normal; flex-wrap: wrap; }
+    .ag-facts { gap: var(--space-5); margin-left: 0; }
+}
+
+/* ---- consistency grid: fills the panel, in four labelled blocks ---- */
+.ag-heat {
+    grid-template-columns: 16px minmax(0, 1fr);
+    justify-content: stretch;
+    align-content: start;
+    gap: var(--space-3);
+    padding: var(--space-3) 0 0;
+}
+.ag-heat-days { grid-template-rows: repeat(7, minmax(14px, 22px)); font-size: var(--text-xs); color: var(--gx-muted); }
+.ag-heat-weeks { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-5); }
+.ag-heat-block { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.ag-heat-block .ag-heat-grid {
+    grid-template-rows: repeat(7, minmax(14px, 22px));
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 5px;
+}
+.ag-heat-block .ag-heat-grid i { height: auto; border-radius: 4px; }
+.ag-heat-range { font-size: var(--text-xs); color: var(--gx-muted); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+html[data-theme="dark"] .gx-page .ag-card .ag-heat-grid i:not([class*="is-l"]),
+html[data-theme="dark"] .gx-page .ag-card .ag-heat-grid i.is-l0 { background: color-mix(in srgb, var(--tone) 10%, #18233a); }
+
+/* ---------- The detail drawer, with room to breathe ------------------------
+   The drawer is read top to bottom like a page, so it gets a page's spacing:
+   more air around each section, between checkpoints, and between the steps
+   inside them, and a little more line height on everything that wraps. */
+.gx-drawer {
+    width: min(96vw, 720px);
+    gap: var(--space-6);
+    padding: var(--space-8) var(--space-8) var(--space-12, 48px);
+}
+.gx-drawer-head h2 { margin: var(--space-2) 0 var(--space-3); line-height: 1.3; }
+.gx-drawer .gx-why { padding: var(--space-5) var(--space-6); line-height: 1.7; }
+.gx-drawer .gx-why-label { margin-bottom: var(--space-2); }
+.gx-drawer .gx-panel { gap: var(--space-5); padding: var(--space-6) var(--space-6); }
+.gx-drawer .gx-panel-head { padding-bottom: var(--space-1); }
+.gx-drawer .gx-detail-progress { gap: var(--space-5); }
+.gx-drawer .gx-detail-reason { line-height: 1.65; }
+.gx-drawer .gx-facts { gap: var(--space-4) var(--space-5); padding-top: var(--space-2); }
+.gx-drawer .gx-facts > div { gap: 4px; }
+.gx-drawer .gx-ms { padding: var(--space-4) 0; row-gap: var(--space-2); }
+.gx-drawer .gx-ms-body { gap: 3px; }
+.gx-drawer .gx-ms-title { line-height: 1.4; }
+.gx-drawer .gx-checklist { margin: var(--space-3) 0 var(--space-1); }
+.gx-drawer .gx-checklist-head { margin-bottom: var(--space-1); }
+.gx-drawer .gx-checklist-list { display: grid; gap: 2px; }
+.gx-drawer .gx-cstep { padding: 7px 0; gap: var(--space-3); align-items: start; }
+.gx-drawer .gx-cstep-tick { margin-top: 3px; }
+.gx-drawer .gx-cstep-text { line-height: 1.5; white-space: normal; text-align: left; }
+.gx-drawer .gx-cstep-due { margin-top: 2px; }
+.gx-drawer .gx-ms-suggest { margin: var(--space-3) 0 var(--space-2); }
+.gx-drawer .gx-btn { white-space: nowrap; }
+.gx-drawer .gx-ms-add { margin-top: var(--space-2); }
+.gx-drawer .gx-readings { gap: var(--space-3); }
+.gx-drawer .gx-readings > div { padding: var(--space-4); gap: 4px; }
+.gx-drawer .gx-bottleneck { padding: var(--space-4) var(--space-5); line-height: 1.6; }
+.gx-drawer .gx-actions { gap: var(--space-3); }
+@media (max-width: 640px) {
+    .gx-drawer { padding: var(--space-5) var(--space-4) var(--space-10); gap: var(--space-4); }
+    .gx-drawer .gx-panel { padding: var(--space-4); }
+}

@@ -4,7 +4,7 @@
  * ## Why the subject catalogue and not free text
  *
  * A free-text tag box gives you "calc", "Calc", "calculus" and "Calculus 1"
- * inside a fortnight, and then a tag filter that finds a quarter of what it
+ * inside two weeks, and then a tag filter that finds a quarter of what it
  * should. The app already has the answer: a hundred subjects in
  * backend/config/subjects.py that tasks, the calendar and the skill trees all
  * key off. A note tagged from that same list is a note the rest of Summit can
@@ -180,7 +180,7 @@ export function SubjectTags({ ids, catalogue, disabled, onChange }: SubjectTagsP
           />
           {choices.length === 0 ? (
             <p className="nt-picker-none">
-              {query.trim() ? `Nothing matches “${query.trim()}”.` : 'Every subject is already on.'}
+              {query.trim() ? `Nothing matches "${query.trim()}".` : 'Every subject is already added.'}
             </p>
           ) : (
             <ul className="nt-picker-list">

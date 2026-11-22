@@ -3,7 +3,7 @@
  *
  * It was the arithmetic behind all four chapters, back when each of them was a
  * panel or two. Focus, Skills and Benchmarks are pages now, with a file each
- * (utils/growthFocus, growthSkills, growthBench); what stayed here is the
+ * (utils/growthBench; Focus and Skills have since gone); what stayed here is the
  * projection, the outlook and the milestone dates, plus the two date helpers
  * the other three import from it so that four chapters cannot end up spelling a
  * date three different ways.
@@ -15,7 +15,7 @@
  *
  * **This is the one file on the page that states something that has not
  * happened.** The projections are a straight line drawn at a measured pace and
- * nothing more: no seasonality, no decay, no belief that a good fortnight
+ * nothing more: no seasonality, no decay, no belief that a good two weeks
  * continues. The panel says which pace it used and over how many days, because
  * a forecast whose assumption is hidden is a claim rather than an estimate.
  */

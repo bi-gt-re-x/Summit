@@ -76,15 +76,26 @@ export const STRENGTH_TONE: Record<HabitStrength, string> = {
 };
 
 export const STRENGTH_NOTE: Record<HabitStrength, string> = {
-  strong: 'Turns up in most weeks and is not fading. These are the ones holding your totals up.',
-  developing: 'Appearing regularly but not yet every week — the habit exists, the routine does not.',
-  inconsistent: 'Real gaps between appearances. It happens when it happens rather than on a schedule.',
-  declining: 'Running well below its own earlier rate. Still alive, but on the way out unless something changes.',
+  strong: "Shows up most weeks and isn't fading. These keep your totals up.",
+  developing: "Shows up often, but not every week. Not a routine yet.",
+  inconsistent: 'Long gaps in between. No regular pattern yet.',
+  declining: "Way down from before. It's still there, but it'll fade unless something changes.",
 };
 
 export interface Habit {
   id: string;
   name: string;
+  /**
+   * What this habit was bucketed by — `subject:<id>` or `stem:<stem>`.
+   *
+   * The id above cannot serve. It is built from the *display name*, and for a
+   * routine that name is the commonest spelling the reader used ("Violin
+   * practice" over the stem "violin practice"), so it does not map back to the
+   * tasks the bucket was filled from. Anything that needs those tasks again —
+   * see utils/habitEffects, which asks what each habit is worth — matches on
+   * this instead, with the same two rules `buildHabits` used to fill it.
+   */
+  key: string;
   /** Which signal produced it — shown so a reader knows why the card exists. */
   source: 'subject' | 'routine';
   /** Share of the weeks in the range this appeared in at all, 0-100. */
@@ -120,8 +131,11 @@ export interface Habit {
  * a repeat are stripped; what survives is the stem two entries have to share
  * to be counted as the same thing.
  */
-function stemOf(title: string): string {
-  return String(title || '')
+export function stemOf(title: string): string {
+  const text = String(title || '');
+  const known = stems.get(text);
+  if (known !== undefined) return known;
+  const stem = text
     .toLowerCase()
     .replace(/[#№]/g, ' ')
     .replace(/\d+/g, ' ')
@@ -129,7 +143,21 @@ function stemOf(title: string): string {
     .replace(/\b(part|pt|week|wk|day|no|number|session|round|vol|chapter|ch|unit)\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+  if (stems.size >= STEMS_MAX) stems.clear();
+  stems.set(text, stem);
+  return stem;
 }
+
+/**
+ * Stems remembered by title.
+ *
+ * Six regular-expression passes per call, and the habit readings call this for
+ * every task in the window on every pass — twenty thousand times on a large
+ * account, for a few thousand distinct titles. A title's stem never changes.
+ * Capped so an unusual account cannot grow it without end.
+ */
+const stems = new Map<string, string>();
+const STEMS_MAX = 50_000;
 
 /** Title Case, for a stem that is about to become a card heading. */
 function titleCase(text: string): string {
@@ -139,6 +167,8 @@ function titleCase(text: string): string {
 interface Bucket {
   name: string;
   source: Habit['source'];
+  /** The bucketing key — see `Habit.key`. */
+  key: string;
   /** The distinct days it happened on, ascending. */
   days: string[];
   seen: Set<string>;
@@ -149,8 +179,8 @@ interface Bucket {
   finished: number;
 }
 
-function emptyBucket(name: string, source: Habit['source']): Bucket {
-  return { name, source, days: [], seen: new Set(), total: 0, xp: 0, filed: 0, finished: 0 };
+function emptyBucket(name: string, source: Habit['source'], key: string): Bucket {
+  return { name, source, key, days: [], seen: new Set(), total: 0, xp: 0, filed: 0, finished: 0 };
 }
 
 /** The longest run of consecutive keys in an ascending list, by a step function. */
@@ -240,12 +270,12 @@ export function buildHabits(
 
     if (task.subject) {
       const key = `subject:${task.subject}`;
-      const bucket = bySubject.get(key) ?? emptyBucket(nameOf(task.subject), 'subject');
+      const bucket = bySubject.get(key) ?? emptyBucket(nameOf(task.subject), 'subject', key);
       bySubject.set(key, bucket);
       targets.push(bucket);
     }
     if (stem.length >= 3) {
-      const bucket = byStem.get(stem) ?? emptyBucket(titleCase(stem), 'routine');
+      const bucket = byStem.get(stem) ?? emptyBucket(titleCase(stem), 'routine', `stem:${stem}`);
       byStem.set(stem, bucket);
       targets.push(bucket);
       const counts = spelling.get(stem) ?? new Map<string, number>();
@@ -353,6 +383,7 @@ export function buildHabits(
     return {
       id: `${bucket.source}:${bucket.name}`,
       name: bucket.name,
+      key: bucket.key,
       source: bucket.source,
       consistency,
       streak,
@@ -416,7 +447,7 @@ export const CALENDAR_WINDOWS: Array<{ key: CalendarKey; label: string; days: nu
   { key: '30', label: '30D', days: 30 },
   { key: '90', label: '90D', days: 90 },
   { key: '365', label: '1Y', days: 365 },
-  { key: 'all', label: 'All Time', days: null },
+  { key: 'all', label: 'All time', days: null },
 ];
 
 export interface CalendarCell {
@@ -574,7 +605,7 @@ const wordFor = (share: number): HabitPattern['frequency'] =>
  * A pattern needs a floor of observations before it is stated at all — five
  * for a per-habit tendency, twenty days for anything about the week. Below
  * that the tab says how much more data it needs rather than inventing a
- * tendency out of a fortnight.
+ * tendency out of two weeks.
  */
 export function habitPatterns(tasks: Task[], habits: Habit[], fromIso: string, toIso: string): HabitPattern[] {
   const out: HabitPattern[] = [];
@@ -587,11 +618,27 @@ export function habitPatterns(tasks: Task[], habits: Habit[], fromIso: string, t
 
   const hourOf = (task: Task) => Number(String(task.completed_at || '').slice(11, 13));
 
+  /* Each title's stem, worked out once. `stemOf` was called per task per habit
+     below and then again per task per *day* in the pairing pass — which on an
+     account of eighteen thousand finished tasks over five years was tens of
+     millions of calls and most of a second, every time the window moved. A
+     title's stem never changes, so it is a lookup after the first. */
+  const stems = new Map<string, string>();
+  const stem = (title: string) => {
+    let found = stems.get(title);
+    if (found === undefined) {
+      found = stemOf(title);
+      stems.set(title, found);
+    }
+    return found;
+  };
+
   // ---- when each habit tends to happen -----------------------------------
   habits.slice(0, 4).forEach((habit) => {
     const key = habit.name.trim().toLowerCase();
+    const habitStem = stem(habit.name);
     const mine = done.filter(
-      (task) => task.title.trim().toLowerCase() === key || stemOf(task.title) === stemOf(habit.name),
+      (task) => task.title.trim().toLowerCase() === key || stem(task.title) === habitStem,
     );
     if (mine.length < 5) return;
     const buckets = new Map<string, number>();
@@ -608,7 +655,7 @@ export function habitPatterns(tasks: Task[], habits: Habit[], fromIso: string, t
     out.push({
       id: `when-${habit.id}`,
       text: `${habit.name} happens in ${best[0]}`,
-      support: `${best[1]} of ${mine.length} sessions — ${share}%`,
+      support: `${best[1]} of ${mine.length} sessions (${share}%)`,
       frequency: wordFor(share),
       tone: 'blue',
     });
@@ -631,20 +678,16 @@ export function habitPatterns(tasks: Task[], habits: Habit[], fromIso: string, t
       if (ratio <= 0.65) {
         out.push({
           id: 'weekend-light',
-          text: 'weekends carry much less than weekdays',
-          support: `${Math.round(weekendRate * 10) / 10} finished on an average weekend day against ${
-            Math.round(weekdayRate * 10) / 10
-          } on a weekday`,
+          text: 'you do much less on weekends',
+          support: `${Math.round(weekendRate * 10) / 10} done on a weekend day vs. ${Math.round(weekdayRate * 10) / 10} on a weekday`,
           frequency: 'Usually',
           tone: 'amber',
         });
       } else if (ratio >= 1.35) {
         out.push({
           id: 'weekend-heavy',
-          text: 'weekends carry more than weekdays',
-          support: `${Math.round(weekendRate * 10) / 10} finished on an average weekend day against ${
-            Math.round(weekdayRate * 10) / 10
-          } on a weekday`,
+          text: 'you do more on weekends',
+          support: `${Math.round(weekendRate * 10) / 10} done on a weekend day vs. ${Math.round(weekdayRate * 10) / 10} on a weekday`,
           frequency: 'Usually',
           tone: 'amber',
         });
@@ -661,10 +704,8 @@ export function habitPatterns(tasks: Task[], habits: Habit[], fromIso: string, t
     if (Math.abs(gap) >= 1.5) {
       out.push({
         id: 'hard-timing',
-        text: `high-priority work lands ${Math.abs(Math.round(gap))}h ${
-          gap > 0 ? 'earlier' : 'later'
-        } in the day than everything else`,
-        support: `${hard.length} high-priority tasks against ${rest.length} others`,
+        text: `you do high-priority work ${Math.abs(Math.round(gap))}h ${gap > 0 ? 'earlier' : 'later'} in the day than the rest`,
+        support: `${hard.length} high-priority tasks vs. ${rest.length} others`,
         frequency: 'Frequently',
         tone: 'violet',
       });
@@ -673,8 +714,19 @@ export function habitPatterns(tasks: Task[], habits: Habit[], fromIso: string, t
 
   // ---- a second sitting ---------------------------------------------------
   const byDay = new Map<string, number[]>();
+  /* What was done each day, by stem — gathered in the same pass, for the
+     pairing below. It used to re-filter every finished task once per worked
+     day, which is the days times the tasks: the single most expensive line on
+     the analytics page. */
+  const stemsByDay = new Map<string, Set<string>>();
   done.forEach((task) => {
     const day = String(task.completed_at).slice(0, 10);
+    let names = stemsByDay.get(day);
+    if (!names) {
+      names = new Set();
+      stemsByDay.set(day, names);
+    }
+    names.add(stem(task.title));
     const hour = hourOf(task);
     if (Number.isNaN(hour)) return;
     const list = byDay.get(day) ?? [];
@@ -690,8 +742,8 @@ export function habitPatterns(tasks: Task[], habits: Habit[], fromIso: string, t
     if (share >= 30) {
       out.push({
         id: 'second-session',
-        text: 'a second sitting comes after the evening break',
-        support: `${split} of ${workedDays.length} working days had work both before 5 PM and after 7 PM`,
+        text: 'you often work again in the evening',
+        support: `${split} of ${workedDays.length} days had work before 5 PM and after 7 PM`,
         frequency: wordFor(share),
         tone: 'green',
       });
@@ -701,16 +753,15 @@ export function habitPatterns(tasks: Task[], habits: Habit[], fromIso: string, t
   // ---- what follows what --------------------------------------------------
   if (habits.length >= 2) {
     const pairs = new Map<string, number>();
+    const top = habits.slice(0, 5).map((habit) => ({ habit, stem: stem(habit.name) }));
     byDay.forEach((_hours, day) => {
-      const names = new Set(
-        done
-          .filter((task) => String(task.completed_at).slice(0, 10) === day)
-          .map((task) => stemOf(task.title)),
-      );
-      habits.slice(0, 5).forEach((a) => {
-        habits.slice(0, 5).forEach((b) => {
-          if (a.id === b.id) return;
-          if (names.has(stemOf(a.name)) && names.has(stemOf(b.name))) {
+      const names = stemsByDay.get(day) ?? new Set<string>();
+      // Each pair once: (a, b) and (b, a) share a key, so visiting both
+      // counted every day twice and could claim more days than were worked.
+      top.forEach(({ habit: a, stem: aStem }, i) => {
+        top.forEach(({ habit: b, stem: bStem }, j) => {
+          if (j <= i) return;
+          if (names.has(aStem) && names.has(bStem)) {
             const key = [a.name, b.name].sort().join(' + ');
             pairs.set(key, (pairs.get(key) ?? 0) + 1);
           }
@@ -723,7 +774,7 @@ export function habitPatterns(tasks: Task[], habits: Habit[], fromIso: string, t
       out.push({
         id: 'pairing',
         text: `${best[0].replace(' + ', ' and ')} happen on the same day`,
-        support: `${best[1]} days of ${workedDays.length}`,
+        support: `${best[1]} of ${workedDays.length} days`,
         frequency: wordFor(share),
         tone: 'pink',
       });
@@ -762,7 +813,7 @@ export function habitShifts(habits: Habit[], toIso: string): HabitShift[] {
       out.push({
         name: habit.name,
         event: 'stopped',
-        detail: `Nothing in the last stretch of the range — ${gapDays} days since the last one.`,
+        detail: `None in the last ${gapDays} days.`,
         tone: 'pink',
       });
       return;
@@ -771,7 +822,7 @@ export function habitShifts(habits: Habit[], toIso: string): HabitShift[] {
       out.push({
         name: habit.name,
         event: 'started',
-        detail: `Began in this range and is now running at ${last.toFixed(1)}× a week.`,
+        detail: `New. Now ${last.toFixed(1)}× a week.`,
         tone: 'blue',
       });
       return;

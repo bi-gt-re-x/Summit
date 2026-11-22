@@ -20,6 +20,7 @@
  */
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { draw, fakeModel } from './fixtures';
 import type { GrowthPeriods, MetricScores, PeriodSide } from '@/services/analytics';
@@ -31,8 +32,18 @@ vi.mock('@/hooks', async (importOriginal) => ({
 
 vi.mock('@/services', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/services')>();
-  return { ...real, analytics: { ...real.analytics, growthPeriods: vi.fn() } };
+  return {
+    ...real,
+    analytics: { ...real.analytics, growthPeriods: vi.fn() },
+    // The skill-level panel's own request. Empty unless a test fills it.
+    skillAttempts: { ...real.skillAttempts, list: vi.fn(async () => ({ success: true, attempts: [] })) },
+  };
 });
+
+vi.mock('@/services/skillSteps', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/services/skillSteps')>()),
+  loadSteps: vi.fn(async () => ({})),
+}));
 
 const { analytics: analyticsService } = await import('@/services');
 const growthPeriods = vi.mocked(analyticsService.growthPeriods);
@@ -61,7 +72,7 @@ function side(parts: MetricScores, overall: number, moved = 0): PeriodSide {
       productivity: 'C', quality: 'C', consistency: 'C', efficiency: 'C', focus: 'C',
     },
     figures: {
-      productivity: { avg_daily_xp: 200 + moved * 40 },
+      productivity: { avg_daily_xp: 200 + moved * 40, tasks_per_day: 4 + moved, focus_per_day: 40 + moved * 10 },
       quality: {
         basis: 'ratings', avg_quality: 12.5 + moved, max_quality: 25, rated_tasks: 40,
         total_tasks: 60, avg_difficulty: 3.4, avg_execution: 3.6,
@@ -98,7 +109,7 @@ function payload(over: Partial<GrowthPeriods> = {}): GrowthPeriods {
       { key: '7d', label: 'Last 7 days', days: 7, overall: 60, previous: 55, change: 9.1, partial: false , spark: [50, 52, 51, 55, 58, 57, 60, 62, 61, 64, 66, 68] },
       { key: '30d', label: 'Last 30 days', days: 30, overall: 58, previous: 54, change: 7.4, partial: false , spark: [50, 52, 51, 55, 58, 57, 60, 62, 61, 64, 66, 68] },
       { key: '90d', label: 'Last 3 months', days: 90, overall: 55, previous: 57, change: -3.5, partial: false , spark: [50, 52, 51, 55, 58, 57, 60, 62, 61, 64, 66, 68] },
-      { key: '180d', label: 'Last 6 months', days: 180, overall: 54, previous: 54, change: 0, partial: false , spark: [50, 52, 51, 55, 58, 57, 60, 62, 61, 64, 66, 68] },
+      { key: '730d', label: 'Last 2 years', days: 730, overall: 54, previous: 54, change: 0, partial: false , spark: [50, 52, 51, 55, 58, 57, 60, 62, 61, 64, 66, 68] },
       { key: '365d', label: 'Last year', days: 365, overall: 52, previous: 48, change: 8.3, partial: false , spark: [50, 52, 51, 55, 58, 57, 60, 62, 61, 64, 66, 68] },
       { key: 'all', label: 'Since you started', days: 900, overall: 50, previous: null, change: null, partial: false , spark: [50, 52, 51, 55, 58, 57, 60, 62, 61, 64, 66, 68] },
     ],
@@ -163,6 +174,32 @@ describe('the period row', () => {
     expect(growthPeriods).toHaveBeenCalledWith('7d');
   });
 
+  it('follows the page’s window picker', async () => {
+    /* The bug this pins: the picker at the top of the page scoped every tab
+       but this one, which kept a period of its own — so 1Y up there left
+       every Growth panel reading "the last 30 days". */
+    serve();
+    const { rerender } = draw(<GrowthTab model={fakeModel({ span: '1y' } as never)} />);
+    await screen.findByRole('group', { name: /Growth period/i });
+    expect(growthPeriods).toHaveBeenLastCalledWith('365d');
+
+    rerender(
+      <MemoryRouter>
+        <GrowthTab model={fakeModel({ span: '2y' } as never)} />
+      </MemoryRouter>,
+    );
+    await vi.waitFor(() => expect(growthPeriods).toHaveBeenLastCalledWith('730d'));
+  });
+
+  it('presses the page’s picker when its own period controls are used', async () => {
+    serve();
+    const chooseSpan = vi.fn();
+    draw(<GrowthTab model={fakeModel({ chooseSpan } as never)} />);
+    const tabs = await screen.findByRole('group', { name: /Growth period/i });
+    await userEvent.click(within(tabs).getByRole('button', { name: 'Year' }));
+    expect(chooseSpan).toHaveBeenCalledWith('1y');
+  });
+
   it('falls back to points moved where there is no percentage of nothing', async () => {
     /* A score that went 0 -> 44 grew by an undefined share of zero, so the
        backend sends null rather than inventing +100%. A dash in 52px type is
@@ -184,53 +221,21 @@ describe('the period row', () => {
     draw(<GrowthTab model={fakeModel()} />);
     const row = await screen.findByRole('navigation', { name: /Growth by period/i });
     const all = within(row).getByRole('button', { name: /Since you started/ });
-    expect(all.textContent).toContain('—');
-    expect(all.textContent).toContain('nothing before it');
+    expect(all.textContent).toContain('-');
+    expect(all.textContent).toContain('nothing earlier to compare with');
   });
 });
 
-describe('the metric strip', () => {
-  it('states overall growth in the biggest type, with the grade move under it', async () => {
-    serve();
-    draw(<GrowthTab model={fakeModel()} />);
-    // Scoped to the strip: the 30-day period card states the same figure,
-    // which is the point of the row and not a duplicate to be deduplicated.
-    await screen.findByRole('heading', { name: /Growth timeline/ });
-    const overall = document.querySelector('.ax-gp-overall') as HTMLElement;
-    expect(within(overall).getByText('+7.4%').className).toContain('ax-gp-big');
-    expect(overall.textContent).toContain('You moved from');
-  });
-
-  it('puts the five terms of the mean beside the mean', async () => {
-    /* The overall figure is the mean of the five and nothing else. A layout
-       that gave it a block of its own and buried the parts further down would
-       ask the reader to take the headline on trust. */
-    serve();
-    draw(<GrowthTab model={fakeModel()} />);
-    const cards = await screen.findAllByText(
-      /^(Productivity|Quality|Consistency|Efficiency|Focus)$/);
-    const inStrip = cards.filter((node) => node.closest('.ax-gp-metric-card'));
-    expect(inStrip).toHaveLength(5);
-  });
-
-  it('shows each metric as a grade transition as well as a percentage', async () => {
+describe('one report card, not two', () => {
+  it('leaves the grades to Overview', async () => {
+    /* The Growth tab used to print its own overall grade and five letter
+       grades, and they came out different from Overview's for the same
+       account. The timeline still reads the same periods. */
     serve();
     draw(<GrowthTab model={fakeModel()} />);
     await screen.findByRole('heading', { name: /Growth timeline/ });
-    const strip = document.querySelector('.ax-gp-strip') as HTMLElement;
-    expect(strip.querySelectorAll('.ax-gp-metric-card-grade')).toHaveLength(5);
-  });
-
-  it('says so plainly when there is nothing to compare to', async () => {
-    serve(payload({ previous: null, change: {
-      overall: null, productivity: null, quality: null,
-      consistency: null, efficiency: null, focus: null,
-    } }));
-    draw(<GrowthTab model={fakeModel()} />);
-
-    await screen.findByRole('heading', { name: /Growth timeline/ });
-    const overall = document.querySelector('.ax-gp-overall') as HTMLElement;
-    expect(overall.textContent).toMatch(/reaches back to your first day/i);
+    expect(document.querySelector('.ax-gp-strip')).toBeNull();
+    expect(document.querySelector('.ax-gp-metric-card')).toBeNull();
   });
 });
 
@@ -275,9 +280,9 @@ describe('the movers', () => {
       },
     }));
     draw(<GrowthTab model={fakeModel()} />);
-    expect(await screen.findByText(/Nothing moved up by more than a few points/i))
+    expect(await screen.findByText(/No big gains/i))
       .toBeInTheDocument();
-    expect(screen.getByText(/Nothing fell by more than a few points/i)).toBeInTheDocument();
+    expect(screen.getByText(/No big drops/i)).toBeInTheDocument();
   });
 
   it('falls back to a measure rather than drawing an empty panel', async () => {
@@ -314,7 +319,7 @@ describe('the movers', () => {
     draw(<GrowthTab model={fakeModel()} />);
     const worst = (await screen.findByRole('heading', { name: /Needs attention/ }))
       .closest('.ax-panel') as HTMLElement;
-    expect(worst.textContent).toMatch(/not a claim that anything got worse/i);
+    expect(worst.textContent).toMatch(/doesn't mean anything got worse/i);
   });
 
   it('gives every measure more than one quantity to be checked against', async () => {
@@ -338,19 +343,21 @@ describe('then and now', () => {
     expect(panel.querySelectorAll('.ax-gp-metric')).toHaveLength(5);
     // The score is a position on a scale nobody designed; the quantity is what
     // actually happened, so both are on the row.
-    expect(within(panel).getAllByText(/22 of 30 days worked/).length).toBeGreaterThan(0);
     expect(within(panel).getAllByText(/11\.5 hrs of a 15\.0 hr goal/).length).toBeGreaterThan(0);
+    // Except consistency: its figure is the Overview's Consistency tile and is
+    // printed once on the page.
+    expect(within(panel).queryByText(/days worked/)).not.toBeInTheDocument();
   });
 
   it('says which basis a quality score came from rather than assuming ratings', async () => {
     const unrated = side(scores(), 50);
-    unrated.figures.quality = { basis: 'xp', avg_task_xp: 30, rated_tasks: 0, total_tasks: 12 };
+    unrated.figures.quality = { basis: 'levels', avg_task_xp: 30, rated_tasks: 0, total_tasks: 12 };
     serve(payload({ current: unrated, previous: null, change: {
       overall: null, productivity: null, quality: null,
       consistency: null, efficiency: null, focus: null,
     } }));
     draw(<GrowthTab model={fakeModel()} />);
-    expect(await screen.findByText(/no ratings yet — scored on task XP/)).toBeInTheDocument();
+    expect(await screen.findByText(/no ratings yet, so this uses the levels you picked/)).toBeInTheDocument();
   });
 });
 
@@ -360,12 +367,12 @@ describe('what changed', () => {
     draw(<GrowthTab model={fakeModel()} />);
     // Assembled from the figures, so it cannot drift from them. The metric
     // rows print the same quantity, so this looks only at the prose block.
-    const list = (await screen.findByRole('heading', { name: /^What changed underneath$/ }))
+    const list = (await screen.findByRole('heading', { name: /^What changed behind the scores$/ }))
       .closest('.ax-panel')!
       .querySelector('.ax-gp-changes');
     expect(list).not.toBeNull();
     expect(list!.textContent).toContain('% of tasks by their deadline');
-    expect(list!.textContent).toContain('XP a working day');
+    expect(list!.textContent).toContain('tasks a working day');
   });
 
   it('draws nothing to compare when there is no previous period', async () => {
@@ -374,7 +381,7 @@ describe('what changed', () => {
       consistency: null, efficiency: null, focus: null,
     } }));
     draw(<GrowthTab model={fakeModel()} />);
-    expect(await screen.findByText(/nothing before it to have changed from/i))
+    expect(await screen.findByText(/starts on your first day, so there's nothing/i))
       .toBeInTheDocument();
   });
 });
@@ -427,5 +434,42 @@ describe('the chart', () => {
       .closest('.ax-panel')!
       .querySelectorAll('.ax-gp-end');
     expect(ends).toHaveLength(4);
+  });
+});
+
+/* --------------------------------------------------------------------------
+   Skill growth, which is what the tab leads on now.
+
+   The five graded measures all read output — how much got done, how often,
+   how fast, how well it was rated — and an account can hold every one of them
+   steady for a term while climbing two bands in a subject. These pin that the
+   skill panels are above the strip rather than beside it, and that the tab
+   survives the state that used to take it down.
+   -------------------------------------------------------------------------- */
+
+// --------------------------------------------------------------------------
+describe('the panels brought back from before the cuts', () => {
+  /* Skill growth, skill levels, what the time bought, the skill's shape, when
+     the work happens and the year of days — all removed in the complexity cut
+     and restored at the reader's request. */
+  it.each([
+    'Skill Growth',
+    'Skills by level',
+    'Time vs. progress',
+    'When you get work done',
+    'Every day of the last year',
+  ])('draws %s', async (title) => {
+    serve();
+    draw(<GrowthTab model={fakeModel()} />);
+    expect(await screen.findByRole('heading', { name: new RegExp(title.replace(/[(),]/g, '.')) })).toBeInTheDocument();
+  });
+
+  it('opens on skill growth, ahead of the five graded measures', async () => {
+    serve();
+    draw(<GrowthTab model={fakeModel()} />);
+    const skill = await screen.findByRole('heading', { name: /^Skill Growth/ });
+    const timeline = screen.getByRole('heading', { name: /^Growth timeline/ });
+    // DOCUMENT_POSITION_FOLLOWING: the timeline comes after.
+    expect(skill.compareDocumentPosition(timeline) & 4).toBeTruthy();
   });
 });

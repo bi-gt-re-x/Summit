@@ -17,16 +17,20 @@ import { vi } from 'vitest';
 import type { ReactElement, ReactNode } from 'react';
 import {
   AuthContext,
+  NotificationsContext,
   SettingsContext,
   StatsContext,
+  ThemeContext,
   UserDataContext,
 } from '@/context/contexts';
 import { DEFAULTS, DEFAULT_DAILY_GOAL } from '@/services/settings';
 import { stats } from './factories';
 import type {
   AuthValue,
+  NotificationsValue,
   SettingsValue,
   StatsValue,
+  ThemeValue,
   UserDataValue,
 } from '@/context/contexts';
 import type { Prefs } from '@/services/settings';
@@ -45,6 +49,10 @@ export interface Options {
   settings?: Partial<Omit<SettingsValue, 'prefs'>> & { prefs?: Partial<Prefs> };
   userData?: Partial<UserDataValue>;
   stats?: Partial<StatsValue>;
+  /** Light or dark, for the handful of components that read it. */
+  theme?: Partial<ThemeValue>;
+  /** The bell. Empty unless a test puts something in it. */
+  notifications?: Partial<NotificationsValue>;
 }
 
 export function authValue(overrides: Partial<AuthValue> = {}): AuthValue {
@@ -68,6 +76,9 @@ export function settingsValue(overrides: Options['settings'] = {}): SettingsValu
   return {
     dailyGoal: DEFAULT_DAILY_GOAL,
     displayName: 'Myles',
+    // Made before the starter existed, so every page is open — a test about
+    // getting started passes a recent date of its own (utils/starter).
+    createdAt: '2026-01-01T09:00:00',
     ready: true,
     update: vi.fn(async () => null),
     refresh: vi.fn(async () => {}),
@@ -108,21 +119,59 @@ export function statsValue(overrides: Partial<StatsValue> = {}): StatsValue {
   };
 }
 
+export function themeValue(overrides: Partial<ThemeValue> = {}): ThemeValue {
+  return {
+    theme: 'light',
+    setTheme: vi.fn(),
+    toggle: vi.fn(),
+    ...overrides,
+  };
+}
+
+export function notificationsValue(
+  overrides: Partial<NotificationsValue> = {},
+): NotificationsValue {
+  return {
+    items: [],
+    unread: 0,
+    popups: [],
+    loading: false,
+    reload: vi.fn(),
+    markRead: vi.fn(),
+    dismissPopup: vi.fn(),
+    remove: vi.fn(async () => {}),
+    clear: vi.fn(async () => {}),
+    ...overrides,
+  };
+}
+
 export function renderWithProviders(ui: ReactElement, options: Options = {}) {
-  const { route = '/dashboard', auth, settings, userData, stats: statsOverrides } = options;
+  const {
+    route = '/dashboard',
+    auth,
+    settings,
+    userData,
+    stats: statsOverrides,
+    theme,
+    notifications,
+  } = options;
 
   function Providers({ children }: { children: ReactNode }) {
     return (
       <MemoryRouter initialEntries={[route]}>
-        <AuthContext.Provider value={authValue(auth)}>
-          <SettingsContext.Provider value={settingsValue(settings)}>
-            <StatsContext.Provider value={statsValue(statsOverrides)}>
-              <UserDataContext.Provider value={userDataValue(userData)}>
-                {children}
-              </UserDataContext.Provider>
-            </StatsContext.Provider>
-          </SettingsContext.Provider>
-        </AuthContext.Provider>
+        <ThemeContext.Provider value={themeValue(theme)}>
+          <AuthContext.Provider value={authValue(auth)}>
+            <SettingsContext.Provider value={settingsValue(settings)}>
+              <NotificationsContext.Provider value={notificationsValue(notifications)}>
+                <StatsContext.Provider value={statsValue(statsOverrides)}>
+                  <UserDataContext.Provider value={userDataValue(userData)}>
+                    {children}
+                  </UserDataContext.Provider>
+                </StatsContext.Provider>
+              </NotificationsContext.Provider>
+            </SettingsContext.Provider>
+          </AuthContext.Provider>
+        </ThemeContext.Provider>
       </MemoryRouter>
     );
   }

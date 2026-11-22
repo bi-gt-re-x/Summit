@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest';
 import { PLACES, findPlaces, score, scorePlace } from './siteIndex';
 
-describe('the catalogue', () => {
+describe('the catalog', () => {
   it('has a unique id for every place', () => {
     const ids = PLACES.map((place) => place.id);
     expect(new Set(ids).size).toBe(ids.length);
@@ -105,8 +105,10 @@ describe('findPlaces', () => {
       .toContain('/settings/appearance');
     expect(findPlaces('delete my account').map((place) => place.to))
       .toContain('/settings/danger');
-    expect(findPlaces('percentile').map((place) => place.to))
-      .toContain('/analytics/records');
+    expect(findPlaces('year on year').map((place) => place.to))
+      .toContain('/analytics/growth');
+    expect(findPlaces('achievements').map((place) => place.to))
+      .toContain('/achievements/badges');
   });
 
   it('finds the calendar views', () => {

@@ -46,13 +46,25 @@ from pydantic import BaseModel
 
 from backend.api.guard import current_username
 from backend.api.reply import fail, ok
+from backend.config import settings
+from backend.config import subjects as subject_catalogue
 from backend.database import connection as db
+from backend.goal_matcher import metrics as goal_metrics
+from backend.goal_matcher import service as goal_matcher
+from backend.goal_matcher.queue import work as goal_queue
+from backend.goal_matcher import store as goal_store
 from backend.tracking import focus as focus_tracking
+from backend.api import background as background_api
+from backend.tracking import goal_health
 from backend.tracking import planner
+from backend.tracking import record
 from backend.tracking import xp as xp_tracking
 from backend.tracking.auth import load_user
 
 router = APIRouter(tags=['goals'])
+
+#: What goal health reads off a task. See backend/tracking/goal_health.py.
+HEALTH_TASK_FIELDS = ('id', 'status', 'completed_at', 'goal_id')
 
 # The four kinds of goal, and which pair of fields each one counts with.
 GOAL_FIELDS = {
@@ -72,13 +84,18 @@ MEASURES = ('xp', 'streak', 'tasks', 'focus', 'number', 'milestones')
 CATEGORIES = ('math', 'coding', 'ai', 'school', 'music', 'fitness',
               'projects', 'personal', 'other')
 
+# Which chart the goal card draws. Empty means the page picks one from the
+# goal's data — see frontend/src/utils/goalVisuals.ts, which owns the list.
+CHARTS = ('', 'progress', 'step', 'heatmap', 'basic', 'roadmap', 'volume',
+          'difficulty')
+
 # What /api/update_goal is allowed to write straight through from the request.
 EDITABLE = ('title', 'description', 'status', 'goal_type',
             'deadline', 'current_xp', 'current_streak', 'current_tasks',
             'current_focus', 'target_xp', 'target_streak', 'target_tasks',
             'target_focus',
             'category', 'why', 'start_date', 'unit', 'current_value',
-            'target_number', 'subject_ids')
+            'target_number', 'subject_ids', 'chart')
 
 
 # --------------------------------------------------------------------------
@@ -107,6 +124,7 @@ class AddGoal(BaseModel):
     current_value: float = 0
     target_number: float = 0
     subject_ids: str = ''
+    chart: str = ''
     # Checkpoint titles to create with the goal, in execution order.
     milestones: List[str] = []
 
@@ -139,6 +157,7 @@ class UpdateGoal(BaseModel):
     current_value: Optional[float] = None
     target_number: Optional[float] = None
     subject_ids: Optional[str] = None
+    chart: Optional[str] = None
 
 
 class DeleteGoal(BaseModel):
@@ -189,6 +208,8 @@ class SuggestMilestones(BaseModel):
     category: str = ''
     # For a goal not yet written. An existing goal's is read from its row.
     deadline: str = ''
+    #: Where the reader says they are now, in their own words. Never saved.
+    starting: str = ''
 
 
 class DraftGoal(BaseModel):
@@ -200,6 +221,8 @@ class DraftGoal(BaseModel):
     for them to edit.
     """
     idea: str = ''
+    #: Where they're starting from, in their own words. Never saved.
+    starting: str = ''
 
 
 class SuggestSteps(BaseModel):
@@ -315,7 +338,7 @@ def _spread_dates(count, deadline, today=None):
 
     With a deadline, the checkpoints divide the run-up to it evenly and the
     last one lands on the day itself — five checkpoints before a date twenty
-    weeks out are four weeks apart. Without one, they fall a fortnight apart
+    weeks out are four weeks apart. Without one, they fall two weeks apart
     from today, which is a pace rather than a promise and is the honest answer
     when the reader declined to give a date.
 
@@ -429,6 +452,13 @@ def _clean_steps(value):
         # does exactly this on the way in, and a server that only stripped
         # would store a title the client had already shown differently.
         title = re.sub(r'\s+', ' ', str(entry.get('title') or '')).strip()[:STEP_MAX]
+        # The prompt an empty row is padded with, coming back. The page sends
+        # the whole checklist on every tick, padding included, and a prompt
+        # read as a title turned "Name what finishes it" into a step somebody
+        # had to finish. An unticked row reading exactly like a prompt is one;
+        # this also repairs the rows that were saved that way before.
+        if title in PLACEHOLDERS and not entry.get('done'):
+            title = ''
         step_id = str(entry.get('id') or '').strip() or _fresh_step_id(taken)
         if step_id in taken:
             step_id = _fresh_step_id(taken)
@@ -509,7 +539,12 @@ def _recompute(goal, milestones=None):
     The one place any of the three is written. Which truth depends on the
     measure: a counter reads its pair of columns, a number goal reads
     current_value against target_number, and a milestone goal counts the
-    checkpoints that are done.
+    checkpoints that are done, with each open one counting for the share of
+    its steps that are ticked (see `_stone_share`).
+
+    Finishing by arithmetic is not the end of it: the goal is flagged
+    `needs_verify` and the reader is asked whether it is really done — see
+    `_mark_reached` and `verify_goal`.
 
     Completion is derived with it rather than remembered, and that matters in
     both directions — a streak goal that breaks goes back to active, and a
@@ -518,6 +553,66 @@ def _recompute(goal, milestones=None):
     whatever status it was given, because a goal with no target cannot be
     finished by arithmetic and only the user can say it is done.
     """
+    was = goal.get('status')
+    _derive(goal, milestones)
+    _mark_reached(goal, was)
+    return goal
+
+
+#: The most an open checkpoint counts for, however many of its steps are
+#: ticked. Ticking every step is not reaching the checkpoint — the reader still
+#: closes it — and a goal that read 100% while not complete would be a figure
+#: arguing with its own status.
+OPEN_STONE_CAP = 0.9
+
+
+def _stone_share(row):
+    """How much of one checkpoint is done, from 0 to 1.
+
+    A reached checkpoint is all of it. An open one is the share of its named
+    steps that are ticked, capped at OPEN_STONE_CAP; placeholders are not work
+    anybody planned and do not count either way. This is what lets every step
+    move the goal's figure rather than only every checkpoint.
+    """
+    if row.get('status') == 'done':
+        return 1.0
+    named = [step for step in row.get('steps') or [] if not step.get('placeholder')]
+    if not named:
+        return 0.0
+    done = len([step for step in named if step.get('done')])
+    return min(OPEN_STONE_CAP, done / len(named))
+
+
+def _mark_reached(goal, was):
+    """Flag a goal that has just finished itself, so the reader is asked.
+
+    Only the moment of finishing sets it: a goal that was already complete
+    before this existed, or one the reader marked done themselves, is not
+    asked again. Anything that takes the goal back below its target clears
+    both the question and the old confirmation, so reaching it again asks
+    again.
+    """
+    if goal.get('status') == 'completed':
+        if was != 'completed' and not goal.get('verified_at'):
+            goal['needs_verify'] = True
+    else:
+        goal['needs_verify'] = False
+        goal['verified_at'] = None
+
+
+def _has_target(goal, milestones=None):
+    """Whether the goal's own numbers can say it is finished."""
+    measure = _measure_of(goal)
+    if measure == 'milestones':
+        return bool(milestones)
+    if measure == 'number':
+        return bool(float(goal.get('target_number') or 0))
+    _, target_field = GOAL_FIELDS[measure]
+    return bool(float(goal.get(target_field) or 0))
+
+
+def _derive(goal, milestones=None):
+    """Progress, target and status from the goal's measure. See `_recompute`."""
     measure = _measure_of(goal)
 
     if measure == 'milestones':
@@ -525,7 +620,7 @@ def _recompute(goal, milestones=None):
         total = len(rows)
         done = len([row for row in rows if row.get('status') == 'done'])
         goal['target_value'] = total
-        goal['progress'] = _progress(done, total)
+        goal['progress'] = round(100.0 * sum(_stone_share(row) for row in rows) / total, 1) if total else 0
         if total:
             goal['status'] = 'completed' if done >= total else 'active'
         return goal
@@ -625,16 +720,20 @@ def apply_task_xp(username, xp):
     return {"updated": updated, "completed": completed}
 
 
-def apply_task_completion(username):
-    """Count one completed task toward every active "complete N tasks" goal.
+def apply_task_completion(username, count=1):
+    """Count completed tasks toward every active "complete N tasks" goal.
 
     Mirrors how earned XP advances every active XP goal. Runs server-side on
     each completion, so the goals page reflects it whether or not it is open.
+    A batch passes its size, so sixty completions are one write per goal
+    rather than sixty.
     """
+    if count <= 0:
+        return
     for goal in _goals_of(db.rows_for('goals', username), username, 'tasks',
                           unfinished=True):
         target = goal.get('target_tasks', 0) or 0
-        new_value = (goal.get('current_tasks', 0) or 0) + 1
+        new_value = (goal.get('current_tasks', 0) or 0) + count
         if target and new_value > target:
             new_value = target
         goal['current_tasks'] = new_value
@@ -651,7 +750,7 @@ def auto_apply_task_xp(body: AutoApplyTaskXp, username: str = Depends(current_us
 # --------------------------------------------------------------------------
 # Self-tracking goals
 # --------------------------------------------------------------------------
-def sync_streak_goals(username):
+def sync_streak_goals(username, goals=None, persist=True):
     """Keep every streak goal in lockstep with the account's live streak.
 
     A streak goal means "reach an N-day streak", so its current value should
@@ -659,16 +758,24 @@ def sync_streak_goals(username):
     up as it grows and back down to zero when it breaks. Completion follows the
     same number: completed once the streak reaches the target, active again if
     it falls back below.
+
+    `goals` are the rows to bring up to date (read here when not given), and
+    with `persist=False` nothing is written — the rows passed in are updated
+    in place and that is all, which is how `GET /api/get_goals` stays a read.
     """
     users, user = load_user(username)
     if not user:
         return
-    # Decay a stale streak first so goals follow the same live value everywhere.
-    if xp_tracking.refresh_streak(user):
+    # Decay a stale streak first so goals follow the same live value
+    # everywhere — on a copy when nothing may be written.
+    if not persist:
+        user = dict(user)
+    if xp_tracking.refresh_streak(user) and persist:
         db.save_user(user)
     current_streak = user.get('current_streak', 0) or 0
 
-    for goal in _goals_of(db.rows_for('goals', username), username, 'streak'):
+    rows = db.rows_for('goals', username) if goals is None else goals
+    for goal in _goals_of(rows, username, 'streak'):
         target = goal.get('target_streak', 0) or 0
         # Cap at the target so a completed goal reads "N / N Days".
         new_value = min(current_streak, target) if target else current_streak
@@ -676,20 +783,20 @@ def sync_streak_goals(username):
                   goal.get('progress'), goal.get('target_value'))
         goal['current_streak'] = new_value
         _recompute(goal)
-        if (goal.get('current_streak'), goal.get('status'),
-                goal.get('progress'), goal.get('target_value')) != before:
+        if persist and (goal.get('current_streak'), goal.get('status'),
+                        goal.get('progress'), goal.get('target_value')) != before:
             _save_goal(goal, username)
 
 
-def sync_focus_goals(username):
+def sync_focus_goals(username, goals=None, persist=True):
     """Advance focus goals from the tracked focus history.
 
     A focus goal's current value is the focus time accumulated since it was set
     — the account's lifetime tracked seconds minus the baseline recorded at
     creation — and it completes on its own the moment that reaches the target.
     """
-    pending = _goals_of(db.rows_for('goals', username), username, 'focus',
-                        unfinished=True)
+    rows = db.rows_for('goals', username) if goals is None else goals
+    pending = _goals_of(rows, username, 'focus', unfinished=True)
     if not pending:
         return
 
@@ -706,14 +813,28 @@ def sync_focus_goals(username):
                   goal.get('progress'), goal.get('target_value'))
         goal['current_focus'] = new_value
         _recompute(goal)
-        if (goal.get('current_focus'), goal.get('status'),
-                goal.get('progress'), goal.get('target_value')) != before:
+        if persist and (goal.get('current_focus'), goal.get('status'),
+                        goal.get('progress'), goal.get('target_value')) != before:
             _save_goal(goal, username)
 
 
 # --------------------------------------------------------------------------
 # The API
 # --------------------------------------------------------------------------
+@router.get('/api/goal_matcher/metrics')
+def goal_matcher_metrics(username: str = Depends(current_username)):
+    """What the matcher has done since the server started. Development only.
+
+    Counts and milliseconds, nothing about any account's work — but they are
+    process-wide, so on a shared install they would describe other people's
+    activity to whoever asked. Behind `dev_mode` for that reason, the same
+    way the verification link is (backend/routes/auth.py).
+    """
+    if not settings.dev_mode():
+        return fail("There's nothing here.", status=404)
+    return ok(metrics=goal_metrics.snapshot(), queued=goal_queue.pending())
+
+
 @router.post('/api/add_goal')
 def add_goal(body: AddGoal, username: str = Depends(current_username)):
     if not username or not body.title:
@@ -730,7 +851,7 @@ def add_goal(body: AddGoal, username: str = Depends(current_username)):
         'streak': "Target streak is required for streak goals",
         'tasks': "Target tasks is required for task goals",
         'focus': "Target focus time is required for focus goals",
-        'number': "A target figure is required when you are measuring a number",
+        'number': "Add a target number for this goal",
     }
 
     # An unrecognised measure is the caller's goal_type, which is what every
@@ -784,6 +905,7 @@ def add_goal(body: AddGoal, username: str = Depends(current_username)):
         "current_value": body.current_value,
         "target_number": body.target_number,
         "subject_ids": body.subject_ids,
+        "chart": body.chart if body.chart in CHARTS else '',
     }
 
     titles = [title.strip() for title in body.milestones if title and title.strip()]
@@ -815,29 +937,59 @@ def add_goal(body: AddGoal, username: str = Depends(current_username)):
     for stone in fresh:
         stone['goal_id'] = goal['id']
         db.insert_row('goal_milestones', stone)
+    # Existing tasks may be work toward it. They are marked and matched in the
+    # background, never here — see backend/goal_matcher/service.py.
+    goal_matcher.goal_changed(username, None, goal)
     return ok(message='Goal added successfully', id=goal['id'])
 
 
 @router.get('/api/get_goals')
 def get_goals(username: str = Depends(current_username)):
+    """Every goal, with the self-tracking ones brought up to date — read only.
 
-    # Bring the self-tracking goals up to date before handing them over.
+    The streak and focus goals are worked out against the live streak and
+    focus time on the rows being sent, and not written down: a GET never
+    writes (tests/test_get_requests_do_not_write.py). The page asks the POST
+    below, which saves them.
+    """
+    mine = db.rows_for('goals', username)
+    sync_streak_goals(username, mine, persist=False)
+    sync_focus_goals(username, mine, persist=False)
+    return _goals_reply(username, mine)
+
+
+@router.post('/api/get_goals')
+def settle_goals(username: str = Depends(current_username)):
+    """Every goal, with the self-tracking ones brought up to date and saved."""
     sync_streak_goals(username)
     sync_focus_goals(username)
+    return _goals_reply(username, db.rows_for('goals', username))
 
+
+def _goals_reply(username, mine):
+    """The goals page's answer for these rows."""
     # Average XP per active day — the goals page's "IN PROGRESS" summary card.
     events = xp_tracking.events_for(username)
     total_xp = sum(e.get('amount', 0) or 0 for e in events)
     active_days = {day for day in (xp_tracking.event_day(e) for e in events) if day}
     avg_xp_per_day = round(total_xp / len(active_days)) if active_days else 0
 
-    mine = db.rows_for('goals', username)
     rows = db.rows_for('goal_milestones', username)
     for goal in mine:
         # Named `measure` on the way out whatever it is on the way in, so the
         # front end never has to know that an old row leaves the column empty.
         goal['measure'] = _measure_of(goal)
         goal['milestones'] = _milestones_of(rows, goal.get('id'))
+
+    # Whether each goal is going to happen, worked out once here rather than
+    # by every screen that shows a goal. See backend/tracking/goal_health.py.
+    # Four columns of the task table and the matched links, not whole rows: on
+    # a large account this is twenty thousand tasks.
+    tasks = goal_store.with_goal_ids(
+        username, db.columns_for('tasks', username, HEALTH_TASK_FIELDS))
+    cache = {}
+    for goal in mine:
+        goal['health'] = goal_health.goal_health(goal, tasks, cache=cache)
 
     return ok(goals=mine, avg_xp_per_day=avg_xp_per_day)
 
@@ -850,6 +1002,7 @@ def update_goal(body: UpdateGoal, username: str = Depends(current_username)):
     goal = db.find_row('goals', body.id, user_id=username)
     if not goal:
         return fail('Goal not found')
+    before = dict(goal)
 
     sent = body.model_fields_set
     for field in EDITABLE:
@@ -861,6 +1014,8 @@ def update_goal(body: UpdateGoal, username: str = Depends(current_username)):
         goal['measure'] = body.measure
     if 'category' in sent and body.category not in CATEGORIES:
         goal['category'] = 'other'
+    if 'chart' in sent and body.chart not in CHARTS:
+        goal['chart'] = ''
 
     # `progress` and `status` are not in EDITABLE and are not taken from the
     # request: they are what the goal's own numbers come to. A caller marking a
@@ -872,13 +1027,119 @@ def update_goal(body: UpdateGoal, username: str = Depends(current_username)):
                                     goal.get('id')))
 
     _save_goal(goal, username)
+    # A new title or subject changes which tasks it would match. Queued, not
+    # run: see backend/goal_matcher/service.py.
+    goal_matcher.goal_changed(username, before, goal)
     return ok()
+
+
+class VerifyGoal(BaseModel):
+    id: str = ''
+    #: True: yes, it is done. False: not yet, take it back.
+    done: bool = True
+
+
+def _finished_record(goal, milestones, username):
+    """What a confirmed goal finished on, for activity_log and Analytics."""
+    started = goal.get('start_date') or goal.get('created_at') or ''
+    try:
+        days = max(0, (date.today() - date.fromisoformat(started[:10])).days)
+    except ValueError:
+        days = None
+    steps = [step for row in milestones for step in row.get('steps') or []
+             if not step.get('placeholder')]
+    tasks_done = len([task for task in db.tasks_for(username)
+                      if task.get('goal_id') == goal.get('id') and task.get('status') == 'done'])
+    return {
+        'title': goal.get('title') or '',
+        'measure': _measure_of(goal),
+        'category': goal.get('category') or 'other',
+        'progress': goal.get('progress') or 0,
+        'days': days,
+        'checkpoints': len(milestones),
+        'steps': len([step for step in steps if step.get('done')]),
+        'tasks': tasks_done,
+    }
+
+
+@router.post('/api/goals/verify')
+def verify_goal(body: VerifyGoal, username: str = Depends(current_username)):
+    """The reader's answer to "is this goal really done?".
+
+    **Yes** confirms it: the goal is completed, the question is cleared, and a
+    `goal_completed` row goes into activity_log with the figures it finished
+    on, which is what the Analytics page's finished-goals panel reads. A goal
+    with no target can be confirmed at any time — only the reader can finish
+    one of those. A goal with a target it has not reached cannot: that would be
+    a record of something that did not happen. Asking twice records once.
+
+    **Not yet** takes a checkpoint goal back: its most recently reached
+    checkpoint is reopened, which puts the goal below 100% and clears the
+    question until it is reached again. A number or counter goal has nothing to
+    reopen; the page sends the reader to its figures instead.
+    """
+    goal = db.find_row('goals', body.id, user_id=username)
+    if not goal:
+        return fail('Goal not found')
+    milestones = _milestones_of(db.rows_for('goal_milestones', username), goal['id'])
+
+    if not body.done:
+        if _measure_of(goal) != 'milestones' or not milestones:
+            return fail("Change the goal's numbers to reopen it.")
+        reached = [row for row in milestones if row.get('status') == 'done']
+        if not reached:
+            return fail('Nothing to reopen.')
+        last = max(reached, key=lambda row: (row.get('completed_at') or '', row.get('position') or 0))
+        db.update_row('goal_milestones', last['id'],
+                      {'status': 'active', 'completed_at': None}, user_id=username)
+        goal = _recompute_goal(goal['id'], username)
+        return ok(goal=goal, reopened=last['id'])
+
+    if goal.get('verified_at') and goal.get('status') == 'completed' and not goal.get('needs_verify'):
+        return ok(goal=goal, record=None)
+    if _has_target(goal, milestones) and goal.get('status') != 'completed':
+        return fail("This goal hasn't reached its target yet.")
+
+    goal['status'] = 'completed'
+    goal['needs_verify'] = False
+    goal['verified_at'] = datetime.now().isoformat(timespec='seconds')
+    _save_goal(goal, username)
+    record = _finished_record(goal, milestones, username)
+    db.insert_row('activity_log', {
+        'user_id': username,
+        'kind': 'goal_completed',
+        'summary': record['title'],
+        'subject_id': goal['id'],
+        'subject_type': 'goal',
+        'detail': record,
+        'occurred_at': goal['verified_at'],
+    })
+    return ok(goal=goal, record=record)
+
+
+@router.get('/api/goals/completed')
+def completed_goals(username: str = Depends(current_username)):
+    """Every goal the reader has confirmed done, newest first, with the figures
+    it finished on. Read by the Analytics page."""
+    rows = [row for row in db.rows_for('activity_log', username) if row.get('kind') == 'goal_completed']
+    rows.sort(key=lambda row: row.get('occurred_at') or '', reverse=True)
+    return ok(goals=[{
+        'goal_id': row.get('subject_id'),
+        'at': row.get('occurred_at'),
+        **(row.get('detail') if isinstance(row.get('detail'), dict) else {}),
+    } for row in rows])
 
 
 @router.post('/api/delete_goal')
 def delete_goal(body: DeleteGoal, username: str = Depends(current_username)):
     if not body.goal_id:
         return fail('Goal ID required')
+
+    # Before the delete: the tasks matched to it are found through the very
+    # rows the delete is about to cascade away.
+    doomed = db.find_row('goals', body.goal_id, user_id=username)
+    if doomed:
+        goal_matcher.goal_changed(username, doomed, None)
 
     # The checkpoints go with it, and they no longer have to be swept up by
     # hand: `goal_milestones.goal_id` declares ON DELETE CASCADE and this is a
@@ -907,7 +1168,8 @@ def add_milestone(body: AddMilestone, username: str = Depends(current_username))
     if not username or not body.goal_id or not body.title:
         return fail('Username, goal and title are required')
 
-    if not db.find_row('goals', body.goal_id, user_id=username):
+    goal = db.find_row('goals', body.goal_id, user_id=username)
+    if not goal:
         return fail('Goal not found')
 
     rows = db.rows_for('goal_milestones', username)
@@ -929,6 +1191,8 @@ def add_milestone(body: AddMilestone, username: str = Depends(current_username))
         "created_at": datetime.now().isoformat(),
     })
     _recompute_goal(body.goal_id, username)
+    # A checkpoint's words are part of what tasks are matched on.
+    goal_matcher.goal_changed(username, goal, goal, checkpoints_changed=True)
     # The id goes back for the same reason `/api/add_goal` returns one: the
     # caller's next move is usually about the row it just made, and finding it
     # again by title is a guess when two checkpoints are named the same thing.
@@ -972,7 +1236,11 @@ def update_milestone(body: UpdateMilestone, username: str = Depends(current_user
                                   {'status': 'pending'}, user_id=username)
 
     _save_stone(row, username)
-    _recompute_goal(row.get('goal_id'), username)
+    goal = _recompute_goal(row.get('goal_id'), username)
+    # Renaming a checkpoint changes what tasks it matches; ticking it off
+    # does not.
+    if 'title' in sent and goal:
+        goal_matcher.goal_changed(username, goal, goal, checkpoints_changed=True)
     return ok()
 
 
@@ -1001,7 +1269,9 @@ def delete_milestone(body: DeleteMilestone, username: str = Depends(current_user
             db.update_row('tasks', task['id'],
                           {'milestone_id': None}, user_id=username)
 
-    _recompute_goal(goal_id, username)
+    goal = _recompute_goal(goal_id, username)
+    if goal:
+        goal_matcher.goal_changed(username, goal, goal, checkpoints_changed=True)
     return ok()
 
 
@@ -1033,6 +1303,21 @@ def reorder_milestones(body: ReorderMilestones, username: str = Depends(current_
     return ok()
 
 
+def _record_lines(goal, username):
+    """What the account has done toward `goal`, as lines for the planner's
+    brief. See backend/tracking/record.py `brief_lines`."""
+    tasks = goal_store.with_goal_ids(username, db.columns_for('tasks', username, (
+        'id', 'title', 'status', 'subject', 'completed_at', 'execution', 'reason',
+        'score_got', 'score_of', 'goal_id', 'milestone_id')))
+    row = dict(goal, milestones=_milestones_of(db.rows_for('goal_milestones', username), goal.get('id')))
+    try:
+        return record.brief_lines(row, tasks, datetime.now(),
+                                  lambda key: (subject_catalogue.BY_ID.get(key) or {}).get('name', key))
+    except Exception as exc:  # noqa: BLE001 - a brief without the record is still a brief
+        print("[goals] couldn't read the record for the brief: {!r}".format(exc))
+        return []
+
+
 @router.post('/api/suggest_milestones')
 def suggest_milestones(body: SuggestMilestones, username: str = Depends(current_username)):
     """Five checkpoint titles for a goal, from the model. Writes nothing.
@@ -1047,6 +1332,7 @@ def suggest_milestones(body: SuggestMilestones, username: str = Depends(current_
     why, description, category = body.why, body.description, body.category
     deadline = body.deadline
     unit = target = ''
+    lines = []
 
     if body.goal_id:
         goal = db.find_row('goals', body.goal_id, user_id=username)
@@ -1062,6 +1348,7 @@ def suggest_milestones(body: SuggestMilestones, username: str = Depends(current_
         unit = goal.get('unit') or ''
         if _measure_of(goal) == 'number' and goal.get('target_number'):
             target = str(goal.get('target_number'))
+        lines = _record_lines(goal, username)
 
     if not title:
         return fail('A goal title is required')
@@ -1069,7 +1356,8 @@ def suggest_milestones(body: SuggestMilestones, username: str = Depends(current_
     try:
         titles = planner.suggest_milestones(
             title, why=why, description=description, category=category,
-            unit=unit, target=target, deadline=deadline)
+            unit=unit, target=target, deadline=deadline, record=lines,
+            about=background_api.about_lines(username), starting=(body.starting or '').strip()[:1000])
     except planner.PlannerUnavailable as exc:
         return fail(str(exc))
     return ok(milestones=titles)
@@ -1093,12 +1381,14 @@ def draft_goal(body: DraftGoal, username: str = Depends(current_username)):
     """
     idea = (body.idea or '').strip()
     if not idea:
-        return fail('Say what you are trying to do and this will draft the rest.')
-    if len(idea) > 500:
-        return fail('That is longer than this needs — a sentence is enough.')
+        return fail("Say what you're trying to do and this will draft the rest.")
+    starting = (body.starting or '').strip()
+    if len(idea) > 1000 or len(starting) > 1000:
+        return fail("That's too long. A few sentences in each box is plenty.")
 
     try:
-        drafted = planner.draft_goal(idea)
+        drafted = planner.draft_goal(idea, about=background_api.about_lines(username),
+                                     starting=starting)
     except planner.PlannerUnavailable as exc:
         return fail(str(exc))
 
@@ -1137,9 +1427,12 @@ def suggest_steps(body: SuggestSteps, username: str = Depends(current_username))
     # the thing it belongs to rather than in the abstract.
     goal_title = why = description = category = unit = target = ''
     deadline = before = after = ''
+    lines = []
+    taken = []
     if goal_id:
         goal = db.find_row('goals', goal_id, user_id=username)
         if goal:
+            lines = _record_lines(goal, username)
             goal_title = goal.get('title') or ''
             why = goal.get('why') or ''
             description = goal.get('description') or ''
@@ -1157,20 +1450,66 @@ def suggest_steps(body: SuggestSteps, username: str = Depends(current_username))
                 ladder = _milestones_of(db.rows_for('goal_milestones', username),
                                         goal_id)
                 ids = [str(stone.get('id')) for stone in ladder]
+                # Steps already on the other checkpoints, so this one's
+                # don't repeat them (the model drifts back to the same few
+                # resources otherwise).
+                for stone in ladder:
+                    if str(stone.get('id')) == str(row.get('id')):
+                        continue
+                    for step in _clean_steps(stone.get('steps')):
+                        if step.get('title'):
+                            taken.append(step['title'])
                 if str(row.get('id')) in ids:
                     at = ids.index(str(row.get('id')))
                     before = ladder[at - 1].get('title') or '' if at > 0 else ''
                     after = (ladder[at + 1].get('title') or ''
                              if at + 1 < len(ladder) else '')
 
+    resources = _step_resources(username, goal_id, '{} {} {} {}'.format(
+        goal_title, title, description, why))
     try:
         titles = planner.suggest_steps(
             title, goal=goal_title, why=why, description=description,
             category=category, unit=unit, target=target, deadline=deadline,
-            before=before, after=after)
+            before=before, after=after, record=lines,
+            about=background_api.about_lines(username), resources=resources, taken=taken[:20])
     except planner.PlannerUnavailable as exc:
         return fail(str(exc))
     return ok(steps=titles)
+
+
+def _step_resources(username, goal_id, text):
+    """What a checkpoint's steps can be built on, as lines for the brief.
+
+    The goal's subjects (filed on it, or read from its words the way
+    said-vs-did reads a line, so "AMC8" is Mathematics), the resources the
+    reader named in About you or the Log for those subjects (Alcumus, AoPS),
+    and the free catalog's resources for them, ranked for this checkpoint.
+    Named resources first: they're what the reader already uses.
+    """
+    from backend.tracking import free_resources, said_did
+    names = background_api.subject_names(username)
+    namer = said_did.Namer(names, background_api.subject_groups())
+    subjects, named = namer.read_all(text)
+    goal = db.find_row('goals', goal_id, user_id=username) if goal_id else None
+    for subject in re.split(r'[,\s]+', str((goal or {}).get('subject_ids') or '')):
+        if subject in names and subject not in subjects:
+            subjects.append(subject)
+    labels = [label for label, _ in named]
+    for fact in background_api.facts_for(username):
+        found, more = namer.read_all(fact.get('text') or '')
+        for label, owner in more:
+            if owner in subjects and label not in labels:
+                labels.append(label)
+    lines = ['They already use: {}'.format(label) for label in labels[:6]]
+    catalog = free_resources.by_subject()
+    for subject in subjects[:2]:
+        rows = free_resources.sort_rows(catalog.get(subject) or [], [text])[:5]
+        for row in rows:
+            lines.append('{} ({}): {}{}'.format(
+                row['name'], row['url'], row.get('good_for') or '',
+                ', no signup' if row.get('signup') == 'none' else ''))
+    return lines
 
 
 @router.post('/api/set_milestones')
@@ -1242,7 +1581,9 @@ def set_milestones(body: SetMilestones, username: str = Depends(current_username
                               {'milestone_id': None}, user_id=username)
         db.delete_row('goal_milestones', extra['id'], user_id=username)
 
-    _recompute_goal(body.goal_id, username)
+    goal = _recompute_goal(body.goal_id, username)
+    if goal:
+        goal_matcher.goal_changed(username, goal, goal, checkpoints_changed=True)
     return ok()
 
 

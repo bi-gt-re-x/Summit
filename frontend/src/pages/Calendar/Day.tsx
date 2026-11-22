@@ -78,6 +78,7 @@ import '@/styles/calendar/overview.css';
 import '@/styles/calendar/week.css';
 import '@/styles/calendar/day.css';
 import '@/styles/calendar/palette.css';
+import { Icon } from '@/components/Icon';
 
 /** "Friday, August 1, 2026". */
 function dayTitle(date: Date): string {
@@ -509,7 +510,7 @@ export default function Day() {
   });
 
   if (loading) return <Loading label="Loading your day" />;
-  if (!hasData) return <ErrorState message={error ?? 'No data came back.'} onRetry={refresh} />;
+  if (!hasData) return <ErrorState message={error ?? "Couldn't load your day. Try refreshing."} onRetry={refresh} />;
 
   return (
     <CalendarShell paneId="dayView">
@@ -525,7 +526,7 @@ export default function Day() {
               aria-keyshortcuts="K"
               onClick={() => stepDay(-1)}
             >
-              ❮
+              <Icon name="chevron-left" />
             </button>
             <button
               type="button"
@@ -535,7 +536,7 @@ export default function Day() {
               aria-keyshortcuts="J"
               onClick={() => stepDay(1)}
             >
-              ❯
+              <Icon name="chevron-right" />
             </button>
           </div>
           {/* Back to today *and* to the hour it is — the same landing the view
@@ -543,7 +544,7 @@ export default function Day() {
           <button
             type="button"
             className="wk-today"
-            title="Today, and back to the hour it is (T)"
+            title="Today, at the current hour (T)"
             aria-keyshortcuts="T"
             onClick={goToday}
           >
@@ -587,8 +588,8 @@ export default function Day() {
                     className="day-allday-input"
                     placeholder={
                       index === 0
-                        ? "What's your main focus for this day?"
-                        : 'And also…'
+                        ? "What's your main focus today?"
+                        : 'Anything else?'
                     }
                     aria-label={
                       index === 0 ? 'Primary focus' : `Focus ${index + 1}`
@@ -695,7 +696,7 @@ export default function Day() {
             weekday: 'long',
             month: 'short',
             day: 'numeric',
-          })} · ${hmLabel(slot.startTime)} – ${hmLabel(slot.endTime)}`}
+          })} · ${hmLabel(slot.startTime)} to ${hmLabel(slot.endTime)}`}
           onChoose={(kind) => openDragged(kind === 'event' ? 'add-event' : 'add-task')}
           onCancel={() => setSlot(null)}
         />
@@ -729,6 +730,7 @@ export default function Day() {
       {rating && (
         <RatePrompt
           taskName={rating.name}
+          level={rating.level}
           depth={ratingDepth}
           onSubmit={saveRating}
           onClose={closeRating}

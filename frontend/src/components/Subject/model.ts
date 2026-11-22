@@ -60,6 +60,8 @@ import { goalNumbers } from '@/components/Goals/numbers';
 import { goalPace } from '@/utils/goalHealth';
 import type { AnalyticsTask } from '@/services/analytics';
 import type { Goal } from '@/types';
+import { countsToward, isGoalWork } from '@/utils/goalLinks';
+import { secondsSpent } from '@/utils/timeSpent';
 
 // --------------------------------------------------------------------------
 // Days
@@ -232,12 +234,12 @@ function bandsOf(now: AnalyticsTask[], before: AnalyticsTask[]): Band[] {
   };
 
   const paceOf = (list: AnalyticsTask[], level: number): number | null => {
+    // Time spent, not `completion_seconds` raw — see utils/timeSpent.
     const timed = list.filter(
-      (task) =>
-        Math.round(Number(task.difficulty)) === level && Number(task.completion_seconds) > 0,
+      (task) => Math.round(Number(task.difficulty)) === level && secondsSpent(task) !== null,
     );
     if (!timed.length) return null;
-    return timed.reduce((sum, task) => sum + Number(task.completion_seconds), 0) / timed.length;
+    return timed.reduce((sum, task) => sum + (secondsSpent(task) ?? 0), 0) / timed.length;
   };
 
   return [1, 2, 3, 4, 5].map((level) => {
@@ -506,14 +508,14 @@ export interface SubjectGoal {
   /** Finished tasks in this subject in this window, for the share above. */
   ofFinished: number;
   /**
-   * Days in the last fortnight with a finished task here pointed at it.
+   * Days in the last two weeks with a finished task here pointed at it.
    *
-   * A fortnight rather than the page's window, and that is not a detail. As a
+   * Two weeks rather than the page's window, and that is not a detail. As a
    * share of a window this figure is unreadable: fifty-five days a year on one
    * goal in one subject is a lot of work and 15% of a year, so a cadence read
    * against the window would fire its lever on almost every account that
    * chose 1Y and on almost none that chose 7D — the reader's picker deciding
-   * whether they get told off. A fortnight is what "lately" means regardless
+   * whether they get told off. Two weeks is what "lately" means regardless
    * of what the rest of the page is showing.
    */
   recentDays: number;
@@ -552,7 +554,7 @@ export interface Lever {
 /**
  * The stretch "lately" means, for the cadence figure.
  *
- * The same fortnight `goalHealth` measures recency and consistency over
+ * The same two weeks `goalHealth` measures recency and consistency over
  * (utils/goalHealth), because two parts of the app disagreeing about how long
  * ago counts as recently is how a goal reads as neglected on one page and
  * active on the other.
@@ -620,10 +622,8 @@ function leversFor(goal: SubjectGoal, period: string): Lever[] {
       id: 'terms',
       title: `Give it ${missing}`,
       fact: goal.target > 0
-        ? `It is at ${per(goal.current)} of ${per(goal.target)} ${goal.unit} with nothing to be `
-          + 'on time for, so no pace can be read off it.'
-        : 'Without a number there is nothing to be a share of, and the bar above is the '
-          + "app's own estimate rather than yours.",
+        ? `${per(goal.current)} of ${per(goal.target)} ${goal.unit}. Add a due date to track your pace.`
+        : 'Without a target, the progress bar is just a guess.',
       weight: 'blocking',
     });
   }
@@ -632,18 +632,15 @@ function leversFor(goal: SubjectGoal, period: string): Lever[] {
   if (goal.ofFinished > 0 && goal.aimed === 0) {
     out.push({
       id: 'unaimed',
-      title: 'Point the work you are already doing at it',
-      fact: `None of the ${goal.ofFinished} ${goal.ofFinished === 1 ? 'task' : 'tasks'} you `
-        + `finished here in ${period} named this goal, so none of them moved it.`,
+      title: 'Link your tasks to this goal',
+      fact: `None of the ${goal.ofFinished} ${goal.ofFinished === 1 ? 'task' : 'tasks'} you finished here in ${period} were linked to it.`,
       weight: 'blocking',
     });
   } else if (goal.ofFinished >= 4 && goal.aimed / goal.ofFinished < 0.25) {
     out.push({
       id: 'thin-aim',
-      title: 'Aim more of this subject at it',
-      fact: `${goal.aimed} of the ${goal.ofFinished} tasks you finished here in ${period} `
-        + `named this goal — ${Math.round((goal.aimed / goal.ofFinished) * 100)}% of the work `
-        + 'in the subject it belongs to.',
+      title: 'Link more tasks to this goal',
+      fact: `Only ${goal.aimed} of ${goal.ofFinished} tasks here in ${period} were linked to it.`,
       weight: 'raise',
     });
   }
@@ -652,19 +649,18 @@ function leversFor(goal: SubjectGoal, period: string): Lever[] {
   if (goal.sinceWork !== null && goal.sinceWork >= 7) {
     out.push({
       id: 'quiet',
-      title: 'Put it back in the week',
-      fact: `Nothing here has been finished against it in ${goal.sinceWork} days`
+      title: 'Get back to this goal',
+      fact: `No work on it in ${goal.sinceWork} days`
         + (goal.daysLeft !== null && goal.daysLeft >= 0
-          ? `, and there are ${goal.daysLeft} left.`
+          ? `, with ${goal.daysLeft} days left.`
           : '.'),
       weight: 'blocking',
     });
   } else if (goal.recentDays > 0 && goal.recentDays <= 2) {
     out.push({
       id: 'cadence',
-      title: 'Work it on more days, not longer ones',
-      fact: `${goal.recentDays} of the last ${RECENT_DAYS} days had something here pointed `
-        + 'at it.',
+      title: 'Work on it more often',
+      fact: `Only ${goal.recentDays} of the last ${RECENT_DAYS} days had work on it.`,
       weight: 'raise',
     });
   }
@@ -673,10 +669,10 @@ function leversFor(goal: SubjectGoal, period: string): Lever[] {
   if (goal.need !== null && goal.have !== null && goal.factor !== null && goal.factor > 1.05) {
     out.push({
       id: 'rate',
-      title: `Roughly ${goal.factor >= 10 ? '10×' : `${goal.factor.toFixed(1)}×`} the rate from here`,
-      fact: `It needs ${per(goal.need * 7)} ${goal.unit} a week to arrive on time and has been `
-        + `getting ${per(goal.have * 7)}`
-        + (goal.lands ? `. At this rate it lands ${goal.lands}.` : '.'),
+      title: `Speed up about ${goal.factor >= 10 ? '10×' : `${goal.factor.toFixed(1)}×`}`,
+      fact: `You need ${per(goal.need * 7)} ${goal.unit} a week to finish on time. You're doing `
+        + `${per(goal.have * 7)}`
+        + (goal.lands ? `. At this rate it finishes ${goal.lands}.` : '.'),
       weight: 'raise',
     });
   }
@@ -690,8 +686,7 @@ function leversFor(goal: SubjectGoal, period: string): Lever[] {
       title: each >= 1
         ? `One stage every ${each} ${each === 1 ? 'day' : 'days'} from here`
         : 'More stages left than days left',
-      fact: `${stagesLeft} of its ${goal.stagesTotal} checkpoints are still open, `
-        + `with ${goal.daysLeft} days to the date.`,
+      fact: `${stagesLeft} of ${goal.stagesTotal} checkpoints left, with ${goal.daysLeft} days to go.`,
       weight: each >= 1 ? 'raise' : 'blocking',
     });
   }
@@ -702,14 +697,14 @@ function leversFor(goal: SubjectGoal, period: string): Lever[] {
   if (!out.length) {
     out.push({
       id: 'hold',
-      title: 'Hold this — it is what is working',
+      title: 'On track. Keep going',
       fact: goal.drift !== null && goal.drift < 0
-        ? `At the rate this subject has been going it lands ${Math.abs(goal.drift)} `
+        ? `At this rate it finishes ${Math.abs(goal.drift)} `
           + `${Math.abs(goal.drift) === 1 ? 'day' : 'days'} early.`
         : `${Math.round(goal.progress)}% done`
           + (goal.aimed > 0
-            ? `, with ${goal.aimed} of the ${goal.ofFinished} tasks you finished here in `
-              + `${period} pointed at it.`
+            ? `, with ${goal.aimed} of ${goal.ofFinished} tasks here in `
+              + `${period} linked to it.`
             : '.'),
       weight: 'hold',
     });
@@ -752,13 +747,13 @@ function goalsFor(
     .map((goal) => {
       const pace = goalPace(goal, at);
       const numbers = goalNumbers(goal);
-      const linked = done.filter((task) => task.goal_id === goal.id);
+      const linked = done.filter((task) => countsToward(task, goal.id));
       /* Off every task in the subject rather than the window's, for the same
-         reason recency is: a seven-day window cannot see a fortnight. */
+         reason recency is: a seven-day window cannot see two weeks. */
       const since = shift(today, -(RECENT_DAYS - 1));
       const days = new Set(
         everDone
-          .filter((task) => task.goal_id === goal.id && dayOf(task.completed_at) >= since)
+          .filter((task) => countsToward(task, goal.id) && dayOf(task.completed_at) >= since)
           .map((task) => dayOf(task.completed_at))
           .filter(Boolean),
       );
@@ -810,165 +805,12 @@ function goalsFor(
   function lastDayAgainst(goalId: string): string {
     let last = '';
     for (const task of everDone) {
-      if (task.goal_id !== goalId) continue;
+      if (!countsToward(task, goalId)) continue;
       const day = dayOf(task.completed_at);
       if (day > last) last = day;
     }
     return last;
   }
-}
-
-/**
- * A recommendation, with the arithmetic that produced it attached.
- *
- * `why` is not a flourish. It is the rule the Recommendations tab is built on
- * — an instruction with a number behind it, and the number shown — and a
- * subject page that said "practise more geometry" without saying what made it
- * say so would be the horoscope this app is written against.
- */
-export interface Advice {
-  id: string;
-  title: string;
-  detail: string;
-  why: string;
-  weight: 'first' | 'second' | 'upkeep';
-}
-
-/**
- * What to do next, led by what the subject is *for*.
- *
- * ## The goal comes first, and that is the whole ordering
- *
- * A page that ranks advice by which internal measure is lowest is ranking by
- * its own arithmetic rather than by what the reader is trying to do. "Quality
- * is the measure holding the grade down" is a true sentence that answers a
- * question nobody asked; "your goal lands eleven days late at this rate" is
- * the same record read against the thing the reader actually said they wanted.
- * So an active goal on this subject leads, every time, and the measures are
- * read as *why* it is or is not going to land rather than as findings of their
- * own.
- *
- * With no goal set, the order falls back to what the record can still say:
- * the widest gap between difficulty bands, then the commonest thing that makes
- * a session go badly, then — once — the weakest of the four rates.
- *
- * ## Only one rate is ever named, and only if it is the lowest
- *
- * This used to push one card per rate under 60, each captioned "the lowest of
- * the four". Two of them could be on screen at once, both claiming to be the
- * lowest, which is not a wording problem: it is the page contradicting itself
- * in the panel whose entire job is to be trusted. There is one lowest measure,
- * it is named once, and the card says how far below the next one it actually
- * sits — which is the figure that decides whether it is worth acting on.
- */
-function adviceFrom(
-  bands: Band[],
-  struggles: Driver[],
-  rates: Rate[],
-  goals: SubjectGoal[],
-): Advice[] {
-  const out: Advice[] = [];
-
-  // The weakest band that has enough behind it to be a finding rather than a
-  // bad afternoon. Three is not a sample; it is the floor at which naming
-  // something stops being noise.
-  const measured = bands.filter((band) => band.holding !== null && band.done >= 3);
-  const weakest = [...measured].sort((a, b) => a.holding! - b.holding!)[0];
-  const strongest = [...measured].sort((a, b) => b.holding! - a.holding!)[0];
-  const top = struggles[0];
-
-  // ---- What the goal needs ------------------------------------------------
-  /* Three cases, not two, and the third is the one worth spelling out. A goal
-     with no target number or no date has no projection, and "on course" is a
-     claim — the same kind of claim as a rate of zero standing in for a rate
-     nobody measured. So an unprojectable goal says it is unprojectable and
-     says what would fix it, rather than being quietly sorted into the good
-     pile because `drift` failed to be a positive number. */
-  for (const goal of goals.slice(0, 2)) {
-    const rate =
-      goal.need !== null && goal.have !== null
-        ? `It needs ${goal.need.toFixed(1)} ${goal.unit} a day to arrive on time and has been `
-          + `moving at ${goal.have.toFixed(1)}.`
-        : `It is ${Math.round(goal.progress)}% of the way there.`;
-    const due = `Goal due ${goal.deadline || 'with no date set'}, ${Math.round(goal.progress)}% done`;
-
-    if (goal.drift === null) {
-      out.push({
-        id: `goal-${goal.id}`,
-        title: `Give "${goal.title}" a target and a date`,
-        detail: 'Without both there is nothing to pace against.',
-        why: `${due}, and no pace can be computed from it.`,
-        weight: 'second',
-      });
-    } else if (goal.drift > 0) {
-      out.push({
-        id: `goal-${goal.id}`,
-        title: `Work "${goal.title}": ${goal.drift} ${goal.drift === 1 ? 'day' : 'days'} late`,
-        detail: rate,
-        why: `${due}, projected ${goal.drift} days late.`,
-        weight: 'first',
-      });
-    } else {
-      out.push({
-        id: `goal-${goal.id}`,
-        title: `"${goal.title}" is on course. Hold this rate`,
-        detail: rate,
-        why: `${due}, projected to land on or before it.`,
-        weight: 'upkeep',
-      });
-    }
-  }
-
-  // ---- Where the work should go inside the subject ------------------------
-  if (weakest && strongest && weakest.level !== strongest.level) {
-    out.push({
-      id: 'weakest-band',
-      title: `Drill ${weakest.label.toLowerCase()} work`,
-      detail:
-        `${Math.round(weakest.holding!)}% there against ${Math.round(strongest.holding!)}% on `
-        + `${strongest.label.toLowerCase()}. Most of the grade is sitting in that gap.`,
-      why:
-        `${weakest.done} ${weakest.done === 1 ? 'task' : 'tasks'} at ${weakest.label.toLowerCase()}, `
-        + `mean execution ${(weakest.holding! / 20).toFixed(1)} of 5.`,
-      weight: goals.length ? 'second' : 'first',
-    });
-  }
-
-  if (top) {
-    out.push({
-      id: `reason-${top.key}`,
-      title: `Fix "${top.label.toLowerCase()}" before the next session`,
-      detail:
-        `Behind ${top.share}% of your bad sessions here, and usually the easiest thing on `
-        + 'this page to change.',
-      why: `${top.count} of the rated tasks you struggled with ${top.phrase}.`,
-      weight: 'second',
-    });
-  }
-
-  // ---- The one measure worth naming --------------------------------------
-  /* Sorted, then the first — not filtered by a threshold and looped. There is
-     one lowest measure. The gap to the next one is what says whether it is a
-     real weak spot or just the low end of four numbers that are all fine, and
-     a measure that is lowest by two points is not worth a card. */
-  const ranked = [...rates].filter((entry) => entry.known).sort((a, b) => a.now - b.now);
-  const lowest = ranked[0];
-  const next = ranked[1];
-  if (lowest && lowest.now < 60 && (!next || next.now - lowest.now >= 5)) {
-    out.push({
-      id: `rate-${lowest.key}`,
-      title: `${lowest.label} is dragging the grade`,
-      detail:
-        `${Math.round(lowest.now)}%`
-        + (next
-          ? `, ${Math.round(next.now - lowest.now)} points below ${next.label.toLowerCase()}.`
-          : '.'),
-      why: lowest.note,
-      weight: 'upkeep',
-    });
-  }
-
-  return out;
 }
 
 // --------------------------------------------------------------------------
@@ -1031,7 +873,6 @@ export interface SubjectModel {
   goalAimed: number | null;
   goals: SubjectGoal[];
 
-  advice: Advice[];
   insight: string | null;
 }
 
@@ -1073,28 +914,28 @@ export function subjectModel(
     rate(
       'quality',
       'Quality',
-      'Difficulty times execution on the tasks you rated, against the 25 it is scored out of.',
+      'How hard times how well, on rated tasks, out of 25.',
       qualityRate(done),
       qualityRate(before),
     ),
     rate(
       'consistency',
       'Consistency',
-      'Days you finished something in this subject, out of the days the window covers.',
+      'How many days you worked on this subject.',
       consistencyRate(done, span.days || new Set(mine.map((t) => dayOf(t.completed_at))).size),
       span.previousFrom ? consistencyRate(before, span.days) : null,
     ),
     rate(
       'timeliness',
       'Timeliness',
-      'Of the tasks here that had a due date, the share that met it.',
+      'How many dated tasks you finished on time.',
       timelinessRate(done),
       timelinessRate(before),
     ),
     rate(
       'follow-through',
       'Follow-through',
-      'Finished, out of everything you have filed under this subject.',
+      'How many tasks in this subject are done.',
       followThroughRate(mine.filter((task) => task.status === 'done').length, open),
       null,
     ),
@@ -1106,9 +947,7 @@ export function subjectModel(
     : null;
 
   const howScored = measured.length
-    ? `${measured.map((entry) => `${entry.label} ${Math.round(entry.now)}`).join(', ')} — `
-      + `the mean of ${measured.length === 1 ? 'that one' : `those ${measured.length}`}, `
-      + `${score} out of 100.`
+    ? `${measured.map((entry) => `${entry.label} ${Math.round(entry.now)}`).join(', ')}. Average: ${score} out of 100.`
     : '';
 
   // ---- Change against the window before -----------------------------------
@@ -1119,13 +958,13 @@ export function subjectModel(
   const finishedChange = change(done.length, before.length);
 
   const seconds = (list: AnalyticsTask[]) =>
-    list.reduce((sum, task) => sum + Math.max(0, Number(task.completion_seconds) || 0), 0);
+    list.reduce((sum, task) => sum + (secondsSpent(task) ?? 0), 0);
 
   const activeDays = (list: AnalyticsTask[]) =>
     new Set(list.map((task) => dayOf(task.completed_at)).filter(Boolean)).size;
 
   const meanPace = (list: AnalyticsTask[]) => {
-    const timed = list.filter((task) => Number(task.completion_seconds) > 0);
+    const timed = list.filter((task) => secondsSpent(task) !== null);
     return timed.length ? seconds(timed) / timed.length : 0;
   };
 
@@ -1134,19 +973,19 @@ export function subjectModel(
       key: 'volume',
       label: 'Volume',
       change: finishedChange,
-      note: `${done.length} finished against ${before.length} the window before.`,
+      note: `${done.length} finished vs. ${before.length} the window before.`,
     },
     {
       key: 'time',
       label: 'Time on it',
       change: change(seconds(done), seconds(before)),
-      note: 'Logged time on the tasks you finished.',
+      note: 'Time logged on tasks you finished.',
     },
     {
       key: 'turning-up',
-      label: 'Turning up',
+      label: 'Showing up',
       change: change(activeDays(done), activeDays(before)),
-      note: `${activeDays(done)} days with work in them against ${activeDays(before)}.`,
+      note: `${activeDays(done)} days worked vs. ${activeDays(before)}.`,
     },
     {
       key: 'pace',
@@ -1159,7 +998,7 @@ export function subjectModel(
         const was = meanPace(before);
         return was > 0 && now > 0 ? Math.round(((was - now) / was) * 100) : null;
       })(),
-      note: 'Mean time a finished task took, against the window before.',
+      note: 'Average time per task vs. the window before.',
     },
   ];
 
@@ -1201,12 +1040,12 @@ export function subjectModel(
       title: task.title,
       on: dayOf(task.completed_at),
       quality: qualityOf(task),
-      seconds: Number(task.completion_seconds) > 0 ? Number(task.completion_seconds) : null,
+      seconds: secondsSpent(task),
       verdict: verdictOf(task),
     }));
 
   const goalAimed = done.length
-    ? Math.round((done.filter((task) => task.goal_id).length / done.length) * 100)
+    ? Math.round((done.filter(isGoalWork).length / done.length) * 100)
     : null;
 
   /* Every finished task in this subject, not just the window's, because
@@ -1214,7 +1053,6 @@ export function subjectModel(
      seven-day window is blind to — and it is the one worth having. */
   const everDone = mine.filter((task) => task.status === 'done' && task.completed_at);
   const subjectGoals = goalsFor(goals, subjectId, today, done, everDone, span);
-  const advice = adviceFrom(bands, struggles, rates, subjectGoals);
 
   /* The one sentence, in priority order: a goal that is going to miss, then
      the gap between bands, then the weakest rate, then the volume. Whichever
@@ -1229,12 +1067,12 @@ export function subjectModel(
     }
     if (weakest && strongest && weakest.level !== strongest.level
         && strongest.holding! - weakest.holding! >= 15) {
-      return `${strongest.label} work is solid. ${weakest.label} work is what is holding you back.`;
+      return `${strongest.label} work is solid. ${weakest.label} work is holding you back.`;
     }
-    if (lowest && lowest.now < 60) return `${lowest.label} is the weak measure here.`;
-    if (finishedChange !== null && finishedChange > 15) return 'Speeding up, and holding quality.';
-    if (finishedChange !== null && finishedChange < -15) return 'Slowing down against last period.';
-    return 'Steady. Nothing here needs fixing.';
+    if (lowest && lowest.now < 60) return `${lowest.label} is your weak spot here.`;
+    if (finishedChange !== null && finishedChange > 15) return 'Speeding up and keeping quality high.';
+    if (finishedChange !== null && finishedChange < -15) return 'Slower than last period.';
+    return 'Steady. Nothing to fix.';
   })();
 
   /* The one sentence the page is for, and it is only written when the record
@@ -1242,10 +1080,7 @@ export function subjectModel(
      line that teaches a reader to skip the box it lives in. */
   const insight =
     weakest && strongest && weakest.level !== strongest.level && strongest.holding! - weakest.holding! >= 15
-      ? `Your ${strongest.label.toLowerCase()} work comes out at `
-        + `${Math.round(strongest.holding!)}%. The ${weakest.label.toLowerCase()} end, at `
-        + `${Math.round(weakest.holding!)}%, is what pulls the subject down. Closing that gap `
-        + 'moves the whole subject without asking you for more hours.'
+      ? `Your ${strongest.label.toLowerCase()} work scores ${Math.round(strongest.holding!)}%. Your ${weakest.label.toLowerCase()} work scores ${Math.round(weakest.holding!)}%. Fix that and the whole subject goes up.`
       : null;
 
   return {
@@ -1273,7 +1108,6 @@ export function subjectModel(
     recent,
     goalAimed,
     goals: subjectGoals,
-    advice,
     insight,
   };
 }

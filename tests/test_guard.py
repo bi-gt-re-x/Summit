@@ -26,6 +26,7 @@ PUBLIC = {
     '/api/logout',                   # must work from a dead session
     '/api/signup',                   # the older sign-up
     '/api/auth/signup',
+    '/api/auth/email_check',         # the sign-up form, before there's an account
     '/api/auth/resend',              # keyed on `pending_user` in the session
     '/api/auth/providers',           # whether the Google button can work
     '/api/auth/verify_status',       # answers "nobody" rather than refusing
@@ -33,6 +34,13 @@ PUBLIC = {
     '/api/avatar',                   # checks the session itself, returns 401
     '/api/set_theme',                # a visitor has a theme too
     '/api/daily_quote',              # the same line for everybody
+    # The skill library's written practice steps. The table they come from has
+    # no user_id at all — it is the curriculum, the same rows for every reader
+    # — so there is nothing here to protect and nobody to identify. A session
+    # check would guard the syllabus of the app against the person running it.
+    # See the note at the top of backend/api/skillsteps.py.
+    '/api/skill-steps',
+    '/api/skill-steps/coverage',
 }
 
 

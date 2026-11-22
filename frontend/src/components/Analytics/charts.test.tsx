@@ -54,7 +54,7 @@ describe('AreaChart readout', () => {
     // The gap is stated rather than drawn as a zero — the whole reason
     // `AreaValue` allows null. A table that printed 0 here would assert a
     // reading that was never taken.
-    expect(within(rows[2]!).getAllByRole('cell')[1]).toHaveTextContent('No reading');
+    expect(within(rows[2]!).getAllByRole('cell')[1]).toHaveTextContent('No data');
     expect(within(rows[3]!).getAllByRole('cell')[1]).toHaveTextContent('15 XP');
   });
 
@@ -80,7 +80,7 @@ describe('AreaChart readout', () => {
 
     await user.keyboard('{ArrowRight}');
     expect(container.querySelector('[aria-live]')).toHaveTextContent(
-      'Tue. This period: 20 XP. Previous period: no reading',
+      'Tue. This period: 20 XP. Previous period: no data',
     );
   });
 
@@ -122,6 +122,19 @@ describe('AreaChart readout', () => {
     expect(container.querySelector('.ax-readout')).toBeNull();
   });
 
+  /* The whitespace under every analytics tab. The table used to carry
+     `.ax-sr` itself, and a table ignores `height: 1px` and `overflow` — it
+     laid out as tall as its rows at the chart's position, and the page
+     scrolled that far past its last card. A block box honours both, so the
+     table goes inside one. */
+  it('hides the table inside a box that can clip it, not by classing the table', () => {
+    drawChart();
+    const table = screen.getByRole('table', { name: 'Test chart' });
+    expect(table).not.toHaveClass('ax-sr');
+    expect(table.parentElement?.tagName).toBe('DIV');
+    expect(table.parentElement).toHaveClass('ax-sr');
+  });
+
   it('hides the drawing from the reader the table is for, and not otherwise', () => {
     const { container: withTable } = drawChart();
     expect(withTable.querySelector('.ax-chart-svg')).toHaveAttribute('aria-hidden', 'true');
@@ -157,7 +170,7 @@ describe('Radar', () => {
   it('is announced as what it draws, not as what the other one draws', () => {
     render(
       <Radar
-        label="Five readings of Maths"
+        label="Five readings of Math"
         axes={[
           { label: 'a', value: 1 },
           { label: 'b', value: 0.5 },
@@ -165,6 +178,21 @@ describe('Radar', () => {
         ]}
       />,
     );
-    expect(screen.getByRole('img', { name: 'Five readings of Maths' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Five readings of Math' })).toBeInTheDocument();
+  });
+});
+
+describe('visually hidden tables, anywhere in the app', () => {
+  /* The same trap, guarded for every file rather than one chart: a table
+     cannot be shrunk to a pixel by its own class, only by a box around it. */
+  it('never puts a visually-hidden class on a <table> itself', () => {
+    const files = import.meta.glob('../../**/*.tsx', { query: '?raw', import: 'default', eager: true });
+    // A glob that matched nothing would pass this vacuously.
+    expect(Object.keys(files).length).toBeGreaterThan(100);
+    const offenders = Object.entries(files)
+      .filter(([path]) => !path.includes('.test.'))
+      .filter(([, source]) => /<table\b[^>]*className=["{`][^>]*\b(ax-sr|sr-only|visually-hidden)\b/.test(String(source)))
+      .map(([path]) => path);
+    expect(offenders).toEqual([]);
   });
 });

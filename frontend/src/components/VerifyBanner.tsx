@@ -42,6 +42,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks';
 import { auth as authService } from '@/services';
 import '@/styles/verify-banner.css';
+import { Icon } from '@/components/Icon';
 
 /** One key per account, so signing into a second one on this tab asks again. */
 const DISMISS_KEY = 'summit.verify-banner.dismissed';
@@ -88,7 +89,7 @@ export function VerifyBanner() {
       setDevLink(result.success ? result.dev_link : null);
       setSaid(result.message || 'Sent.');
     } catch {
-      setSaid('Could not reach the server.');
+      setSaid("Couldn't reach the server.");
     } finally {
       setBusy(false);
     }
@@ -99,13 +100,13 @@ export function VerifyBanner() {
   return (
     <div className="vb" role="status">
       <span className="vb-mark" aria-hidden="true">
-        ✉
+        <Icon name="mail" />
       </span>
       <p className="vb-text">
         {said ?? (
           <>
-            Confirm your e-mail address to keep this account recoverable.{' '}
-            <span className="vb-quiet">Everything works in the meantime.</span>
+            Confirm your email so you can get back in if you forget your password.{' '}
+            <span className="vb-quiet">Everything works while you wait.</span>
           </>
         )}
       </p>

@@ -20,9 +20,17 @@
         try { return localStorage.getItem('easterEgg:' + user() + ':' + todayStr()) === '1'; }
         catch (e) { return false; }
     }
-    function isAdmin() {
-        try { return !!localStorage.getItem('summitTitle:' + user()); }
-        catch (e) { return false; }
+
+    /* The one way in that skips the chain: the engine button in the app's top
+     * bar, which only works for an account that has earned the title. It
+     * leaves a pass for this account in this tab's sessionStorage, so typing
+     * /engine into a new tab still goes through the chain like it always did.
+     * See components/Topbar.tsx. */
+    function viaShortcut() {
+        try {
+            if (sessionStorage.getItem('summit:engine-pass') !== user()) return false;
+            return !!(localStorage.getItem('summitTitle:' + user()) || localStorage.getItem('ascenTitle:' + user()));
+        } catch (e) { return false; }
     }
 
     function ready(fn) {
@@ -31,9 +39,11 @@
     }
 
     ready(function () {
-        // The engine is a secret — reachable once the quote has been found, or
-        // any time by someone who already holds a title (an admin).
-        if (!unlocked() && !isAdmin()) { window.location.replace('/home'); return; }
+        // The engine is a secret: reachable once today's unlock is written,
+        // by the dashboard's mountain or by answering the riddle. A title on
+        // its own is no way in (typing /engine skips nothing); a title holder
+        // gets the top bar's engine button, which is `viaShortcut`.
+        if (!unlocked() && !viaShortcut()) { window.location.replace('/home'); return; }
         buildEngine();
     });
 
@@ -113,15 +123,10 @@
         requestAnimationFrame(function () { eng.classList.add('lit'); });
         startCode(eng);
 
-        // Admins skip the whole unlock puzzle — the vault opens for them, and the
-        // ENGINE SETTINGS button reads as a shortcut straight to the gears.
-        if (isAdmin()) {
-            var s = eng.querySelector('.eng-settings-text');
-            if (s) s.textContent = 'ENTER HIDDEN ENGINE';
-            setTimeout(function () {
-                if (window.SummitHiddenEngine) window.SummitHiddenEngine.reveal();
-            }, 1200);
-        }
+        // No shortcut for anyone who already holds a title. The vault used to
+        // open by itself for them, with SUMMIT CORE one click away — the whole
+        // second half of the chain skipped. Everybody goes through ENGINE
+        // SETTINGS, `unlock hidden`, the gears and the ADMIN ROOM.
 
         // Any interaction with the system makes the engine spin up, light up
         // and vent steam for a beat.
@@ -213,11 +218,7 @@
             setTimeout(function () {
                 btn.classList.remove('pressed');
                 eng.classList.remove('powering');
-                if (isAdmin() && window.SummitHiddenEngine) {
-                    window.SummitHiddenEngine.reveal();            // admins jump to the gears
-                } else if (window.SummitEngineSettings) {
-                    window.SummitEngineSettings.open();
-                }
+                if (window.SummitEngineSettings) window.SummitEngineSettings.open();
             }, 260);
         });
     }

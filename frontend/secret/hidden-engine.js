@@ -11,28 +11,21 @@
     function user() {
         return (window.localStorage && localStorage.getItem('currentUser')) || 'Default';
     }
-    function isAdmin() {
-        try { return !!localStorage.getItem('summitTitle:' + user()); }
-        catch (e) { return false; }
-    }
 
     /**
      * Bind a title to this account, and put it on.
      *
-     * Two keys, because the rail asks two separate questions. `summitTitle:<user>`
-     * is "has this account earned the secret title" — it is what puts the title
-     * in the rail's three-dot list at all, and what retires the chain (see
-     * frontend/src/utils/easterEgg.ts). `summitRankTitle:<user>` is "which of my
-     * titles am I wearing", the ordinary chooser's key (utils/rankTitle.ts).
+     * Two keys, because the nametag asks two separate questions.
+     * `summitTitle:<user>` is "has this account earned the secret title" — it
+     * puts the title in the nametag's list of titles at all, and it lets the
+     * account straight into /engine (engine.js). `summitRankTitle:<user>`
+     * is "which of my titles am I wearing", the chooser's key
+     * (frontend/src/utils/rankTitle.ts).
      *
-     * Writing only the first is what this room used to do, and it made the
-     * button a liar: it said TITLE EQUIPPED, the reader walked back to the
-     * dashboard, and the rail still said Apprentice. The title was merely
-     * *available* — two clicks deep in a menu nobody thinks to open on the way
-     * out of a secret room. Reaching the end of the chain is the equip.
-     *
-     * The band titles stay in that menu, so this is a default and not a
-     * sentence: anyone who preferred Grand Champion can go back to it.
+     * Writing only the first would leave a reader who had picked a band
+     * wearing the band: the button says TITLE EQUIPPED, and reaching the end of
+     * the chain is the equip. The bands stay in the chooser, so this is a
+     * default and not a sentence.
      */
     function wearTitle(name) {
         var v = String(name == null ? '' : name).trim().slice(0, 24) || 'Admin';
@@ -221,14 +214,15 @@
         '</div>';
     }
 
+    /* The console never lets anybody through, title or not. It used to
+       recognise an account that already held one and put SUMMIT CORE a click
+       away, which skipped the gears and the ADMIN ROOM; the core is reached
+       from the ADMIN ROOM now, at the end of the chain, by everyone. */
     function hiddenConsole() {
-        var admin = isAdmin();
-        return '<div class="he-console' + (admin ? ' he-admin' : '') + '" id="heConsole">' +
+        return '<div class="he-console" id="heConsole">' +
             '<div class="he-console-scan"></div>' +
             '<div class="he-console-title">SUMMIT CORE</div>' +
-            '<div class="he-console-line" id="heConsoleLine">' +
-                (admin ? 'Administrator recognized.' : 'Awaiting Administrator...') + '</div>' +
-            (admin ? '<button class="he-core-btn" id="heCoreBtn" type="button">SUMMIT CORE &rarr;</button>' : '') +
+            '<div class="he-console-line" id="heConsoleLine">Awaiting Administrator...</div>' +
         '</div>';
     }
 
@@ -264,18 +258,8 @@
     function wireConsole(he) {
         var con = he.querySelector('#heConsole');
         var line = he.querySelector('#heConsoleLine');
-        var coreBtn = he.querySelector('#heCoreBtn');
-        if (coreBtn) {
-            // Admins don't need to crash the engine — the core opens for them.
-            coreBtn.addEventListener('click', function (e) {
-                e.stopPropagation();
-                reactCore(he, true);
-                enterSummitCore(he);
-            });
-        }
         con.addEventListener('click', function () {
             reactCore(he, true);
-            if (isAdmin()) { enterSummitCore(he); return; }
             line.textContent = 'Administrator credentials required.';
             con.classList.remove('he-console-deny'); void con.offsetWidth;
             con.classList.add('he-console-deny');
@@ -379,10 +363,16 @@
             btn.disabled = true;
             btn.textContent = '✓ TITLE EQUIPPED :: Admin';
             btn.classList.add('equipped');
+            /* SUMMIT CORE is here, after the title is equipped — the last
+               room of the chain, not a shortcut past it. */
             done.innerHTML =
                 'The title <b>Admin</b> is now bound to your name.<br>' +
+                '<button class="ar-return" id="arCore" type="button">▸ ENTER SUMMIT CORE</button>' +
                 '<button class="ar-return" id="arReturn" type="button">▸ RETURN TO DASHBOARD</button>';
             done.classList.add('show');
+            ar.querySelector('#arCore').addEventListener('click', function () {
+                enterSummitCore(document.getElementById('hiddenEngine'));
+            });
             ar.querySelector('#arReturn').addEventListener('click', function () {
                 window.location.href = '/dashboard';
             });

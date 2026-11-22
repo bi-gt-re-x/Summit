@@ -1,6 +1,6 @@
 -- records — the account's hall of fame, in its own words.
 --
--- Built: backend/api/records.py serves it and frontend/src/pages/Records.tsx
+-- Built: backend/api/records.py serves it and frontend/src/pages/Achievements.tsx
 -- draws it.
 --
 -- ## Why this table exists at all
@@ -34,7 +34,7 @@
 -- better everywhere and said so in a comment, which was right for scores,
 -- streaks and levels and silently wrong for every record measured in time.
 -- Guessing from `unit` does not work either — the first person to log "minutes
--- practised" has a bigger-is-better duration and would get the arrows the
+-- practiced" has a bigger-is-better duration and would get the arrows the
 -- wrong way round.
 --
 -- So `comparison_direction` is asked for once, when the record is first

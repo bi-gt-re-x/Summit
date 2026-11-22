@@ -3,16 +3,16 @@
  *
  * ## Why this exists
  *
- * The subject catalogue in backend/config/subjects.py is a hundred fixed rows —
+ * The subject catalogue in backend/config/subjects.py is 150 fixed rows —
  * the things this app lets somebody say a task is *about*. The trees in
- * skills/trees are fifty-five lattices — the things it can teach. They are
+ * skills/trees are a hundred and twenty-five lattices — the things it can teach. They are
  * deliberately not the same list: "Laundry" is a real subject to file a task
  * under and is not a subject with a progression, and "Machine Learning" is a
  * whole lattice that no catalogue row is going to be big enough for.
  *
  * This is the join. Every catalogue subject names the tree it opens, and where
  * the tree has an obvious landing place, the node it should open on. That is
- * what lets the skill tree page offer all hundred subjects the reader already
+ * what lets the skill tree page offer all 150 subjects the reader already
  * uses on their tasks, rather than eleven names they have never seen.
  *
  * ## Many subjects to one tree, never the reverse
@@ -53,8 +53,8 @@ export interface SubjectTarget {
  * only because something has to be last.
  */
 const GROUP_ROOT: Record<string, string> = {
-  'Maths and science': 'science',
-  Studying: 'study',
+  'Math and science': 'science',
+  Studying: 'school',
   'Language and humanities': 'language',
   Computing: 'coding',
   'Business and money': 'business',
@@ -65,64 +65,97 @@ const GROUP_ROOT: Record<string, string> = {
 };
 
 /**
- * Subject id → where it opens. All hundred of them.
+ * Subject id → where it opens. All 150 of them.
  *
  * Kept in catalogue order and grouped by the catalogue's own groups, so this
  * file can be read beside backend/config/subjects.py and checked by eye as well
  * as by the script.
  */
 export const SUBJECT_TARGETS: Record<string, SubjectTarget> = {
-  // ---- Maths and science ----
+  // ---- Math and science ----
   mathematics: { tree: 'mathematics' },
-  algebra: { tree: 'mathematics', node: 'm.algebra' },
+  algebra: { tree: 'algebra' },
+  geometry: { tree: 'geometry' },
+  trigonometry: { tree: 'trigonometry' },
+  precalculus: { tree: 'precalculus' },
   calculus: { tree: 'calculus' },
-  geometry: { tree: 'mathematics', node: 'm.geometry' },
   statistics: { tree: 'statistics' },
-  physics: { tree: 'physics' },
-  chemistry: { tree: 'chemistry' },
-  biology: { tree: 'biology' },
-  anatomy: { tree: 'biology', node: 'bi.organs' },
-  genetics: { tree: 'biology', node: 'bi.genetics' },
-  astronomy: { tree: 'earth-space', node: 'es.stars' },
-  geology: { tree: 'earth-space', node: 'es.rocks' },
-  ecology: { tree: 'biology', node: 'bi.ecology' },
+  differential_equations: { tree: 'differential-equations' },
   science: { tree: 'science' },
+  biology: { tree: 'biology' },
+  chemistry: { tree: 'chemistry' },
+  physics: { tree: 'physics' },
+  anatomy: { tree: 'anatomy' },
+  genetics: { tree: 'genetics' },
+  ecology: { tree: 'ecology' },
+  environmental_science: { tree: 'environmental-science' },
+  astronomy: { tree: 'astronomy' },
+  geology: { tree: 'geology' },
+  organic_chemistry: { tree: 'organic-chemistry' },
+  biochemistry: { tree: 'biochemistry' },
+  microbiology: { tree: 'microbiology' },
+  neuroscience: { tree: 'neuroscience' },
+  forensic_science: { tree: 'forensic-science' },
+  lab_work: { tree: 'lab-work' },
+  science_fair: { tree: 'science-fair' },
 
   // ---- Studying ----
+  school: { tree: 'school' },
   homework: { tree: 'study', node: 'sy.plan' },
-  revision: { tree: 'study', node: 'sy.revision' },
   exams: { tree: 'study', node: 'sy.exam' },
+  test_prep: { tree: 'test-prep' },
+  revision: { tree: 'study', node: 'sy.revision' },
+  flashcards: { tree: 'study', node: 'sy.spacing' },
+  note_taking: { tree: 'note-taking' },
   lectures: { tree: 'study', node: 'sy.notes' },
+  coursework: { tree: 'study', node: 'sy.plan' },
+  study_group: { tree: 'study', node: 'sy.group' },
+  tutoring: { tree: 'study', node: 'sy.explain' },
   research: { tree: 'study', node: 'sy.sources' },
   thesis: { tree: 'writing', node: 'wr.long' },
-  coursework: { tree: 'study', node: 'sy.plan' },
-  tutoring: { tree: 'study', node: 'sy.explain' },
-  study_group: { tree: 'study', node: 'sy.group' },
-  flashcards: { tree: 'study', node: 'sy.spacing' },
+  college_apps: { tree: 'college-apps' },
+  financial_aid: { tree: 'financial-aid' },
+  extracurriculars: { tree: 'extracurriculars' },
+  pre_med: { tree: 'pre-med' },
+  ai_tools: { tree: 'ai-tools' },
 
   // ---- Language and humanities ----
   english: { tree: 'language' },
+  essays: { tree: 'essays' },
   literature: { tree: 'literature' },
   writing: { tree: 'writing' },
   grammar: { tree: 'language', node: 'ln.parts' },
   vocabulary: { tree: 'language', node: 'ln.vocab' },
+  creative_writing: { tree: 'creative-writing' },
+  poetry: { tree: 'poetry' },
+  journalism: { tree: 'journalism' },
+  public_speaking: { tree: 'public-speaking' },
   spanish: { tree: 'foreign-language' },
   french: { tree: 'foreign-language' },
   german: { tree: 'foreign-language' },
   japanese: { tree: 'foreign-language' },
   mandarin: { tree: 'foreign-language' },
+  latin: { tree: 'latin' },
+  sign_language: { tree: 'sign-language' },
   history: { tree: 'history' },
-  geography: { tree: 'humanities', node: 'hu.place' },
+  civics: { tree: 'civics' },
+  politics: { tree: 'civics', node: 'cv.parties' },
+  geography: { tree: 'geography' },
+  model_un: { tree: 'model-un' },
   philosophy: { tree: 'philosophy' },
   psychology: { tree: 'psychology' },
-  sociology: { tree: 'humanities', node: 'hu.people' },
-  politics: { tree: 'humanities', node: 'hu.power' },
+  sociology: { tree: 'sociology' },
 
   // ---- Computing ----
   programming: { tree: 'coding' },
+  python: { tree: 'python' },
+  java: { tree: 'java' },
   computer_science: { tree: 'algorithms' },
   web_design: { tree: 'web' },
+  app_dev: { tree: 'app-dev' },
+  game_dev: { tree: 'game-dev' },
   data_science: { tree: 'data-science' },
+  spreadsheets: { tree: 'spreadsheets' },
   machine_learning: { tree: 'machine-learning' },
   cybersecurity: { tree: 'cybersecurity' },
   databases: { tree: 'databases' },
@@ -131,53 +164,68 @@ export const SUBJECT_TARGETS: Record<string, SubjectTarget> = {
      than an answer — process scheduling is not what somebody filing a task
      under Robotics is doing. It has its own lattice now. */
   robotics: { tree: 'robotics', node: 'ro.mech' },
-  engineering: { tree: 'physics', node: 'ph.fbd' },
+  electronics: { tree: 'electronics' },
+  engineering: { tree: 'engineering' },
 
   // ---- Business and money ----
   economics: { tree: 'economics' },
-  business: { tree: 'business' },
-  marketing: { tree: 'marketing' },
-  accounting: { tree: 'business', node: 'bu.records' },
   finance: { tree: 'finance' },
   budgeting: { tree: 'business', node: 'bu.budget' },
+  entrepreneurship: { tree: 'entrepreneurship' },
+  business: { tree: 'business' },
+  marketing: { tree: 'marketing' },
+  accounting: { tree: 'accounting' },
   investing: { tree: 'finance', node: 'fi.assets' },
   taxes: { tree: 'business', node: 'bu.tax' },
-  law: { tree: 'business', node: 'bu.legal' },
+  law: { tree: 'law' },
   management: { tree: 'management' },
 
   // ---- Work ----
+  part_time_job: { tree: 'part-time-job' },
+  internships: { tree: 'internships' },
+  job_search: { tree: 'career', node: 'ca.search' },
+  interviews: { tree: 'career', node: 'ca.interview' },
+  leadership: { tree: 'leadership' },
+  presenting: { tree: 'career', node: 'ca.present' },
+  planning: { tree: 'productivity', node: 'pd.calendar' },
   work: { tree: 'career' },
   meetings: { tree: 'career', node: 'ca.meetings' },
   email: { tree: 'career', node: 'ca.email' },
   calls: { tree: 'career', node: 'ca.async' },
   admin: { tree: 'life', node: 'lf.admin' },
-  planning: { tree: 'productivity', node: 'pd.calendar' },
-  presenting: { tree: 'career', node: 'ca.present' },
   reports: { tree: 'writing', node: 'wr.report' },
-  interviews: { tree: 'career', node: 'ca.interview' },
-  job_search: { tree: 'career', node: 'ca.search' },
 
   // ---- Creative ----
   art: { tree: 'art' },
   drawing: { tree: 'drawing' },
   design: { tree: 'design' },
   photography: { tree: 'photography' },
-  music: { tree: 'music' },
-  guitar: { tree: 'guitar' },
-  piano: { tree: 'piano' },
-  singing: { tree: 'voice' },
-  dance: { tree: 'fitness', node: 'ft.mobility' },
   film: { tree: 'film' },
+  theater: { tree: 'theater' },
+  art_history: { tree: 'art-history' },
+  cad: { tree: 'cad' },
+  music: { tree: 'music' },
+  music_theory: { tree: 'music-theory' },
+  band: { tree: 'band' },
+  piano: { tree: 'piano' },
+  guitar: { tree: 'guitar' },
+  violin: { tree: 'violin' },
+  drums: { tree: 'drums' },
+  singing: { tree: 'voice' },
+  dance: { tree: 'dance' },
 
   // ---- Health and fitness ----
   gym: { tree: 'strength' },
   running: { tree: 'endurance' },
+  basketball: { tree: 'basketball' },
+  soccer: { tree: 'soccer' },
+  swimming: { tree: 'swimming' },
   cycling: { tree: 'endurance', node: 'en.crosstrain' },
-  swimming: { tree: 'endurance', node: 'en.gait' },
   yoga: { tree: 'mindfulness', node: 'mi.yoga' },
+  sleep: { tree: 'mindfulness', node: 'mi.sleep' },
+  stress: { tree: 'stress' },
   meditation: { tree: 'mindfulness', node: 'mi.sit' },
   nutrition: { tree: 'nutrition' },
-  sleep: { tree: 'mindfulness', node: 'mi.sleep' },
   therapy: { tree: 'mindfulness', node: 'mi.help' },
   health: { tree: 'fitness' },
 
@@ -187,11 +235,13 @@ export const SUBJECT_TARGETS: Record<string, SubjectTarget> = {
   cooking: { tree: 'cooking' },
   groceries: { tree: 'life', node: 'lf.shop' },
   errands: { tree: 'life', node: 'lf.errands' },
+  driving: { tree: 'driving' },
   family: { tree: 'life', node: 'lf.time' },
   friends: { tree: 'life', node: 'lf.time' },
   travel: { tree: 'travel' },
   reading: { tree: 'language', node: 'ln.read' },
   journaling: { tree: 'mindfulness', node: 'mi.journal' },
+  chess: { tree: 'chess' },
 };
 
 /**

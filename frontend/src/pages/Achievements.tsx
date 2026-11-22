@@ -1,986 +1,1323 @@
 /**
- * The badge wall.
+ * Achievements — the account's hall of fame: personal bests and badges.
  *
- * A hundred badges, and the page is arranged so that a reader meets them in
- * the order the questions arrive: how far am I, what did I just get, which
- * kinds am I behind on, and then the whole list.
+ * This was two pages, Records and Achievements (the badge wall). They answered
+ * the same question, so they are one page under the name the badges had, and
+ * /records, /records/growth and /records/badges redirect here.
  *
- *     the ring and three figures   how far along the wall is, and the streak
- *     Recently Earned              the last four, largest — the news
- *     Achievement Categories       five bars, one per heading
- *     All Achievements             the wall, in two grids: still to earn, then
- *                                  earned
+ * ## The question this page answers
  *
- * ## The wall is split, and neither half is behind a control
+ * Not "how am I doing" and not "what should I do" — the other pages have
+ * those. This one answers **look how far I have come**, and every decision
+ * here follows from that. It is why the evolution chart exists and there is no
+ * average, no standard deviation and no percentile: "18 → 20 → 21 → 23 → 25"
+ * is the story, and "mean 21.4, σ 2.3" is the same numbers with the story
+ * taken out.
  *
- * "Still to earn · 32" and "Earned · 68", one grid each, both always drawn.
- * A single list sorted by difficulty answers "how hard is this badge" — a
- * question nobody arrives with — while burying the two the reader did come
- * for: what is next, and what have I got. Splitting it answers both in the
- * headings before a tile is read.
+ * ## The five layers, in the order they answer it
  *
- * ## What is still out there comes first
+ *     hero        the record that travelled furthest, stated outright
+ *     stories     four things that happened, not four counts of things
+ *     your best   every personal best, filtered by category chips
+ *     evolution   the whole series of one of them, with an axis
+ *     history     what happened when, and the milestones beside it
+ *     noticed     what Summit counted itself, and what is within reach
  *
- * The unearned half leads. Both halves are worth drawing, but only one of them
- * can be acted on: "Still to earn" sorted easiest-and-nearest-first is a list
- * of things to go and do, and the top of it is literally the next one. The
- * earned half is a record — it is the more pleasant half to look at and it
- * does not change what anybody does this afternoon, so it reads better as
- * what the page arrives at than as what it opens with.
+ * That order is the argument. The first four are the page's claim and its
+ * evidence; the last two are reference. It used to run hero → counts → bests →
+ * category records → timeline → milestones → evolution → search → tracked,
+ * which is nine destinations for one question, with the evolution chart eighth
+ * and a second copy of the timeline under a search panel at seventh.
  *
- * The four largest badges on the page are still the four most recently earned,
- * up at the top. Nothing about this ordering hides the good news; it stops the
- * good news from standing between the reader and the wall.
+ * ## Record and milestone, and the difference is a sentence
  *
- * It is a split rather than a toggle for the same reason the panels on the
- * Growth page show their charts rather than offering them: a page whose job is
- * to say where you are should not make you ask twice. The category chips and
- * the search box narrow both halves at once, so a reader filtering to Learning
- * still sees the Learning badges they have beside the ones they do not.
+ * A **record** is *I did better* — a figure with earlier figures behind it. A
+ * **milestone** is *I reached something* — no figure, and nothing to beat. The
+ * page says so under the Milestones heading rather than leaving it to be
+ * worked out from which section a thing landed in, because the two share a
+ * table, a dialog and a page and the only thing separating them is that
+ * sentence.
  *
- * ## Nothing here is computed
+ * ## Two kinds of record, and both are real
  *
- * The server decides what is earned and holds the date it happened. This page
- * draws what it is given. That matters for the streak badges in particular: a
- * badge earned in March is still earned in July, and a client recomputing
- * "streak >= 30" against the *current* streak would take it away again on the
- * first missed day. See the note in backend/api/achievements.py.
+ * **Logged** — what the account writes down. AMC 8 25/25, RCM 9, a
+ * ten-thousand-line project. Summit cannot know any of it; none of it happened
+ * inside the app. These live in the `records` table and are what the two Log
+ * buttons write.
  *
- * The category counts and the achievement score arrive counted for the same
- * reason — two places counting the same badges is two places that can disagree
- * about a wall the reader is looking at all at once.
+ * **Derived** — what Summit counted itself: best XP day, heaviest task, longest
+ * streak, and how close today is to beating each. This was the entire page
+ * before, and it is kept exactly as it was, below the logged ones. Neither
+ * replaces the other and they are visibly separated, because a record you set
+ * and a record the app noticed are different claims and running them together
+ * would make the page's numbers unclear about which is which.
  *
- * ## Progress is only drawn on locked badges
+ * ## One row is one entry
  *
- * An earned badge shows the day it was earned instead. A full bar under a
- * badge that is already won is a bar nobody reads, and it takes the row's
- * width from the one thing on it that is still news.
+ * The shape everything rests on, and it is explained where it lives —
+ * utils/records. In short: beating your AMC 8 score writes a *new row* rather
+ * than editing the old one, which is what makes the evolution drawable at all.
  *
- * ## The five hidden ones draw as they arrive
+ * ## Milestones fold into their categories, and a category is only a drawer
  *
- * A locked hidden badge arrives with no name, no threshold and no progress —
- * see the service. The page does not have to know which five they are, and
- * could not leak them if it wanted to: it draws "???" because that is what it
- * was sent. What it adds is the lock styling and the line at the foot of the
- * list saying how many are still out there, which is the honest version of
- * "more achievements coming soon" — they are not coming, they are already here
- * and you have not found them.
+ * Eleven milestones is a scroll, and a scroll is not a summary. So they are
+ * grouped under the category the account already typed, and each heading opens
+ * onto the milestones filed under it. Nothing new is stored to do it.
+ *
+ * The headings used to be drawn as *key milestones*, with the same tick their
+ * children carry, filled once every one was reached. That was clever and it
+ * was not true: "Competitive Math" is a folder, not something anybody
+ * achieved, and a tick on it said otherwise. It is a heading now and the only
+ * thing it claims about itself is the count. The grouping rule, and why a
+ * category of one stays a plain row, is in utils/records — see
+ * `milestoneGroups`.
+ *
+ * The whole section folds too, from its own title. Both start shut: the counts
+ * ride on the header and on every heading, so the closed state says how much
+ * is behind it rather than merely hiding it.
+ *
+ * The derived figures count up from zero on arrival. Not decoration here in the
+ * way it would be on a settings page: this is the one screen whose entire
+ * content is numbers somebody is proud of, and a page of high scores that
+ * simply appears reads as a table. Nothing moves under
+ * `prefers-reduced-motion` — see hooks/useCountUp.
+ *
+ * The four tiles at the top do not count up, and stopped being counts at the
+ * same time. A story's figure is "+7" or "3mo", which is not a quantity to
+ * climb toward — and the thing that made counting up worth doing, that the
+ * number is something to be proud of, is exactly what "47 records logged" was
+ * not. See `stories` in utils/records.
+ *
+ * **Why this is not the analytics page.** There was a Records tab under
+ * Analytics, about *standing*: where the last thirty days rank against every
+ * other thirty. It is the Growth tab now
+ * (components/Analytics/tabs/GrowthTab), which asks how far the account has
+ * come across its whole life and kept that percentile as one panel. This page
+ * is about the high scores themselves. All three read the same history and ask
+ * different things of it.
  */
-import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Ambient, ErrorState, Loading, PageHero, RefreshButton } from '@/components';
-import { useApi, useAuth, useDocumentTitle, usePageEntrance } from '@/hooks';
-import { achievements as service } from '@/services';
-import type { Badge, Category, Metric } from '@/services/achievements';
-import '@/styles/achievements.css';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ErrorState, Loading, PageHero } from '@/components';
+import { Glyph } from '@/components/Growth/GrowthPanels';
+import { RecordModal } from '@/components/Records/RecordModal';
+import { BadgeWall } from '@/components/Achievements/BadgeWall';
+import { NavLink, useLocation } from 'react-router-dom';
+import {
+  useApi,
+  useCountUp,
+  useDocumentTitle,
+  usePageEntrance,
+  useSettings,
+  useUserData,
+} from '@/hooks';
+import { growth as growthService, records as recordService } from '@/services';
+import type { GrowthSeries } from '@/services/growth';
+import type { RecordDraft, RecordKind, RecordRow } from '@/services/records';
+import { longDate } from '@/utils/growthChapters';
+import {
+  byDay,
+  categories as categoriesOf,
+  filterRows,
+  formatOn,
+  formatValue,
+  gainText,
+  headline,
+  isBetter,
+  milestoneGroups,
+  moments,
+  personalBests,
+  stepText,
+  stories,
+  tally,
+  trail,
+  type Best,
+  type MilestoneGroup,
+  type Moment,
+  type Sort,
+} from '@/utils/records';
+import {
+  personalRecords,
+  recordChase,
+  type BestRecord,
+  type RecordChase,
+} from '@/utils/growthBench';
+import type { GrowthDay } from '@/types';
+import '@/styles/records.css';
+import { Icon, type IconName } from '@/components/Icon';
 
-/** The filter's options. "All" first, then the five headings. */
-const FILTERS = ['All Achievements', 'Productivity', 'Consistency', 'Learning', 'Mastery', 'Milestones', 'Special'] as const;
-type Filter = (typeof FILTERS)[number];
+/** Below this there is no derived record worth the name — see the empty state. */
+const NEED_DAYS = 3;
 
-/** How many of the most recent earnings lead the page. */
-const RECENT = 4;
+/** How many best-cards the top row draws before the rest go to the list below. */
+const TOP_BESTS = 8;
 
-// --------------------------------------------------------------------------
-// The drawings
-// --------------------------------------------------------------------------
-/**
- * The drawings, inline and stroked in `currentColor`.
- *
- * Inline rather than files under utils/icons/ for the reason
- * components/Analytics/glyphs.ts gives for doing the same: a closed set
- * belonging to one page, living in the shared icon folder, is how that folder
- * got to 80 entries. Stroked in `currentColor` so one drawing sits legibly in
- * a green hexagon, a gold one, and on either theme without a second copy.
- *
- * Two sets, and the split is the rule for using them. The first is one drawing
- * per metric — the flame for a streak, the clock for focus — and every badge
- * falls back to its own. The second is for the badges whose name promises a
- * picture the metric does not: a mountain for The Long Haul, coins for Six
- * Figures, a shelf for A Library of Your Own. See METRIC_GLYPH and BADGE_GLYPH.
- */
-const GLYPH = {
-  check: <path d="M5 12.5l4.5 4.5L19 7.5" />,
-  lock: (
-    <>
-      <rect x="5" y="11" width="14" height="9" rx="2.5" />
-      <path d="M8.5 11V8a3.5 3.5 0 017 0v3" />
-    </>
-  ),
-  bolt: <path d="M13 2 4.5 13.5H11l-1 8.5L19 10.5h-6.5L13 2Z" />,
-  star: <path d="m12 2.6 2.9 5.9 6.5.95-4.7 4.6 1.1 6.45L12 17.45l-5.8 3.05 1.1-6.45-4.7-4.6 6.5-.95z" />,
-  calendar: (
-    <>
-      <rect x="3" y="4.5" width="18" height="16.5" rx="2.5" />
-      <path d="M3 10h18M8 2.5v4M16 2.5v4" />
-    </>
-  ),
-  calendarCheck: (
-    <>
-      <rect x="3" y="4.5" width="18" height="16.5" rx="2.5" />
-      <path d="M3 10h18M8 2.5v4M16 2.5v4m-6.5 9 2 2 4-4" />
-    </>
-  ),
-  sparkle: (
-    <path d="M12 2.5l1.8 5.3a4 4 0 002.4 2.4l5.3 1.8-5.3 1.8a4 4 0 00-2.4 2.4L12 21.5l-1.8-5.3a4 4 0 00-2.4-2.4L2.5 12l5.3-1.8a4 4 0 002.4-2.4z" />
-  ),
-  levelUp: <path d="m5 13.5 7-7 7 7M5 20l7-7 7 7" />,
-  lattice: (
-    <>
-      <path d="M12 6.6v4.2m0 0L6.8 15m5.2-4.2L17.2 15" />
-      <circle cx="12" cy="4.6" r="2.1" />
-      <circle cx="6" cy="17" r="2.1" />
-      <circle cx="18" cy="17" r="2.1" />
-    </>
-  ),
-  flame: <path d="M12 22a6.5 6.5 0 006.5-6.5c0-5-5-7-4.5-13-4 2.2-6.5 5.6-6.5 9.5a4 4 0 01-1.2-2.7S5.5 12.5 5.5 15.5A6.5 6.5 0 0012 22Z" />,
-  target: (
-    <>
-      <circle cx="12" cy="12" r="9" />
-      <circle cx="12" cy="12" r="5" />
-      <circle cx="12" cy="12" r="1.4" />
-    </>
-  ),
-  sunrise: <path d="M17.5 19a5.5 5.5 0 00-11 0M12 2.5v4.5M4.4 9.4l1.5 1.5m12.2-1.5-1.5 1.5M2 19h2m16 0h2M3.5 22.5h17" />,
-  sun: (
-    <>
-      <circle cx="12" cy="12" r="4.2" />
-      <path d="M12 2v2.6m0 14.8V22M4.2 4.2l1.9 1.9m11.8 11.8 1.9 1.9M2 12h2.6m14.8 0H22M4.2 19.8l1.9-1.9M17.9 6.1l1.9-1.9" />
-    </>
-  ),
-  moon: <path d="M20.5 14.8A8.6 8.6 0 019.2 3.5a8.6 8.6 0 1011.3 11.3Z" />,
-  clock: (
-    <>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 6.8V12l3.4 2" />
-    </>
-  ),
-  layers: <path d="m12 2.8 8.6 4.6L12 12 3.4 7.4 12 2.8Zm-8.6 9.6L12 17l8.6-4.6M3.4 16.8 12 21.4l8.6-4.6" />,
-  book: (
-    <>
-      <path d="M4 5A2.5 2.5 0 016.5 2.5H20v16H6.5A2.5 2.5 0 004 21z" />
-      <path d="M4 18.5A2.5 2.5 0 016.5 16H20" />
-    </>
-  ),
-  medal: (
-    <>
-      <circle cx="12" cy="14.5" r="6.2" />
-      <path d="M8.6 8.9 6 2.5h12l-2.6 6.4" />
-    </>
-  ),
-  trophy: (
-    <>
-      <path d="M7.5 3.5h9v5.5a4.5 4.5 0 01-9 0z" />
-      <path d="M16.5 4.8h3.2v1.9a3.2 3.2 0 01-3.2 3.2M7.5 4.8H4.3v1.9a3.2 3.2 0 003.2 3.2M12 13.5v4.2M8.5 20.5h7" />
-    </>
-  ),
-
-  /* The second set: drawings for the badges whose name is about something
-     more particular than the metric they are counted on. See BADGE_GLYPH. */
-  flag: (
-    <>
-      <path d="M5.5 21.5V3" />
-      <path d="M5.5 4.2h11.8l-2.4 3.9 2.4 3.9H5.5z" />
-    </>
-  ),
-  checklist: (
-    <>
-      <path d="M3.5 6.6 5 8.1 8 5.1M3.5 12.6 5 14.1 8 11.1M3.5 18.6 5 20.1 8 17.1" />
-      <path d="M11.5 6.6h9M11.5 12.6h9M11.5 18.6h9" />
-    </>
-  ),
-  dumbbell: <path d="M2.5 12H5m14 0h2.5M6 8.5v7m12-7v7M9 6.5v11m6-11v11M9 12h6" />,
-  bars: <path d="M3.5 20.5h17M6.5 20.5v-4.5M11 20.5v-9M15.5 20.5v-6M20 20.5V6" />,
-  trendUp: <path d="M3.5 16.5 9 11l3.5 3.5L20.5 6.5M15.5 6.5h5v5" />,
-  mountain: <path d="M2.5 19.5h19L14.6 6.8l-3.3 5.6-2.1-2.7z" />,
-  shield: <path d="M12 2.5 20 6v6.2c0 4.8-3.3 7.9-8 9.3-4.7-1.4-8-4.5-8-9.3V6z" />,
-  gauge: (
-    <>
-      <path d="M3.5 18.5a8.5 8.5 0 1 1 17 0" />
-      <path d="M12 14.8 16.6 9" />
-      <circle cx="12" cy="16.2" r="1.4" />
-    </>
-  ),
-  burst: <path d="M12 2.5v6M12 15.5v6M2.5 12h6m6.5 0h6M5.3 5.3l4.2 4.2m5 5 4.2 4.2M18.7 5.3l-4.2 4.2m-5 5-4.2 4.2" />,
-  crown: <path d="M2.8 8.2 6.6 11.6 12 4.5l5.4 7.1 3.8-3.4L19 19.5H5z" />,
-  gem: (
-    <>
-      <path d="M12 2.8 21 9.4 12 21.2 3 9.4z" />
-      <path d="M3 9.4h18M8.1 9.4 12 2.8l3.9 6.6M8.1 9.4 12 21.2l3.9-11.8" />
-    </>
-  ),
-  infinity: <path d="M6.6 8.4a3.6 3.6 0 1 0 0 7.2c3.6 0 5.2-7.2 8.8-7.2a3.6 3.6 0 1 1 0 7.2c-3.6 0-5.2-7.2-8.8-7.2z" />,
-  hourglass: (
-    <>
-      <path d="M6.5 2.5h11M6.5 21.5h11" />
-      <path d="M7.6 2.5v3.1c0 2.4 4.4 4.3 4.4 6.4s-4.4 4-4.4 6.4v3.1M16.4 2.5v3.1c0 2.4-4.4 4.3-4.4 6.4s4.4 4 4.4 6.4v3.1" />
-    </>
-  ),
-  stopwatch: (
-    <>
-      <circle cx="12" cy="13.8" r="7.7" />
-      <path d="M12 9.8v4l2.6 1.6M9.5 2.5h5M12 2.5v3.6M18.9 5.4l1.7-1.7" />
-    </>
-  ),
-  seedling: (
-    <>
-      <path d="M12 21.5v-7.2" />
-      <path d="M12 14.3C12 9.9 8.6 7.4 4.6 7.4c0 4.4 3.3 6.9 7.4 6.9zM12 14.3c0-3.6 2.9-6.5 6.6-6.5 0 3.6-3 6.5-6.6 6.5z" />
-    </>
-  ),
-  grid: (
-    <>
-      <rect x="3" y="3" width="7.6" height="7.6" rx="1.8" />
-      <rect x="13.4" y="3" width="7.6" height="7.6" rx="1.8" />
-      <rect x="3" y="13.4" width="7.6" height="7.6" rx="1.8" />
-      <rect x="13.4" y="13.4" width="7.6" height="7.6" rx="1.8" />
-    </>
-  ),
-  globe: (
-    <>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M3 12h18M12 3c2.7 2.7 2.7 15.3 0 18M12 3c-2.7 2.7-2.7 15.3 0 18" />
-    </>
-  ),
-  compass: (
-    <>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M15.8 8.2 13.7 13.7 8.2 15.8 10.3 10.3z" />
-    </>
-  ),
-  pen: <path d="M4 20.5 5.1 16 16.6 4.5a2.1 2.1 0 0 1 3 3L8.1 19z" />,
-  books: (
-    <>
-      <rect x="3.2" y="4" width="4.6" height="16" rx="1.3" />
-      <rect x="9.6" y="4" width="4.6" height="16" rx="1.3" />
-      <path d="m16.5 5.2 4.3 1.1L17.6 20l-4.3-1.1z" />
-    </>
-  ),
-  archive: (
-    <>
-      <rect x="3" y="3.5" width="18" height="4.6" rx="1.5" />
-      <path d="M4.6 8.1v10a2.5 2.5 0 0 0 2.5 2.5h9.8a2.5 2.5 0 0 0 2.5-2.5v-10M9.6 12.6h4.8" />
-    </>
-  ),
-  coins: (
-    <>
-      <ellipse cx="12" cy="6.4" rx="7.6" ry="3.1" />
-      <path d="M4.4 6.4v5.2c0 1.7 3.4 3.1 7.6 3.1s7.6-1.4 7.6-3.1V6.4M4.4 11.6v5.2c0 1.7 3.4 3.1 7.6 3.1s7.6-1.4 7.6-3.1v-5.2" />
-    </>
-  ),
-  award: (
-    <>
-      <circle cx="12" cy="8.8" r="6.3" />
-      <path d="M8.2 14.1 6.4 21.5 12 18.4l5.6 3.1-1.8-7.4" />
-    </>
-  ),
-  podium: (
-    <>
-      <rect x="9" y="6.8" width="6" height="14" rx="1" />
-      <rect x="2.8" y="11.8" width="6" height="9" rx="1" />
-      <rect x="15.2" y="14.8" width="6" height="6" rx="1" />
-    </>
-  ),
-  moonStar: (
-    <>
-      <path d="M20.6 15.4A8.4 8.4 0 0 1 9.4 4.2a8.4 8.4 0 1 0 11.2 11.2Z" />
-      <path d="m17.4 2.5.9 2.1 2.2.9-2.2.9-.9 2.1-.9-2.1-2.2-.9 2.2-.9z" />
-    </>
-  ),
-  rocket: (
-    <>
-      <path d="M12 2.4c3.3 2.5 5.1 6.1 5.1 10.1L14.5 15h-5l-2.6-2.5c0-4 1.8-7.6 5.1-10.1z" />
-      <circle cx="12" cy="9.6" r="1.9" />
-      <path d="M9.5 15 7 17.6v3.9l2.7-1.6M14.5 15l2.5 2.6v3.9l-2.7-1.6" />
-    </>
-  ),
-} satisfies Record<string, ReactNode>;
+/** How many days of history the timeline draws before "show more". */
+const DAYS_SHOWN = 8;
 
 /**
- * What a badge is measured on decides what it is drawn as.
+ * One number, counted up, printed at the precision it was measured to.
  *
- * By metric rather than one drawing hand-assigned per badge: a hundred hand
- * assignments is a hundred chances for the picture to disagree with the rule,
- * and a reader who learns that the flame means a streak has learned it for all
- * seven streak badges at once. Several metrics share a drawing where they
- * genuinely mean the same thing — three ways of counting focus are all a
- * clock — because inventing a distinct picture for each would be drawing a
- * distinction the badges do not make.
+ * `useCountUp` is fed the rounded value rather than the raw one, which is what
+ * its own note asks for: a figure shown to one decimal should not animate the
+ * digits below it.
  */
-const METRIC_GLYPH: Record<Metric, ReactNode> = {
-  tasks: GLYPH.check,
-  priority: GLYPH.bolt,
-  day_tasks: GLYPH.star,
-  events: GLYPH.calendar,
-  xp: GLYPH.sparkle,
-  day_xp: GLYPH.sparkle,
-  level: GLYPH.levelUp,
-  streak: GLYPH.flame,
-  active_days: GLYPH.calendarCheck,
-  perfect_days: GLYPH.target,
-  months: GLYPH.calendar,
-  early: GLYPH.sunrise,
-  weekend: GLYPH.sun,
-  night: GLYPH.moon,
-  focus: GLYPH.clock,
-  focus_days: GLYPH.clock,
-  focus_best: GLYPH.clock,
-  subjects: GLYPH.layers,
-  trees: GLYPH.lattice,
-  trees_deep: GLYPH.lattice,
-  tree_best: GLYPH.lattice,
-  notes: GLYPH.book,
-  goals: GLYPH.target,
-  records: GLYPH.medal,
-};
+function Counted({ amount, decimals, unit }: { amount: number; decimals: number; unit: string }) {
+  const shown = useCountUp(amount);
+  const text = decimals > 0 ? shown.toFixed(decimals) : Math.round(shown).toLocaleString();
 
-/**
- * The badges whose name is about something the metric does not say.
- *
- * The metric is still the default and still the family: seven streak badges
- * share the flame, and a reader who learns the flame once has learned all
- * seven. What this adds is the exceptions — the badges whose *name* promises a
- * particular picture, and which get a wall of identical flames otherwise. "The
- * Long Haul" is a mountain, "Six Figures" is a stack of coins, "A Library of
- * Your Own" is a shelf of books, and each of them is the drawing the name
- * already put in the reader's head.
- *
- * Keyed by id, so an override is impossible to attach to the wrong badge, and
- * deliberately partial — sixty of the hundred still take the family drawing,
- * because inventing a distinct picture for the fourth rung of the same ladder
- * is drawing a distinction the badges do not make. The rung is carried by the
- * tier's colour and its pips, which is how the wall says "III" without a word.
- */
-const BADGE_GLYPH: Record<string, ReactNode> = {
-  // Productivity
-  'first-task': GLYPH.flag,
-  'tasks-50': GLYPH.checklist,
-  'tasks-100': GLYPH.checklist,
-  'tasks-250': GLYPH.checklist,
-  'tasks-500': GLYPH.dumbbell,
-  'tasks-1000': GLYPH.bars,
-  'tasks-2500': GLYPH.mountain,
-  'hard-200': GLYPH.shield,
-  'day-20': GLYPH.burst,
-  'day-30': GLYPH.gauge,
-  'events-200': GLYPH.crown,
-
-  // Consistency
-  'goal-day-250': GLYPH.award,
-  'early-200': GLYPH.award,
-  'weekend-150': GLYPH.books,
-  'months-12': GLYPH.infinity,
-
-  // Learning
-  'focus-1': GLYPH.stopwatch,
-  'focus-1000': GLYPH.mountain,
-  'deep-3': GLYPH.hourglass,
-  'deep-6': GLYPH.hourglass,
-  'deep-10': GLYPH.hourglass,
-  'subj-3': GLYPH.seedling,
-  'subj-8': GLYPH.grid,
-  'subj-15': GLYPH.globe,
-  'subj-25': GLYPH.compass,
-  'notes-1': GLYPH.pen,
-  'notes-10': GLYPH.pen,
-  'notes-200': GLYPH.archive,
-  'notes-500': GLYPH.books,
-
-  // Milestones
-  'xp-100000': GLYPH.coins,
-  'xp-250000': GLYPH.gem,
-  'xp-500000': GLYPH.gem,
-  'level-100': GLYPH.crown,
-  'level-150': GLYPH.rocket,
-  'dayxp-3000': GLYPH.trendUp,
-  'goal-50': GLYPH.award,
-  'rec-25': GLYPH.bars,
-  'rec-50': GLYPH.podium,
-
-  // Special
-  'night-10': GLYPH.moonStar,
-  'dayxp-5000': GLYPH.burst,
-  'deep-14': GLYPH.hourglass,
-
-  // The five hidden ones, drawn only once they have been earned — until then
-  // the padlock is the whole truth about them and Mark never asks for these.
-  'hidden-nocturne': GLYPH.moonStar,
-  'hidden-polymath': GLYPH.globe,
-  'hidden-iron-will': GLYPH.shield,
-  'hidden-10k-hours': GLYPH.hourglass,
-  'hidden-ascended': GLYPH.crown,
-};
-
-/** The badge's own drawing: its exception if it has one, else its family's. */
-function glyphFor(badge: Badge): ReactNode {
-  return BADGE_GLYPH[badge.id] ?? METRIC_GLYPH[badge.metric as Metric] ?? GLYPH.star;
-}
-
-/** The six headings, drawn. The same drawing the category's badges carry. */
-const CATEGORY_GLYPH: Record<Category, ReactNode> = {
-  Productivity: GLYPH.target,
-  Consistency: GLYPH.flame,
-  Learning: GLYPH.book,
-  Mastery: GLYPH.lattice,
-  Milestones: GLYPH.trophy,
-  Special: GLYPH.star,
-};
-
-function pretty(iso: string | null): string {
-  if (!iso) return '';
-  const when = new Date(iso);
-  if (Number.isNaN(when.getTime())) return '';
-  return when.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-}
-
-/**
- * "2h ago", "1d ago", "3w ago".
- *
- * Relative rather than absolute on the recent cards because the whole reason
- * they are at the top is that they are news, and "Earned 2h ago" is news in a
- * way that "Earned 28 Apr" is not. The list below prints the date, which is
- * the right form for a row somebody is scrolling past.
- */
-function ago(iso: string | null): string {
-  if (!iso) return '';
-  const when = new Date(iso).getTime();
-  if (Number.isNaN(when)) return '';
-  const mins = Math.max(0, Math.round((Date.now() - when) / 60000));
-  if (mins < 60) return `${mins || 1}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  const weeks = Math.round(days / 7);
-  if (weeks < 5) return `${weeks}w ago`;
-  return pretty(iso);
-}
-
-/**
- * A badge's mark: a hexagon, the thing the badge is about, and its rank.
- *
- * One shape for every badge and the tier carried in its colour, so a reader
- * scanning the wall reads difficulty from the hue rather than from a word. The
- * hexagon rather than a circle because the wall is the one page in this app
- * that is allowed to look like a game.
- *
- * ## The drawing is the badge's, earned or not
- *
- * It used to be a tick once a badge was won. That made the picture a report on
- * the reader rather than a picture of the badge, and on an account with
- * seventy earned it turned two thirds of the wall into the same drawing
- * repeated. Earning is said by the tint, the solid rim and the rosette in the
- * corner; the hexagon keeps saying what the badge is. The padlock survives for
- * the one case where it is the whole truth: a hidden badge nobody has been
- * told the shape of.
- *
- * ## Pips are the rung
- *
- * One to five, along the top edge, in the tier's own tone. The colour already
- * carries difficulty for a reader who has learned it; the pips are the same
- * fact counted, so it can be read on the first visit and off a screenshot. A
- * secret badge draws none: its tier is one more thing nobody has been told.
- */
-function Mark({ badge, size }: { badge: Badge; size?: 'lg' }) {
-  const secret = badge.hidden && !badge.earned;
   return (
-    <span
-      className={`ac-mark tier-${badge.tier}${badge.earned ? ' is-earned' : ''}${secret ? ' is-secret' : ''}${size === 'lg' ? ' is-lg' : ''}`}
-      aria-hidden="true"
-    >
-      <svg viewBox="0 0 32 32" className="ac-mark-hex">
-        <path d="M16 1.6 29 9v14L16 30.4 3 23V9z" />
-      </svg>
-      <svg
-        viewBox="0 0 24 24"
-        className="ac-mark-glyph"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={badge.earned ? 2.1 : 1.8}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        {secret ? GLYPH.lock : glyphFor(badge)}
-      </svg>
-
-      {!secret && (
-        <span className="ac-pips">
-          {Array.from({ length: badge.tier }, (_, index) => (
-            <i key={index} />
-          ))}
-        </span>
-      )}
-
-      {badge.earned && (
-        <span className="ac-mark-tick">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 12.5 9.5 17 19 7.5" />
-          </svg>
-        </span>
-      )}
+    <span className="rc-figure">
+      <span className="rc-num">{text}</span>
+      {unit && <span className="rc-unit">{unit}</span>}
     </span>
   );
 }
 
-/** One of the four cards along the top — the badges most recently earned. */
-function RecentCard({ badge }: { badge: Badge }) {
+// ---------------------------------------------------------------------------
+// Logged records
+// ---------------------------------------------------------------------------
+/** The one chevron this page folds things with, pointing right until open. */
+function Caret() {
   return (
-    <li className={`ac-recent-card tier-${badge.tier}`}>
-      <Mark badge={badge} size="lg" />
-      <strong>{badge.name}</strong>
-      <span className="ac-quiet">{badge.description}</span>
-      <div className="ac-recent-foot">
-        <span className="ac-xp">+{badge.xp_reward} XP</span>
-        <span className="ac-quiet">Earned {ago(badge.earned_at)}</span>
-      </div>
-    </li>
+    <svg className="rc-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="2.4" aria-hidden="true">
+      <path d="m9 6 6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 
 /**
- * One badge in the wall.
+ * A heading, and the milestones under it once it is opened.
  *
- * A tile rather than a full-width row. The row put the mark, the name, the
- * bar and the score on one line and gave the description whatever was left,
- * which on a wide screen was one badge every sixty pixels of height and eight
- * hundred pixels of empty middle. Three or four tiles across is the same
- * hundred badges in a third of the scroll, and it puts badges beside each
- * other, which is how a wall is read — the eye compares neighbours.
- *
- * The tile is the same size earned or locked. What changes is the tint and the
- * foot: a date on one, a bar on the other. Earned tiles carry their tier's
- * colour across the whole card rather than only the hexagon, so "what have I
- * got" is answerable from across the room and before any word is read.
+ * The head is a label and is drawn as one. It used to carry the same tick its
+ * children carry, filled when every one of them was reached, which made a
+ * category look like a milestone that had been achieved — and "Competitive
+ * Math" is a folder the account typed, not something anybody did. The count
+ * stays, because "2 of 5" is what makes a shut heading worth reading; it is
+ * metadata about the group rather than a claim about it. Which categories
+ * become groups at all is decided in utils/records — see `milestoneGroups`.
  */
-function BadgeTile({ badge }: { badge: Badge }) {
-  const secret = badge.hidden && !badge.earned;
-  const share = badge.threshold > 0 ? Math.min(1, badge.value / badge.threshold) : 0;
-
-  return (
-    <li className={`ac-tile tier-${badge.tier}${badge.earned ? ' is-earned' : ''}${secret ? ' is-secret' : ''}`}>
-      <Mark badge={badge} />
-
-      <div className="ac-tile-text">
-        <div className="ac-tile-top">
-          <strong>{badge.name}</strong>
-          {/* A secret badge's rank is withheld with the rest of it — the word
-              "Legendary" beside five blanked rows says which five they are. */}
-          <span className="ac-rank">{secret ? 'Hidden' : badge.tier_label}</span>
-        </div>
-        <span className="ac-quiet">{badge.description}</span>
-        {badge.title && <em className="ac-title">Title unlocked · {badge.title}</em>}
-      </div>
-
-      <div className="ac-tile-foot">
-        {badge.earned ? (
-          <span className="ac-done">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="9" />
-              <path d="M8 12.5l2.6 2.6L16 9.5" />
-            </svg>
-            Earned {pretty(badge.earned_at)}
-          </span>
-        ) : secret ? (
-          /* No bar and no figures: the server sent neither, and inventing an
-             empty one would say "you are at zero" about a threshold nobody
-             has been told. */
-          <span className="ac-quiet ac-secret-note">Hidden until earned</span>
-        ) : (
-          <div className="ac-progress">
-            <div className="ac-bar" role="presentation">
-              <i style={{ width: `${Math.round(share * 100)}%` }} />
-            </div>
-            <span className="ac-quiet ac-figures">
-              {badge.value.toLocaleString()} / {badge.threshold.toLocaleString()}
-            </span>
-          </div>
-        )}
-
-        {/* A secret badge's score is withheld with everything else about it.
-            The server blanks the name, the threshold and the progress but
-            still sends `xp_reward`, and printing it undoes the rest: four
-            hidden tiles at +1,000 and one at +5,000 tells a reader exactly
-            which of the five is the monster. */}
-        {secret ? (
-          <span className="ac-xp" title="Withheld until it is earned">??? XP</span>
-        ) : (
-          <span
-            className={`ac-xp${badge.earned ? ' is-earned' : ''}`}
-            title={`${badge.tier_label} · worth ${badge.xp_reward} toward your achievement score`}
-          >
-            +{badge.xp_reward} XP
-          </span>
-        )}
-      </div>
-    </li>
-  );
-}
-
-/**
- * One half of the wall, headed by what it is and how many are in it.
- *
- * Locked and earned are drawn as two grids rather than one, in that order, and
- * neither is behind a control: a toggle would make the reader ask twice for a
- * page whose whole job is to answer "where am I" once. The heading carries the
- * count, so the split is also the tally — "Earned · 71" is the sentence the
- * ring at the top of the page draws as an arc.
- */
-function Wall({ title, note, badges }: { title: string; note: string; badges: Badge[] }) {
-  if (badges.length === 0) return null;
-  return (
-    <>
-      <div className="ac-wall-head">
-        <h3>
-          {title} <span className="ac-wall-count">{badges.length}</span>
-        </h3>
-        <span className="ac-quiet">{note}</span>
-      </div>
-      <ul className="ac-grid">
-        {badges.map((badge) => (
-          <BadgeTile badge={badge} key={badge.id} />
-        ))}
-      </ul>
-    </>
-  );
-}
-
-/**
- * One of the three figures beside the ring.
- *
- * The drawing is not decoration: three numbers of the same size in a row read
- * as one table, and the reader has to get to the label under each before they
- * know which is which. A trophy, a flame and a sparkle are told apart before
- * they are read.
- */
-function Stat({
-  glyph,
-  tone,
-  value,
-  label,
-  note,
+function GroupRow({
+  entry,
+  open,
+  onToggle,
+  onPick,
 }: {
-  glyph: ReactNode;
-  tone: string;
-  value: string;
-  label: string;
-  note: string;
+  entry: MilestoneGroup;
+  open: boolean;
+  onToggle: () => void;
+  onPick: (row: RecordRow) => void;
 }) {
+  const total = entry.children.length;
+  const done = entry.reached === total;
+
   return (
-    <div className={`ac-stat tone-${tone}`}>
-      <div className="ac-stat-top">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          {glyph}
-        </svg>
-        <strong>{value}</strong>
-      </div>
-      <span className="ac-stat-label">{label}</span>
-      <span className="ac-quiet">{note}</span>
-    </div>
+    <li className={`rc-key${open ? ' is-open' : ''}${done ? ' is-done' : ''}`}>
+      <button type="button" className="rc-key-head" aria-expanded={open} onClick={onToggle}>
+        <Caret />
+        <span className="rc-key-name">{entry.name}</span>
+        <span className="rc-key-n">
+          {entry.reached} of {total}
+        </span>
+      </button>
+
+      {open && (
+        <ul className="rc-key-kids">
+          {entry.children.map((row) => (
+            <li key={row.id} className={row.achieved_on ? 'is-done' : ''}>
+              <button type="button" onClick={() => onPick(row)}>
+                <span className="rc-mile-tick" aria-hidden="true">
+                  {row.achieved_on ? '✓' : ''}
+                </span>
+                <span className="rc-mile-name">{row.name}</span>
+                <span className="rc-mile-when">{formatOn(row.achieved_on)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
   );
 }
 
-/** The completion ring. One arc, drawn as a stroked circle. */
-function Ring({ share }: { share: number }) {
-  const radius = 42;
-  const circumference = 2 * Math.PI * radius;
+/**
+ * The evolution of one record at card size.
+ *
+ * No axis, no labels, no numbers — the trail underneath carries those. This
+ * draws the *shape*, which is the one thing a column of figures does not give
+ * you at a glance.
+ *
+ * It plots how good each entry was rather than how large, so a record measured
+ * downward still climbs. That is a real decision and not a cosmetic one: a
+ * mile time improving from 6:10 to 5:40 draws as a falling line on a raw axis,
+ * and a falling line on a card headed "personal best" reads as decline to
+ * everyone who does not stop to check the units. The full chart lower down
+ * plots the raw values, because it has an axis to say what they are.
+ */
+function Spark({ best }: { best: Best }) {
+  const values = best.history.filter((row) => row.achieved_on).map((row) => row.value);
+  if (values.length < 2) return null;
+
+  const low = Math.min(...values);
+  const high = Math.max(...values);
+  const span = high - low || 1;
+  const W = 132;
+  const H = 30;
+
+  const points = values.map((value, i) => {
+    const good = best.direction === 'lower' ? (high - value) / span : (value - low) / span;
+    return [3 + (i * (W - 6)) / (values.length - 1), H - 4 - good * (H - 8)] as const;
+  });
+  const path = points.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x},${y}`).join(' ');
+  const [lastX, lastY] = points[points.length - 1]!;
+
   return (
-    <div className="ac-ring">
-      <svg viewBox="0 0 100 100">
-        <circle className="ac-ring-track" cx="50" cy="50" r={radius} />
-        <circle
-          className="ac-ring-arc"
-          cx="50"
-          cy="50"
-          r={radius}
-          strokeDasharray={circumference}
-          strokeDashoffset={circumference * (1 - share)}
-        />
+    <svg className="rc-spark" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
+      <path className="rc-spark-line" d={path} />
+      <circle className="rc-spark-dot" cx={lastX} cy={lastY} r="3" />
+    </svg>
+  );
+}
+
+/**
+ * One record, at the size the page's argument deserves.
+ *
+ * The card grows with the history, because a card that looks the same after
+ * five entries as after one has nothing to say about the four in between:
+ *
+ *     1 entry     the figure and the day
+ *     2-3         and the shape of it
+ *     4+          and the figures themselves — 18 → 20 → 21 → 23 → 25
+ *
+ * That last line is the page's thesis written out, and it is the reason the
+ * table stores an entry per row rather than a best per record. Somebody who
+ * has come back to a record five times should be able to see all five without
+ * opening anything.
+ */
+/**
+ * The glyph a category wears, on the card chips and the history rows.
+ *
+ * The layout draws a different mark for each category. There is no
+ * category→icon mapping anywhere in the app to reuse — the subject icons in
+ * services/subjects are image URLs keyed on *subjects*, which categories are
+ * not — so this is the map, over the names the categories actually take, with
+ * `trophy` under anything unlisted. Matching on a lowercased name rather than
+ * an id because a category here is free text the reader typed.
+ *
+ * The icon set (components/Icon) has no note, bracket or barbell in it, so
+ * these are the nearest thing it does have rather than the drawing's exact
+ * glyphs. The shape of the chip is what the layout is; the picture inside it
+ * is a detail the set can grow into.
+ */
+const CATEGORY_ICON: Record<string, IconName> = {
+  coding: 'monitor',
+  'competitive math': 'target',
+  math: 'target',
+  music: 'star',
+  habits: 'checklist',
+  fitness: 'flame',
+  running: 'zap',
+  training: 'timer',
+  research: 'lightbulb',
+  'machine learning': 'database',
+  summit: 'sprout',
+  reading: 'scroll',
+};
+
+function catIcon(category: string): IconName {
+  return CATEGORY_ICON[category.trim().toLowerCase()] ?? 'trophy';
+}
+
+/**
+ * A figure split into the number and the thing it is measured in.
+ *
+ * The layout sets the figure large and its unit small underneath it, which
+ * `formatValue` cannot give as one string. Rather than a second formatter with
+ * its own rounding — two places deciding what 133.5 looks like is how they end
+ * up disagreeing — this takes what `formatValue` produced and cuts it.
+ *
+ * Minutes are the case that has to be excluded by name: "4h 18m" is one figure
+ * with a space in it, and splitting on the last space would print "4h" over
+ * "18m".
+ */
+function splitValue(value: number, unit: string, target = 0): [string, string] {
+  const whole = formatValue(value, unit, target);
+
+  if (target > 0) {
+    const cut = whole.indexOf(' / ');
+    if (cut > 0) return [whole.slice(0, cut), whole.slice(cut + 1)];
+  }
+  if (unit && unit !== 'points' && unit !== 'minutes') {
+    const cut = whole.lastIndexOf(' ');
+    if (cut > 0) return [whole.slice(0, cut), whole.slice(cut + 1)];
+  }
+  return [whole, ''];
+}
+
+function BestCard({ best, onOpen }: { best: Best; onOpen: () => void }) {
+  const dated = best.history.filter((row) => row.achieved_on).length;
+  const steps = trail(best);
+
+  return (
+    <li className={`rc-best${best.fresh ? ' is-fresh' : ''}`}>
+      <button type="button" onClick={onOpen}>
+        <span className="rc-best-head">
+          <span className="rc-best-ico" aria-hidden="true">
+            <Icon name={catIcon(best.category)} />
+          </span>
+          <span className="rc-best-cat">{best.category || 'Uncategorised'}</span>
+        </span>
+        <span className="rc-best-name">{best.name}</span>
+        <span className="rc-best-value">{formatValue(best.value, best.unit, best.target)}</span>
+        <span className="rc-best-label">Personal best</span>
+
+        {dated >= 2 && <Spark best={best} />}
+
+        {dated >= 4 && (
+          <span className="rc-best-trail">
+            {steps.map((step, i) => (
+              <span key={`${step}-${i}`} className={i === steps.length - 1 ? 'is-now' : undefined}>
+                {step}
+              </span>
+            ))}
+          </span>
+        )}
+
+        {best.fresh ? (
+          <span className="rc-best-new">New record <Icon name="flame" /></span>
+        ) : best.gain > 0 ? (
+          <span className="rc-best-gain">↑ {gainText(best)} since first</span>
+        ) : (
+          <span className="rc-best-gain is-quiet">
+            {best.entries > 1 ? 'No change yet' : 'First entry'}
+          </span>
+        )}
+
+        <span className="rc-best-when">{formatOn(best.on)}</span>
+      </button>
+    </li>
+  );
+}
+
+/**
+ * One row of recent history: what it was, when, and what it beat.
+ *
+ * The difference between this and a table row is `moment`: whether the entry
+ * beat everything before it, and by how much. A record being broken is the
+ * only event on this page worth stopping at, so it is the only one drawn in
+ * gold and the only one carrying its own figure — everything else is context
+ * for it, which is what makes the list read as a story rather than as an audit
+ * of things that were typed in.
+ *
+ * A milestone has no `moment`: nothing was beaten, it happened.
+ *
+ * ## Six columns, and why the date moved back onto the row
+ *
+ * This was a dotted spine with the date written once above everything that
+ * happened under it — two records set on one afternoon being one afternoon.
+ * Drawn to the layout it is a flat list, so the date comes back per row and
+ * pays for itself by making every row independently readable: the rows are
+ * now sortable by improvement as well as by date, and under that ordering a
+ * day heading is grouping by something the list is no longer sorted on.
+ */
+function Entry({
+  row,
+  moment,
+  onOpen,
+}: {
+  row: RecordRow;
+  moment?: Moment;
+  onOpen: () => void;
+}) {
+  const step = moment ? stepText(moment) : '';
+
+  return (
+    <li className={`${row.kind === 'milestone' ? 'is-milestone' : ''}${
+      moment?.broke ? ' is-record' : ''
+    }`}>
+      <button type="button" className="rc-rec" onClick={onOpen}>
+        <span className="rc-rec-ico" aria-hidden="true">
+          <Icon name={row.kind === 'milestone' ? 'medal' : catIcon(row.category)} />
+        </span>
+
+        <span className="rc-rec-main">
+          <span className="rc-rec-name">{row.name}</span>
+          {moment?.broke ? (
+            <span className="rc-rec-note is-record">
+              New record{step && ` · ${step}`}
+            </span>
+          ) : moment?.first ? (
+            <span className="rc-rec-note">
+              First entry{row.category ? `: ${row.category}` : ''}
+            </span>
+          ) : (
+            <span className="rc-rec-note">
+              {row.kind === 'milestone' ? 'Milestone' : 'Personal best'}
+            </span>
+          )}
+        </span>
+
+        {/* Empty rather than absent when a row has no category: the grid has
+            six tracks and a missing cell would slide the date, the figure and
+            the change one column left on that row alone. */}
+        <span className="rc-rec-cat">
+          {row.category ? <em>{row.category}</em> : null}
+        </span>
+
+        <span className="rc-rec-when">{formatOn(row.achieved_on)}</span>
+
+        <span className="rc-rec-value">
+          {row.kind === 'record' ? (
+            <>
+              <em>{splitValue(row.value, row.unit, row.target)[0]}</em>
+              {splitValue(row.value, row.unit, row.target)[1] && (
+                <i>{splitValue(row.value, row.unit, row.target)[1]}</i>
+              )}
+            </>
+          ) : (
+            <em>-</em>
+          )}
+        </span>
+
+        {/* The change carries the row's colour: a step is good news whichever
+            direction the record is measured in, and `stepText` has already
+            signed it. Nothing at all for a milestone, which beat nothing. */}
+        <span className={`rc-rec-step${step ? ' is-up' : ''}`}>
+          {step ? <>&#8599; {step}</> : ''}
+        </span>
+      </button>
+    </li>
+  );
+}
+
+/**
+ * The evolution of one record, as a line.
+ *
+ * Drawn rather than charted with a library: it is one series of at most a
+ * dozen points and the whole thing is forty lines of SVG. The y-axis is padded
+ * off the range rather than starting at zero — a score that went 18 to 25 on a
+ * 0-30 axis is a flat line, and the flatness would be a lie about a 39%
+ * improvement.
+ *
+ * Raw values, unlike the sparkline on the cards, which plots goodness so the
+ * line always climbs. This one has an axis to say what the numbers are, so
+ * inverting it would be inventing a scale nobody asked for — but an axis is
+ * only read by somebody already looking, so a record measured downward says so
+ * above the chart rather than leaving a descending line to be read as decline.
+ *
+ * The ringed point is the **best**, not the last one. Those are the same point
+ * most of the time and the difference is exactly the case worth drawing: a
+ * record with a bad day at the end had its record earlier, and ringing the
+ * final dot would point at the wrong entry on the one chart where it matters.
+ */
+function Evolution({ best }: { best: Best }) {
+  const points = best.history.filter((row) => row.achieved_on);
+  if (points.length < 2) {
+    return (
+      <p className="rc-empty">
+        One entry so far. Log "{best.name}" again when you beat it to see a line here.
+      </p>
+    );
+  }
+
+  const values = points.map((row) => row.value);
+  const peak = points.reduce(
+    (top, row) => (isBetter(row.value, top.value, best.direction) ? row : top),
+    points[0]!,
+  );
+  const low = Math.min(...values);
+  const high = Math.max(...values);
+  const pad = (high - low || Math.abs(high) || 1) * 0.2;
+  const floor = low - pad;
+  const ceil = high + pad;
+
+  const W = 640;
+  const H = 190;
+  const L = 44;
+  const B = 26;
+
+  const x = (i: number) => L + (i * (W - L - 14)) / Math.max(1, points.length - 1);
+  const y = (v: number) => H - B - ((v - floor) / (ceil - floor || 1)) * (H - B - 14);
+
+  const path = points.map((row, i) => `${i === 0 ? 'M' : 'L'}${x(i)},${y(row.value)}`).join(' ');
+  const area = `${path} L${x(points.length - 1)},${H - B} L${x(0)},${H - B} Z`;
+
+  return (
+    <div className="rc-ev">
+      <svg viewBox={`0 0 ${W} ${H}`} className="rc-ev-svg" role="img"
+           aria-label={
+             `${best.name} over time, from ${values[0]} to ${values[values.length - 1]}` +
+             `, best ${peak.value}, where ${best.direction} is better`
+           }>
+        <defs>
+          <linearGradient id="rc-ev-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="currentColor" stopOpacity=".26" />
+            <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+
+        {[0, 0.5, 1].map((step) => {
+          const value = floor + (ceil - floor) * (1 - step);
+          return (
+            <g key={step}>
+              <line className="rc-ev-grid" x1={L} y1={14 + step * (H - B - 14)} x2={W - 8}
+                    y2={14 + step * (H - B - 14)} />
+              <text className="rc-ev-axis" x={L - 8} y={18 + step * (H - B - 14)} textAnchor="end">
+                {Math.round(value)}
+              </text>
+            </g>
+          );
+        })}
+
+        <path className="rc-ev-area" d={area} fill="url(#rc-ev-fill)" />
+        <path className="rc-ev-line" d={path} />
+
+        {points.map((row, i) => (
+          <g key={row.id}>
+            <circle className={`rc-ev-dot${row.id === peak.id ? ' is-best' : ''}`}
+                    cx={x(i)} cy={y(row.value)} r={row.id === peak.id ? 6 : 4} />
+            <text className="rc-ev-point" x={x(i)} y={y(row.value) - 12} textAnchor="middle">
+              {Math.round(row.value * 10) / 10}
+            </text>
+            <text className="rc-ev-when" x={x(i)} y={H - 8} textAnchor="middle">
+              {row.achieved_on.slice(5).replace('-', '/')}
+            </text>
+          </g>
+        ))}
       </svg>
-      <div className="ac-ring-face">
-        <strong>{Math.round(share * 100)}%</strong>
-      </div>
     </div>
   );
 }
 
-export default function Achievements() {
-  useDocumentTitle('Achievements');
+// ---------------------------------------------------------------------------
+// Derived records — the page as it was
+// ---------------------------------------------------------------------------
+function DerivedCard({ record }: { record: BestRecord }) {
+  const unset = record.amount <= 0;
+  return (
+    <li className={`rc-card${unset ? ' is-unset' : ''}`}>
+      <span className="rc-ico" aria-hidden="true">
+        <Glyph name={record.icon} />
+      </span>
+      <span className="rc-label">{record.label}</span>
+      {unset ? (
+        <span className="rc-none">Not set yet</span>
+      ) : (
+        <Counted amount={record.amount} decimals={record.decimals} unit={record.unit} />
+      )}
+      {record.on && <span className="rc-when">{longDate(record.on)}</span>}
+    </li>
+  );
+}
 
-  // `useAuth`, not `useUserData`: this page wants a name to key its own
-  // fetch on, and asking `useUserData` for one is what makes the app read the
-  // account's entire task list. See hooks/useUserData.
-  const { username } = useAuth();
-  const call = useCallback(
+function ChaseRow({ row }: { row: RecordChase }) {
+  const shown = useCountUp(row.percent);
+  const remaining =
+    row.decimals > 0 ? row.remaining.toFixed(row.decimals) : Math.round(row.remaining).toLocaleString();
+  const target =
+    row.decimals > 0 ? row.target.toFixed(row.decimals) : Math.round(row.target).toLocaleString();
+
+  return (
+    <li className={`rc-chase${row.held ? ' is-held' : ''}`}>
+      <div className="rc-chase-head">
+        <span className="rc-chase-ico" aria-hidden="true">
+          <Glyph name={row.icon} />
+        </span>
+        <span className="rc-chase-label">{row.label}</span>
+        <span className="rc-chase-target">
+          {target}
+          {row.unit ? ` ${row.unit}` : ''}
+        </span>
+      </div>
+
+      <div className="rc-track" role="progressbar" aria-valuenow={Math.round(row.percent)}
+           aria-valuemin={0} aria-valuemax={100}
+           aria-label={`${row.label}: ${row.current} of ${row.target}`}>
+        <i style={{ width: `${shown}%` }} />
+      </div>
+
+      <p className="rc-chase-foot">
+        {row.held ? (
+          <strong>Holding it: {row.window} is your best yet.</strong>
+        ) : (
+          <>
+            <strong>
+              {remaining}
+              {row.unit ? ` ${row.unit}` : ''} to go
+            </strong>
+            . {row.window} is at{' '}
+            {row.decimals > 0 ? row.current.toFixed(row.decimals) : row.current.toLocaleString()}
+            {row.unit ? ` ${row.unit}` : ''}.
+          </>
+        )}
+      </p>
+    </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The three tabs
+// ---------------------------------------------------------------------------
+type RecordsView = 'bests' | 'badges';
+
+/**
+ * One page, two answers to "how far have I come": the bests you logged and
+ * the badge wall. This page was called Records, and its old addresses
+ * redirect here; its Growth tab went back to the analytics page. Each tab is its own URL, so the rail, the back button and a
+ * pasted link agree about which is open.
+ */
+const VIEWS: { key: RecordsView; label: string; path: string; title: string }[] = [
+  { key: 'bests', label: 'Personal bests', path: '/achievements', title: 'Achievements' },
+  { key: 'badges', label: 'Badges', path: '/achievements/badges', title: 'Badges' },
+];
+
+function viewOf(pathname: string): RecordsView {
+  return VIEWS.find((view) => view.path === pathname)?.key ?? 'bests';
+}
+
+// ---------------------------------------------------------------------------
+export default function Achievements() {
+  const view = viewOf(useLocation().pathname);
+  useDocumentTitle(VIEWS.find((one) => one.key === view)!.title);
+
+  const account = useUserData();
+  const { username } = account;
+  const { prefs } = useSettings();
+
+  const seriesCall = useCallback(
     () =>
       username
-        ? service.getAchievements()
-        : Promise.resolve({ success: false as const, message: 'Sign in to see your badges.' }),
+        ? growthService.series(0)
+        : Promise.resolve({ success: false as const, message: 'Sign in to see your records.' }),
     [username],
   );
-  const { data, error, loading, refreshing, reload } = useApi(call, [username]);
+  const series = useApi<GrowthSeries>(seriesCall, [username]);
 
-  const [filter, setFilter] = useState<Filter>('All Achievements');
+  const listCall = useCallback(
+    () =>
+      username
+        ? recordService.list()
+        : Promise.resolve({ success: false as const, message: 'Sign in to see your records.' }),
+    [username],
+  );
+  const logged = useApi<{ records: RecordRow[] }>(listCall, [username]);
+
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [modal, setModal] = useState<{ open: boolean; kind: RecordKind; entry?: RecordRow }>({
+    open: false,
+    kind: 'record',
+  });
+
+  /* The page's category, and there is one of it. The chips above the bests and
+     the select above the history are two views of the same filter rather than
+     two filters: a page that says "Academic" in one place and "All" in another
+     is a page you have to read twice to know what you are looking at. Both
+     controls stay, because each is where you want it when you are in that part
+     of the page, and both write here. */
+  const [category, setCategory] = useState('All');
+  /* The bests row draws TOP_BESTS and this opens it to everything under the
+     chosen chip. Reset when the chip changes: "show all" meant all of the
+     category it was pressed in, and carrying it across reads as the filter
+     having failed. */
+  const [allBests, setAllBests] = useState(false);
+  const [pick, setPick] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  /* The order the history opens in is the account's, the same way the four
+     task_* preferences work: this is where the visit starts, and the toolbar
+     still changes it for the visit. */
+  const [sort, setSort] = useState<Sort>(prefs.records_sort);
+  useEffect(() => setSort(prefs.records_sort), [prefs.records_sort]);
+  /** How many days of history are drawn before "show more". */
+  const [days, setDays] = useState(DAYS_SHOWN);
 
-  /* "View All" — clear both narrowings and go to the list. Scrolled rather
-     than routed because the full list is already on this page. */
-  const listRef = useRef<HTMLElement | null>(null);
-  const showAll = useCallback(() => {
-    setFilter('All Achievements');
-    setQuery('');
-    listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  /* The milestones section, and which key milestones inside it are open.
+     Both start shut. A key milestone that opened by default would put the page
+     back where it was — eleven rows — and the header and each key row carry
+     their own counts, so nothing is hidden without saying how much. */
+  const [milesShut, setMilesShut] = useState(false);
+  const [openKeys, setOpenKeys] = useState<Record<string, boolean>>({});
+  const toggleKey = useCallback(
+    (key: string) => setOpenKeys((open) => ({ ...open, [key]: !open[key] })),
+    [],
+  );
+
+  const rows = useMemo(() => logged.data?.records ?? [], [logged.data]);
+  /* The grouping, once. Everything below reads this rather than regrouping the
+     rows for itself — see the note at the top of utils/records. */
+  const bests = useMemo(() => personalBests(rows), [rows]);
+  /** The record the hero states. Null until something has actually moved. */
+  const lead = useMemo(() => headline(bests), [bests]);
+  const counts = useMemo(() => tally(rows), [rows]);
+  const cats = useMemo(() => categoriesOf(rows), [rows]);
+  /** The four tiles. Named `tales` because `stories` is the function. */
+  const tales = useMemo(() => stories(bests), [bests]);
+  /* What each entry meant when it happened — read from every row, then looked
+     up per row that survives the toolbar. See `moments` in utils/records. */
+  const meant = useMemo(() => moments(bests), [bests]);
+  const milestones = useMemo(() => rows.filter((row) => row.kind === 'milestone'), [rows]);
+  const { groups: mileGroups, loose: looseMiles } = useMemo(() => milestoneGroups(rows), [rows]);
+
+  /** The record the evolution chart is drawing. Defaults to the richest one. */
+  const evolving = useMemo(() => {
+    const withHistory = bests.filter((best) => best.history.length > 1);
+    const chosen = bests.find((best) => best.name === pick);
+    return chosen ?? withHistory[0] ?? bests[0] ?? null;
+  }, [bests, pick]);
+
+  const shownBests = useMemo(
+    () => (category === 'All' ? bests : bests.filter((best) => best.category === category)),
+    [bests, category],
+  );
+
+  /* Back to the first page of days whenever the question changes. "Show more"
+     was asked of a list that no longer exists. */
+  const narrow = useCallback(<T,>(set: (value: T) => void) => (value: T) => {
+    set(value);
+    setDays(DAYS_SHOWN);
   }, []);
 
-  const badges = useMemo(() => data?.achievements ?? [], [data]);
+  /** The one category filter, from either of the two controls that write it. */
+  const pickCategory = useCallback((name: string) => {
+    setCategory(name);
+    // Both lists go back to their first page. "Show all 14" and "show more
+    // days" were both asked of a list that is now a different list.
+    setAllBests(false);
+    setDays(DAYS_SHOWN);
+  }, []);
 
-  /* The last four earned, newest first. A badge with no date sorts last rather
-     than being dropped: the date is written the first time a read sees it
-     earned, so the only rows without one are older than that mechanism. */
-  const recent = useMemo(
-    () =>
-      badges
-        .filter((badge) => badge.earned)
-        .sort((a, b) => (b.earned_at ?? '').localeCompare(a.earned_at ?? ''))
-        .slice(0, RECENT),
-    [badges],
+  const history = useMemo(
+    () => byDay(filterRows(rows, bests, { query, category, sort })),
+    [bests, category, query, rows, sort],
   );
 
-  /* The wall, filtered and searched — both halves of it, before the split. */
-  const shown = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return badges
-      .filter((badge) => filter === 'All Achievements' || badge.category === filter)
-      .filter(
-        (badge) =>
-          !needle ||
-          badge.name.toLowerCase().includes(needle) ||
-          badge.description.toLowerCase().includes(needle),
-      );
-  }, [badges, filter, query]);
-
-  /* Earned, hardest first — within its own half, which is the second one. On
-     a page that says "71 of 100" the interesting seventy-one are the Legendary
-     ones, not the first afternoon's Starters, so the half opens on those. */
-  const won = useMemo(
-    () => shown.filter((badge) => badge.earned).sort((a, b) => b.tier - a.tier || a.name.localeCompare(b.name)),
-    [shown],
+  // ---- writes -------------------------------------------------------------
+  const write = useCallback(
+    async (action: () => Promise<{ success: boolean; message?: string }>) => {
+      setBusy(true);
+      try {
+        const result = await action();
+        if (!result.success) {
+          setError(result.message ?? "That didn't work.");
+          return false;
+        }
+        setError(null);
+        await logged.reload();
+        return true;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [logged],
   );
 
-  /* Locked, easiest first, and within a rung the closest to done first — which
-     makes the top of this half literally the answer to "what is next". A
-     secret badge has no progress to sort on and arrives at 0, so the five sit
-     at the bottom of the Legendary rung, which is where they belong. */
-  const left = useMemo(
-    () =>
-      shown
-        .filter((badge) => !badge.earned)
-        .sort((a, b) => {
-          if (a.tier !== b.tier) return a.tier - b.tier;
-          const near = (badge: Badge) => (badge.threshold > 0 ? badge.value / badge.threshold : 0);
-          return near(b) - near(a) || a.name.localeCompare(b.name);
-        }),
-    [shown],
+  const saveRecord = useCallback(
+    async (draft: RecordDraft) => {
+      if (!username) return;
+      const ok = await write(() => recordService.save(draft));
+      if (ok) setModal({ open: false, kind: draft.kind });
+    },
+    [username, write],
   );
 
-  const hiddenLeft = useMemo(
-    () => badges.filter((badge) => badge.hidden && !badge.earned).length,
-    [badges],
+  const deleteRecord = useCallback(
+    async (entry: RecordRow) => {
+      if (!username) return;
+      const ok = await write(() => recordService.remove(entry.id));
+      if (ok) setModal({ open: false, kind: entry.kind });
+    },
+    [username, write],
   );
 
-  /* The arrival cascade. Bound to the read rather than to mount, so it
-     starts when there is something to animate — see hooks/usePageEntrance. */
-  const entering = usePageEntrance(!loading);
+  // ---- derived, as before -------------------------------------------------
+  const all: GrowthDay[] = useMemo(() => series.data?.growth_data ?? [], [series.data]);
+  const streak = Number(account.data?.stats?.current_streak) || 0;
+  const tasks = useMemo(() => account.data?.tasks ?? [], [account.data]);
+  const derived = useMemo(() => personalRecords(all, tasks, streak), [all, streak, tasks]);
+  const chase = useMemo(() => recordChase(all, streak), [all, streak]);
 
-  if (loading) return <Loading label="Reading your record" />;
-  if (error && !badges.length) return <ErrorState message={error} onRetry={reload} />;
+  /* The arrival cascade. All three reads have to land before there is a page
+     to animate — see hooks/usePageEntrance. */
+  const entering = usePageEntrance(
+    !series.loading && !account.loading && !logged.loading,
+  );
 
-  const earned = data?.earned ?? 0;
-  const total = data?.total ?? 0;
-  const share = total > 0 ? earned / total : 0;
+  if (series.loading || account.loading || logged.loading) {
+    return <Loading label="Loading your records" />;
+  }
+  if (series.error && !rows.length) {
+    return <ErrorState message={series.error} onRetry={series.reload} />;
+  }
+
+  const open = (kind: RecordKind, entry?: RecordRow) => setModal({ open: true, kind, entry });
 
   return (
-    <div className="ac-page">
-      <Ambient />
-      <div className={`ac-shell page-shell${entering ? ' pg-enter' : ''}`}>
-        {/* Rose, which is this page and nothing else in the rail. */}
-        <PageHero variant="achievements" tone="rose">
-          <header className="ac-head">
-            <div>
-              <h1>Achievements</h1>
-              <p className="ac-quiet">Celebrate your progress. Every step forward counts.</p>
-            </div>
-            <div className="ac-head-tools">
-              <label className="ac-select">
-                <select value={filter} onChange={(event) => setFilter(event.target.value as Filter)}>
-                  {FILTERS.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <RefreshButton busy={refreshing} onRefresh={reload} />
-            </div>
-          </header>
-        </PageHero>
+    <div className={`rc-page${entering ? ' pg-enter' : ''}`}>
+      {/* ---- 1. Hero ------------------------------------------------------
+          The page's question, answered before anybody scrolls. "Your best, and
+          the day you hit it" was accurate and it was also a label; the thing
+          this page is actually for is the distance, so the distance is the
+          headline and the record that travelled furthest supplies it — see
+          `headline` in utils/records for which one that is and why it is
+          chosen on the share of the start rather than the raw gain.
 
-        {error && <ErrorState message={error} onRetry={reload} />}
+          The buttons drop to secondary underneath. They are how the page gets
+          filled and they are not what it is about.
 
-        {/* The band. The ring is the wall; the three figures beside it are the
-            account — what it has earned, whether it is still turning up, and
-            what the wall scores. */}
-        <section className="ac-band">
-          <div className="ac-band-ring">
-            <Ring share={share} />
-            <span className="ac-quiet">Overall Completion</span>
-          </div>
-
-          <Stat
-            glyph={GLYPH.trophy}
-            tone="gold"
-            value={String(earned)}
-            label="Achievements Earned"
-            note={`/ ${total} total`}
-          />
-
-          <Stat
-            glyph={GLYPH.flame}
-            tone="flame"
-            value={String(data?.streak ?? 0)}
-            label="Day Streak"
-            note={(data?.streak ?? 0) > 0 ? 'Keep it going!' : 'Finish a task to start one'}
-          />
-
-          {/* Not the account's XP, and it does not say it is. The badges are
-              weighted by difficulty and this is their sum — see the note on the
-              endpoint. Printed against the full wall, because the number on its
-              own says nothing, and labelled "score" rather than "XP" because a
-              reader who reads it as XP will wait for a level that never comes. */}
-          <Stat
-            glyph={GLYPH.sparkle}
-            tone="violet"
-            value={(data?.achievement_xp ?? 0).toLocaleString()}
-            label="Achievement Score"
-            note={`of ${(data?.total_xp ?? 0).toLocaleString()} on the wall`}
-          />
-        </section>
-
-        {data?.title && (
-          <p className="ac-title-banner">
-            You have earned the title <strong>{data.title}</strong>.
-          </p>
-        )}
-
-        {recent.length > 0 && (
-          <section className="ac-section">
-            <header className="ac-section-head">
-              <h2>Recently Earned</h2>
-              {/* It goes somewhere: it clears the filter and the search and
-                  puts the reader at the top of the full list, which is the only
-                  honest "all" on a page whose list is already here. A link that
-                  navigated away would be leaving the page it is on. */}
-              <button type="button" className="ac-view-all" onClick={showAll}>
-                View All
+          The trophy stays: it is this page's own mark and it sits in the
+          corner the range leaves empty. */}
+      <PageHero variant="records" tone="violet" className="rc-top">
+        <header className="rc-hero">
+          <div className="rc-hero-text">
+            <h1 className="rc-title">Achievements</h1>
+            {lead ? (
+              <>
+                <p className="rc-sub is-thesis">Your records</p>
+                <p className="rc-lead">
+                  <span className="rc-lead-span">
+                    <span className="rc-lead-from">{formatValue(lead.first, lead.unit)}</span>
+                    <span className="rc-lead-arrow" aria-hidden="true">→</span>
+                    <span className="rc-lead-to">{formatValue(lead.value, lead.unit)}</span>
+                  </span>
+                  <span className="rc-lead-tail">
+                    on <strong>{lead.name}</strong>
+                    <span className="rc-lead-dot" aria-hidden="true">·</span>
+                    <span className="rc-lead-gain">{gainText(lead)}</span> since your first
+                    attempt
+                  </span>
+                </p>
+              </>
+            ) : (
+              <p className="rc-sub">Your personal bests, how much you've improved and the badges you've earned.</p>
+            )}
+            {view === 'bests' && (
+            <div className="rc-hero-tools">
+              <button type="button" className="rc-btn is-primary" onClick={() => open('record')}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+                  <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+                </svg>
+                Add record
               </button>
-            </header>
-            <ul className="ac-recent">
-              {recent.map((badge) => (
-                <RecentCard badge={badge} key={badge.id} />
+              <button type="button" className="rc-btn" onClick={() => open('milestone')}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+                  <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+                </svg>
+                Add milestone
+              </button>
+            </div>
+            )}
+          </div>
+          <div className="rc-hero-art" aria-hidden="true"><Icon name="trophy" /></div>
+        </header>
+      </PageHero>
+
+      <nav className="rc-views" aria-label="Achievements sections">
+        {VIEWS.map((one) => (
+          <NavLink
+            key={one.key}
+            to={one.path}
+            end
+            className={({ isActive }) => `rc-view${isActive ? ' is-on' : ''}`}
+          >
+            {one.label}
+          </NavLink>
+        ))}
+      </nav>
+
+      {view === 'badges' && <BadgeWall />}
+
+      {view === 'bests' && (
+      <>
+      {error && <p className="rc-error">{error}</p>}
+
+      {/* ---- Four stories --------------------------------------------------
+          These were counts: personal records, milestones, categories, bests
+          this month. Every one was true and none of them was a record. "47
+          personal records" is a fact about how much you have written down, and
+          a page whose whole claim is *look how far you have come* answers it
+          with inventory.
+
+          So each tile is now something that happened — the biggest single
+          jump, the longest run of beating yourself, what was set this month,
+          what has stood unbeaten longest. How they are chosen is in
+          `stories` in utils/records; the short of it is that a tile with no
+          honest figure is not drawn at all, so this row is four wide on an
+          account with some history and one wide on a new one.
+
+          The counts did not want deleting, only demoting — they answer "how
+          much is in here", which is a real question and a small one. They are
+          the line underneath. */}
+      {tales.length > 0 && (
+        <ul className="rc-tiles">
+          {tales.map((story) => (
+            <li className={`rc-tile tone-${story.tone}`} key={story.key}>
+              <span className="rc-tile-ico" aria-hidden="true"><Icon name={story.icon} /></span>
+              <span className="rc-tile-figure">{story.figure}</span>
+              <span className="rc-tile-label">{story.label}</span>
+              <span className="rc-tile-detail">{story.detail}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {rows.length > 0 && (
+        <p className="rc-meta">
+          {counts.records} {counts.records === 1 ? 'entry' : 'entries'} logged
+          <span aria-hidden="true"> · </span>
+          {bests.length} {bests.length === 1 ? 'record' : 'records'}
+          <span aria-hidden="true"> · </span>
+          {counts.milestones} {counts.milestones === 1 ? 'milestone' : 'milestones'}
+          <span aria-hidden="true"> · </span>
+          {counts.categories} {counts.categories === 1 ? 'category' : 'categories'}
+        </p>
+      )}
+
+      {/* ---- 2. Personal bests ---------------------------------------------
+          There was a "Category records" section under this one, listing the
+          same bests a second time under their headings. Both sections asked
+          *what are my best things?* and answered it with the same rows in two
+          shapes, which is the page's biggest redundancy and cost it the room
+          the evolution chart now has.
+
+          So the categories became what they always were — a filter on this
+          section — and the chips moved into its header. Nothing is lost:
+          picking a heading gives every best under it rather than the six the
+          old list truncated to. */}
+      <section className="rc-section">
+        <div className="rc-section-head">
+          <h2 className="rc-section-title"><Icon name="trophy" /> Your best</h2>
+          {cats.length > 0 && (
+            <div className="rc-chips" role="group" aria-label="Filter by category">
+              {['All', ...cats].map((name) => (
+                <button key={name} type="button"
+                        className={`rc-chip${category === name ? ' is-on' : ''}`}
+                        aria-pressed={category === name}
+                        onClick={() => pickCategory(name)}>
+                  {name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {bests.length === 0 ? (
+          <p className="rc-empty">
+            Nothing logged yet. "Add record" just needs a name, a number and a date.
+          </p>
+        ) : shownBests.length === 0 ? (
+          <p className="rc-empty">No records under "{category}" yet.</p>
+        ) : (
+          <>
+            <ul className="rc-bests">
+              {(allBests ? shownBests : shownBests.slice(0, TOP_BESTS)).map((best) => (
+                <BestCard key={best.name} best={best}
+                          onOpen={() => open('record', best.history[best.history.length - 1])} />
               ))}
             </ul>
-          </section>
+            {shownBests.length > TOP_BESTS && (
+              <button type="button" className="rc-link rc-more"
+                      onClick={() => setAllBests((shown) => !shown)}>
+                {allBests
+                  ? 'Show fewer'
+                  : `Show all ${shownBests.length}${category === 'All' ? '' : ` in ${category}`}`}
+              </button>
+            )}
+          </>
         )}
+      </section>
 
-        <section className="ac-section">
-          <header className="ac-section-head">
-            <h2>Achievement Categories</h2>
-          </header>
-          <ul className="ac-cats">
-            {(data?.categories ?? []).map((category) => (
-              /* A chip is the filter it names. The row was five read-only
-                 gauges sitting directly above a list with a category filter on
-                 it — the control the reader wanted was already on screen and
-                 not connected to the thing that looked like it. */
-              <li className={`ac-cat cat-${category.name.toLowerCase()}`} key={category.name}>
-                <button
-                  type="button"
-                  aria-pressed={filter === category.name}
-                  onClick={() => setFilter(filter === category.name ? 'All Achievements' : category.name)}
-                >
-                  <span className="ac-cat-head">
-                    <span className="ac-cat-ico" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-                        {CATEGORY_GLYPH[category.name]}
-                      </svg>
-                    </span>
-                    <span className="ac-cat-text">
-                      <strong>{category.name}</strong>
-                      <span className="ac-quiet">
-                        {category.earned} / {category.total}
-                      </span>
-                    </span>
-                  </span>
-                  <span className="ac-bar" role="presentation">
-                    <i
-                      style={{
-                        width: `${category.total > 0 ? Math.round((category.earned / category.total) * 100) : 0}%`,
-                      }}
-                    />
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+      {/* ---- 3. Record evolution -------------------------------------------
+          This was the eighth thing on the page and it is the reason the page
+          exists. Analytics asks *how am I doing*; this asks *I used to be
+          there?* — and that difference is the only thing that makes Records a
+          separate destination rather than a tab. Burying it under the
+          timeline, the milestones and a search bar made it a footnote to
+          sections that are inventory.
+
+          So it sits directly under the bests, which are what it explains: the
+          cards give the figure and the shape, and this gives the whole series
+          with an axis to read it against. */}
+      {bests.length > 0 && evolving && (
+        <section className="rc-section rc-card">
+          <div className="rc-section-head">
+            <h2 className="rc-section-title is-card">
+              <span className="rc-head-ico" aria-hidden="true"><Icon name="trend" /></span>
+              Records timeline
+            </h2>
+            <div className="rc-ev-pick">
+              {/* A descending line is the good news on a record measured in
+                  time, and nothing on the chart said so. Said here, beside the
+                  name of the record it is true of. */}
+              {evolving.direction === 'lower' && (
+                <span className="rc-ev-dir">Lower is better</span>
+              )}
+              <select className="rc-select" value={evolving.name}
+                      aria-label="Which record to plot"
+                      onChange={(event) => setPick(event.target.value)}>
+                {bests.map((best) => (
+                  <option key={best.name} value={best.name}>
+                    {best.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* The toolbar sits on the chart rather than over the list it
+              filters, which is where the layout puts it and is also where it
+              does the most work: the search, the category and the sort narrow
+              the *rows*, and the rows are what the chart is drawn from, so one
+              strip at the top of the pair governs both halves of the section
+              instead of appearing to govern only the list under it. */}
+          {rows.length > 0 && (
+            <div className="rc-bar">
+              <label className="rc-bar-search">
+                <span className="rc-bar-ico" aria-hidden="true"><Icon name="search" /></span>
+                <input type="search" placeholder="Search records…" value={query}
+                       aria-label="Search records"
+                       onChange={(event) => narrow(setQuery)(event.target.value)} />
+              </label>
+
+              {/* The same filter the chips above set, and it shows what they
+                  set — so the section always says what it is showing without
+                  scrolling back up to look. */}
+              <select className="rc-select is-small" value={category}
+                      aria-label="Filter by category"
+                      onChange={(event) => pickCategory(event.target.value)}>
+                <option value="All">All categories</option>
+                {cats.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
+
+              <select className="rc-select is-small" value={sort}
+                      aria-label="Order the history"
+                      onChange={(event) => narrow(setSort)(event.target.value as Sort)}>
+                <option value="newest">Newest ↓</option>
+                <option value="oldest">Oldest ↑</option>
+                <option value="improvement">Biggest improvement</option>
+              </select>
+            </div>
+          )}
+
+          <div className="rc-ev-wrap">
+            <dl className="rc-ev-figs">
+              <div>
+                <dt>First record</dt>
+                <dd>{formatValue(evolving.first, evolving.unit)}</dd>
+              </div>
+              <div>
+                {/* "Latest best" — it is the best, and the best is not always
+                    the latest. The word that was wrong is the one the whole
+                    page turns on. */}
+                <dt>Personal best</dt>
+                <dd>{formatValue(evolving.value, evolving.unit)}</dd>
+              </div>
+              <div>
+                <dt>Improvement</dt>
+                <dd className={evolving.gain > 0 ? 'is-up' : undefined}>
+                  {evolving.gain > 0
+                    ? gainText(evolving)
+                    : formatValue(evolving.value - evolving.first, evolving.unit)}
+                </dd>
+              </div>
+              {evolving.gain > 0 && evolving.percent > 0 && (
+                <div>
+                  <dt>Since the start</dt>
+                  <dd className="is-up">↑ {Math.round(evolving.percent * 10) / 10}%</dd>
+                </div>
+              )}
+            </dl>
+            <Evolution best={evolving} />
+          </div>
         </section>
+      )}
 
-        <section className="ac-section" ref={listRef}>
-          <header className="ac-section-head">
-            <h2>All Achievements</h2>
-            <label className="ac-search">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                <circle cx="11" cy="11" r="7" />
-                <path d="m20 20-3.5-3.5" />
-              </svg>
-              <input
-                type="search"
-                value={query}
-                placeholder="Search achievements…"
-                onChange={(event) => setQuery(event.target.value)}
-                aria-label="Search achievements"
-              />
-            </label>
-          </header>
+      {/* ---- 4 & 5. History and milestones ---------------------------------
+          The timeline drew the twelve newest entries and a separate section at
+          the foot of the page drew all of them again with a search box over
+          it. Same rows, twice, and the second copy was a section in its own
+          right — the ninth thing to scroll past on a page of nine.
 
-          {shown.length === 0 ? (
-            <p className="ac-empty">Nothing matches that.</p>
-          ) : (
+          One list now, with the search, the category and the sort as a strip
+          across the top of it. They are necessary once there are a hundred
+          entries and they are not part of what the page is for, so they get a
+          toolbar rather than a destination.
+
+          And the list reads as history rather than as a log: the date is
+          written once for everything that happened under it, and an entry that
+          beat everything before it says so and by how much. Those readings are
+          `moments` in utils/records. */}
+      <section className="rc-section rc-card">
+        <div className="rc-section-head">
+          <h2 className="rc-section-title is-card">
+            <span className="rc-head-ico" aria-hidden="true"><Icon name="clock" /></span>
+            Recent records
+          </h2>
+          {/* The layout puts a way out of this card in its corner. It scrolls
+              to the toolbar above rather than going anywhere: every record the
+              account owns is already in this list, and the control that shows
+              more of them is the one it lands on. */}
+          {history.length > days && (
+            <button type="button" className="rc-link"
+                    onClick={() => setDays((shown) => shown + DAYS_SHOWN)}>
+              View all records →
+            </button>
+          )}
+        </div>
+
+        {history.length === 0 ? (
+          <p className="rc-empty">
+            {rows.length === 0 ? 'Nothing dated yet.' : 'Nothing matches that.'}
+          </p>
+        ) : (
+          <>
+            {/* Still paged by day — `days` is a count of days and the button
+                below says so — but drawn flat, because every row now carries
+                its own date. Flattening here rather than changing the paging
+                keeps one definition of "how much history is showing". */}
+            <ol className="rc-recs">
+              {history.slice(0, days).flatMap((day) => day.rows).map((row) => (
+                <Entry key={row.id} row={row} moment={meant.get(row.id)}
+                       onOpen={() => open(row.kind, row)} />
+              ))}
+            </ol>
+            {history.length > days && (
+              <button type="button" className="rc-link rc-more"
+                      onClick={() => setDays((shown) => shown + DAYS_SHOWN)}>
+                Show {Math.min(DAYS_SHOWN, history.length - days)} more{' '}
+                {history.length - days === 1 ? 'day' : 'days'}
+              </button>
+            )}
+          </>
+        )}
+      </section>
+
+      <section className="rc-section rc-card">
+          <div className="rc-section-head">
+            <button
+              type="button"
+              className="rc-fold"
+              aria-expanded={!milesShut}
+              title={milesShut ? 'Show the milestones' : 'Hide the milestones'}
+              onClick={() => setMilesShut((shut) => !shut)}
+            >
+              <Caret />
+              <h2 className="rc-section-title is-card">
+                <span className="rc-head-ico" aria-hidden="true"><Icon name="medal" /></span>
+                Milestones
+              </h2>
+              {milestones.length > 0 && <span className="rc-fold-n">{milestones.length}</span>}
+            </button>
+            <button type="button" className="rc-link" onClick={() => open('milestone')}>
+              + Add
+            </button>
+          </div>
+          {milesShut ? null : (
             <>
-              <Wall
-                title="Still to earn"
-                note="Easiest first, then nearest"
-                badges={left}
-              />
-              <Wall
-                title="Earned"
-                note="Hardest first"
-                badges={won}
-              />
+              <p className="rc-define">
+                A record is <strong>I did better</strong>. A milestone is{' '}
+                <strong>I reached something</strong> . No number to beat. It just happened.
+              </p>
+              {milestones.length === 0 ? (
+                <p className="rc-empty">
+                  "First 25/25", "Reached RCM 9", "1,000 tasks done".
+                </p>
+              ) : (
+            <ul className="rc-miles">
+              {mileGroups.map((group) => (
+                <GroupRow
+                  key={group.key}
+                  entry={group}
+                  open={Boolean(openKeys[group.key])}
+                  onToggle={() => toggleKey(group.key)}
+                  onPick={(row) => open('milestone', row)}
+                />
+              ))}
+              {looseMiles.map((row) => (
+                <li key={row.id} className={row.achieved_on ? 'is-done' : ''}>
+                  <button type="button" onClick={() => open('milestone', row)}>
+                    <span className="rc-mile-tick" aria-hidden="true">
+                      {row.achieved_on ? '✓' : ''}
+                    </span>
+                    <span className="rc-mile-name">{row.name}</span>
+                    <span className="rc-mile-when">{formatOn(row.achieved_on)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+              )}
             </>
           )}
+      </section>
 
-          {/* The honest version of "more coming soon". They are not coming;
-              they are on the wall already and have not been found. */}
-          {hiddenLeft > 0 && filter === 'All Achievements' && !query && (
-            <p className="ac-foot">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden="true">
-                <rect x="5" y="11" width="14" height="9" rx="2.5" />
-                <path d="M8.5 11V8a3.5 3.5 0 017 0v3" />
-              </svg>
-              {hiddenLeft} hidden {hiddenLeft === 1 ? 'achievement is' : 'achievements are'} still out
-              there. Nobody is told what they are.
-            </p>
-          )}
-        </section>
-      </div>
+      {/* ---- 6. What Summit noticed -----------------------------------------
+          The page as it was, kept whole and kept separate. See the header.
+
+          "Tracked automatically" described the mechanism, which is the one
+          thing about this section nobody needs told — every other section is
+          things you typed, and this is the one that isn't. What it is *for* is
+          that Summit watched and has something to report, so that is what the
+          heading says.
+
+          It is reference, not a fifth claim. Everything above it is the
+          account's own argument about itself; this is the app's footnote to
+          it, and it reads as one: it sits under a rule, its cards stay in the
+          quieter register they have always had, and the chase under it is
+          quieter still. */}
+      <section className="rc-section rc-derived rc-card">
+        <h2 className="rc-section-title is-card">
+          <span className="rc-head-ico" aria-hidden="true"><Icon name="sparkles" /></span>
+          From your activity
+        </h2>
+        <p className="rc-note">
+          Filled in from your activity automatically.
+        </p>
+
+        {all.length < NEED_DAYS ? (
+          <p className="rc-empty">
+            Nothing to beat yet. Finish some work and this fills in.
+          </p>
+        ) : (
+          <>
+            <ul className="rc-cards">
+              {derived.map((record) => (
+                <DerivedCard key={record.key} record={record} />
+              ))}
+            </ul>
+
+            {/* "Next records to go for" asked what to chase next, which is
+                the Goals page's question, on a page about where you have
+                been. It is useful and it is not the point, so it keeps its
+                figures and loses its weight: a smaller heading, thinner
+                bars, and a title that is a statement about the records
+                rather than an instruction about the week. */}
+            {chase.length > 0 && (
+              <>
+                <h3 className="rc-sub-title is-quiet">Records within reach</h3>
+                <ul className="rc-chases is-quiet">
+                  {chase.map((row) => (
+                    <ChaseRow key={row.key} row={row} />
+                  ))}
+                </ul>
+              </>
+            )}
+          </>
+        )}
+      </section>
+      </>
+      )}
+
+      <RecordModal
+        open={modal.open}
+        entry={modal.entry}
+        kind={modal.kind}
+        rows={rows}
+        busy={busy}
+        onClose={() => setModal({ open: false, kind: modal.kind })}
+        onSave={(draft) => void saveRecord(draft)}
+        onDelete={(entry) => void deleteRecord(entry)}
+      />
     </div>
   );
 }

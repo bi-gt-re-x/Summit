@@ -39,7 +39,55 @@ export interface UserStats {
   current_streak: number;
   best_streak: number;
   charge: number;
+  /**
+   * The last day anything was finished, and the missed day the streak's grace
+   * last covered (ISO days). What the streak card's week strip is drawn from:
+   * the count alone cannot say whether today is in the run yet, or which day
+   * inside it was forgiven rather than worked.
+   */
+  last_task_date?: string | null;
+  streak_grace_day?: string | null;
+  /** Vacation windows still worth knowing about, `[first, last]` ISO days. */
+  streak_vacations?: [string, string][];
+  /** Where the run stands with its grace day. See `grace_status` in xp.py. */
+  grace?: GraceStatus;
+  /** The vacation running today, or the next one coming. */
+  vacation?: VacationWindow | null;
 }
+
+/**
+ * The one missed day a run is forgiven, as the streak card reads it.
+ *
+ * `locked` until the run is `earned_at` days old; `spent` while one used in
+ * the last month is coming back on `back_on`; `ready` otherwise.
+ */
+export interface GraceStatus {
+  state: 'locked' | 'ready' | 'spent';
+  earned_at: number;
+  days_to_earn: number;
+  back_on: string | null;
+  last_used: string | null;
+}
+
+/** A vacation: the streak is paused from `start` to `end`, both included. */
+export interface VacationWindow {
+  start: string;
+  end: string;
+  /** Whether today is inside it, rather than it still being to come. */
+  active: boolean;
+}
+
+/** Every streak field the stats read and a completion reply both carry. */
+export type StreakFields = Pick<
+  UserStats,
+  | 'current_streak'
+  | 'best_streak'
+  | 'last_task_date'
+  | 'streak_grace_day'
+  | 'streak_vacations'
+  | 'grace'
+  | 'vacation'
+>;
 
 // --------------------------------------------------------------------------
 // Tasks
@@ -80,14 +128,32 @@ export interface Task {
    */
   goal_id?: string;
   milestone_id?: string;
+  /**
+   * Every goal the task counts toward, strongest first: the one linked by hand
+   * (`goal_id`) and any the server matched from the title and subject when the
+   * task was written. Absent when there are none, or when the task has not
+   * been through the matcher yet — read it through `goalIdsOf` in
+   * utils/goalLinks, which falls back to `goal_id` for exactly that case.
+   */
+  goal_ids?: string[];
+  /** What the matcher concluded. Absent on a task it has never looked at. */
+  goal_match_status?: GoalMatchStatus;
+  goal_match_version?: number;
   due_date?: string;
   show_on_calendar?: boolean;
   created_at: string;
   completed_at?: string;
   /** Creation to completion, recorded on completion. Feeds the efficiency metric. */
+  /**
+   * How long the task sat between being written down and being finished —
+   * NOT time spent. Read time spent through `secondsSpent` (utils/timeSpent).
+   */
   completion_seconds?: number;
   /** Whether it beat its deadline. Absent when it had none. */
   met_deadline?: boolean;
+  /** "How many did you get right?": score_got of score_of. Null when not asked. */
+  score_got?: number | null;
+  score_of?: number | null;
   /**
    * How hard it was and how well it went, 1-5 each, asked once on completion.
    *
@@ -97,6 +163,12 @@ export interface Task {
    */
   difficulty?: number;
   execution?: number;
+  /**
+   * How hard the task is, Easy (1) to Grueling (7). Its XP is this level's
+   * (utils/priority). Absent on tasks made before levels existed; `levelOf`
+   * reads those off their old rating or XP.
+   */
+  level?: number | null;
   /**
    * The one thing that made the difference, from a fixed vocabulary of twelve
    * — six for a task that went badly, six for one that went well. See REASONS
@@ -108,6 +180,41 @@ export interface Task {
   reason?: string;
   timer_duration?: number;
   timer_expired?: boolean;
+}
+
+// --------------------------------------------------------------------------
+// Which goals a task counts toward
+// --------------------------------------------------------------------------
+/**
+ * Worked out on the server when a task is created or edited, and stored. The
+ * front end only reads it: nothing here is classified while a page renders.
+ * Mirrors backend/goal_matcher/types.py, which has the full rules.
+ *
+ * References only. A match names a goal by id; the goal's title and the rest
+ * are read from the goal itself, never copied onto the task.
+ */
+export type GoalMatchSource = 'explicit' | 'rule' | 'ai';
+
+/**
+ * `matched` exactly when there are matches. `unmatched` is a valid answer —
+ * the task is not toward any goal — and must never be drawn as a gap to fill.
+ * `pending` only while a classification is actually queued.
+ */
+export type GoalMatchStatus = 'matched' | 'ambiguous' | 'unmatched' | 'pending';
+
+export interface TaskGoalMatch {
+  goal_id: string;
+  /** 0 to 1. An explicit link is always 1. */
+  score: number;
+  source: GoalMatchSource;
+}
+
+export interface TaskGoalMapping {
+  /** The matcher version that produced it; older ones are refreshed lazily. */
+  version: number;
+  status: GoalMatchStatus;
+  /** Strongest first, at most three, one per goal. */
+  matches: TaskGoalMatch[];
 }
 
 // --------------------------------------------------------------------------
@@ -205,6 +312,36 @@ export interface Milestone {
   created_at: string;
 }
 
+/** Whether a goal is going to happen. Decided by backend/tracking/goal_health.py. */
+export type HealthState = 'on-track' | 'behind' | 'not-started';
+
+/** The figures a goal's health was read from. */
+export interface HealthSignals {
+  /** 0-1, how much of the goal is done. */
+  progress: number;
+  /** 0-1, how much of its time has gone. Null with no deadline. */
+  expected: number | null;
+  /** progress − expected, in points. Null with no deadline. */
+  ahead: number | null;
+  daysLeft: number | null;
+  daysTotal: number | null;
+  /** Days since the last linked task was finished. Null if never. */
+  daysSinceWork: number | null;
+  /** Linked tasks finished inside the last two weeks. */
+  recentTasks: number;
+  /** The goal's checkpoints, or null when it has none. */
+  checkpoints: { done: number; total: number } | null;
+}
+
+export interface GoalHealth {
+  state: HealthState;
+  /** "On track", "Behind", "Not started" — or "Complete" for a reached goal. */
+  label: string;
+  /** One line, for the card: which rule decided it. */
+  reason: string;
+  signals: HealthSignals;
+}
+
 export interface Goal {
   id: string;
   user_id: string;
@@ -240,6 +377,9 @@ export interface Goal {
   // ---- The outcome layer -------------------------------------------------
   /** How progress is read. Always present on a goal from the API. */
   measure: GoalMeasure;
+  /** Whether it is going to happen, read on the server. Absent on a goal made
+      in the page since the list was last fetched. See utils/goalHealth. */
+  health?: GoalHealth;
   category: GoalCategory;
   /** Why it matters — the second question the creation flow asks. */
   why: string;
@@ -251,8 +391,20 @@ export interface Goal {
   target_number: number;
   /** Comma-separated subject ids, split at the call sites that read them. */
   subject_ids: string;
+  /**
+   * Which chart the card draws. Empty (or missing on an old row) lets the page
+   * pick from the goal's data — see utils/goalVisuals.
+   */
+  chart?: string;
   /** In execution order. The API sends them with every goal. */
   milestones: Milestone[];
+  /**
+   * Reached by its own numbers and waiting for the reader to say it is really
+   * done. The card asks; see `verify_goal` in backend/api/goals.py.
+   */
+  needs_verify?: boolean;
+  /** When the reader confirmed it done, or absent. */
+  verified_at?: string;
 }
 
 // --------------------------------------------------------------------------
@@ -357,7 +509,14 @@ interface MetricBase {
 export interface Ratings {
   overall: MetricBase & { message: string };
   metrics: {
-    productivity: MetricBase & { avg_daily_xp: number };
+    productivity: MetricBase & {
+      avg_daily_xp: number;
+      /** Tasks finished a working day, and the target the score reads it against. */
+      tasks_per_day?: number;
+      task_target?: number;
+      /** Minutes focused a working day. */
+      focus_per_day?: number;
+    };
     quality: MetricBase & {
       avg_task_xp: number;
       /**
@@ -369,7 +528,7 @@ export interface Ratings {
        * graded zero for quality. Every surface that prints the figure prints
        * the basis with it.
        */
-      basis: 'ratings' | 'xp';
+      basis: 'ratings' | 'levels' | 'xp';
       rated_tasks: number;
       total_tasks: number;
       /** Mean of difficulty × execution, out of `max_quality`. */

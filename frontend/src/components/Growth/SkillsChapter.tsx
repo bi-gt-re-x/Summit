@@ -21,7 +21,7 @@
  *
  * Everything is in utils/growthSkills; this file turns it into shapes.
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Subject } from '@/services/subjects';
 import type { GrowthDay, Task } from '@/types';
 import { iconUrl } from '@/services/subjects';
@@ -37,8 +37,22 @@ import {
   type CurveKey,
   type SkillCard,
 } from '@/utils/growthSkills';
-import { MAX_LEVEL, TIERS, costOf } from '@/utils/mastery';
+import { MAX_LEVEL, costOf } from '@/utils/mastery';
 import { longDate } from '@/utils/growthChapters';
+import {
+  CARD_FILTERS,
+  CARD_SORTS,
+  INSIGHTS_SHOWN,
+  TREND_WEEKS,
+  filterCards,
+  isCooling,
+  sortCards,
+  subjectInsights,
+  weeklyTrends,
+  type CardFilter,
+  type CardSort,
+  type SubjectInsight,
+} from '@/utils/subjectInsights';
 import { EmptyChapter, HeroRow, Notes, PanelHead, Seg, W, H } from './ChapterParts';
 import { Glyph } from './GrowthPanels';
 
@@ -46,9 +60,15 @@ export interface SkillsChapterProps {
   all: GrowthDay[];
   tasks: Task[];
   subjects: Map<string, Subject>;
+  /**
+   * Drawn as a full-width row under the mastery track's row. The Subjects
+   * tab puts its goal lines and the XP-by-subject panel here. With no skills
+   * yet it follows the empty chapter instead, so it is never lost.
+   */
+  afterTrack?: ReactNode;
 }
 
-export function SkillsChapter({ all, tasks, subjects }: SkillsChapterProps) {
+export function SkillsChapter({ all, tasks, subjects, afterTrack }: SkillsChapterProps) {
   const today = all[all.length - 1]?.date ?? '';
 
   const cards = useMemo(() => skillCards(tasks, subjects, today), [subjects, tasks, today]);
@@ -57,31 +77,74 @@ export function SkillsChapter({ all, tasks, subjects }: SkillsChapterProps) {
 
   const [chosenKey, setChosen] = useState<string | null>(null);
   const [window, setWindow] = useState<CurveKey>('6m');
+  const [sortBy, setSortBy] = useState<CardSort>('xp');
+  const [filterBy, setFilterBy] = useState<CardFilter>('all');
 
+  const shown = useMemo(
+    () => sortCards(filterCards(cards, filterBy), sortBy),
+    [cards, filterBy, sortBy],
+  );
+  const trends = useMemo(() => weeklyTrends(tasks, today), [tasks, today]);
+
+  // A filter that hides the picked card moves the pick to the first one still
+  // showing, so the panels below never describe a card the reader can't see.
   const chosen: SkillCard | undefined =
-    cards.find((card) => card.key === chosenKey) ?? cards[0];
+    shown.find((card) => card.key === chosenKey) ??
+    shown[0] ??
+    cards.find((card) => card.key === chosenKey) ??
+    cards[0];
+
+  // Picking a card brings its insights up. With thirty cards the panel can sit
+  // a long way below the one clicked, so it scrolls just far enough to show it.
+  const insightsRef = useRef<HTMLElement>(null);
+  const pick = (key: string) => {
+    setChosen(key);
+    requestAnimationFrame(() => {
+      const panel = insightsRef.current;
+      if (!panel) return;
+      const box = panel.getBoundingClientRect();
+      if (box.top >= 0 && box.bottom <= globalThis.innerHeight) return;
+      const still = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      panel.scrollIntoView({ block: 'nearest', behavior: still ? 'auto' : 'smooth' });
+    });
+  };
+
+  const insights = useMemo(
+    () => (chosen ? subjectInsights(chosen, cards, tasks, today) : []),
+    [cards, chosen, tasks, today],
+  );
+  // "Show more" belongs to one subject. Picking another starts it closed.
+  const [openFor, setOpenFor] = useState<string | null>(null);
+  const allInsights = !!chosen && openFor === chosen.key;
+  const setAllInsights = (next: (open: boolean) => boolean) =>
+    setOpenFor(next(allInsights) && chosen ? chosen.key : null);
 
   const curve = useMemo(
     () => (chosen ? skillCurve(tasks, chosen.key, today, window) : null),
     [chosen, tasks, today, window],
   );
   const balance = useMemo(
-    () => (chosen ? skillBalance(chosen, cards) : []),
-    [cards, chosen],
+    () => (chosen ? skillBalance(chosen) : []),
+    [chosen],
   );
   const track = useMemo(() => (chosen ? masteryTrack(chosen) : []), [chosen]);
   const moving = useMemo(() => movers(cards), [cards]);
 
+  const slot = afterTrack ? <div className="gr-span-all gr-slot">{afterTrack}</div> : null;
+
   if (cards.length === 0) {
     return (
-      <EmptyChapter
-        title="Skills & Subjects"
-        message={
-          unfiled.count > 0
-            ? `${unfiled.count} finished tasks carry no subject, so there is nothing to split. Give a task a subject and it becomes a skill here.`
-            : 'No finished tasks are filed under a subject yet, so there is nothing to split.'
-        }
-      />
+      <>
+        <EmptyChapter
+          title="Skills and subjects"
+          message={
+            unfiled.count > 0
+              ? `${unfiled.count} finished tasks have no subject. Add subjects to your tasks to see skills here.`
+              : 'No finished tasks have a subject yet.'
+          }
+        />
+        {slot}
+      </>
     );
   }
 
@@ -118,12 +181,12 @@ export function SkillsChapter({ all, tasks, subjects }: SkillsChapterProps) {
               key: 'skills',
               label: 'Skills in play',
               value: cards.length,
-              foot: `${Math.round(lifetime).toLocaleString()} XP filed under a subject`,
+              foot: `${Math.round(lifetime).toLocaleString()} XP with a subject`,
               icon: 'target',
             },
             {
               key: 'deepest',
-              label: `Deepest — ${deepest.label}`,
+              label: `Deepest: ${deepest.label}`,
               value: deepest.level.exact,
               text: deepest.level.exact.toFixed(2),
               scale: `· ${deepest.rank}`,
@@ -133,11 +196,11 @@ export function SkillsChapter({ all, tasks, subjects }: SkillsChapterProps) {
             {
               key: 'moving',
               label: moving.rising[0]
-                ? `Moving fastest — ${moving.rising[0].label}`
+                ? `Fastest: ${moving.rising[0].label}`
                 : 'Nothing to rank yet',
               value: moving.rising[0]?.pct ?? 0,
               suffix: '%',
-              foot: moving.rising[0]?.note ?? 'needs two months of history',
+              foot: moving.rising[0]?.note ?? 'needs two months of work',
               icon: 'trend',
             },
           ]}
@@ -149,17 +212,31 @@ export function SkillsChapter({ all, tasks, subjects }: SkillsChapterProps) {
         <PanelHead
           title="Skills"
           icon="spark"
-          hint="One card per subject you have worked in"
-          note={`${cards.length} in play · choose one to inspect`}
-        />
+          hint="One card per subject you've worked on. Pick one to see how it's going."
+        >
+          <div className="gr-skillcards-controls">
+            <Seg value={filterBy} options={CARD_FILTERS} onChange={setFilterBy} label="Which subjects" />
+            <Seg value={sortBy} options={CARD_SORTS} onChange={setSortBy} label="Sort subjects by" />
+          </div>
+        </PanelHead>
+        {shown.length === 0 && (
+          <p className="gr-empty">
+            {filterBy === 'cooling'
+              ? `Nothing's cooling off. Every subject has had work in the last two weeks.`
+              : 'Every subject has gone two weeks or more without work.'}
+          </p>
+        )}
         <div className="gr-skillcards">
-          {cards.map((card) => (
+          {shown.map((card) => (
             <button
               type="button"
               key={card.key}
-              className={`gr-skillcard${card.key === chosen?.key ? ' is-picked' : ''}`}
-              onClick={() => setChosen(card.key)}
+              className={`gr-skillcard${card.key === chosen?.key ? ' is-picked' : ''}${
+                isCooling(card) ? ' is-cooling' : ''
+              }`}
+              onClick={() => pick(card.key)}
               aria-pressed={card.key === chosen?.key}
+              aria-controls="gr-skill-insights"
             >
               <div className="gr-skillcard-top">
                 {card.icon ? (
@@ -185,7 +262,7 @@ export function SkillsChapter({ all, tasks, subjects }: SkillsChapterProps) {
                   4.37 is what they check it against. */}
               <div className="gr-skillcard-level">
                 <strong>{card.level.exact.toFixed(2)}</strong>
-                <span>Level · {card.level.band.from}–{card.level.band.to}</span>
+                <span>Level · {card.level.band.from}-{card.level.band.to}</span>
               </div>
 
               <span className="gr-skillcard-track">
@@ -209,27 +286,65 @@ export function SkillsChapter({ all, tasks, subjects }: SkillsChapterProps) {
                     {card.growth30 >= 0 ? '↑' : '↓'} {Math.abs(card.growth30)}% · 30d
                   </span>
                 )}
-                <span className="is-quiet">
-                  {card.daysSince === null
-                    ? 'never'
-                    : card.daysSince === 0
-                      ? 'today'
-                      : `${card.daysSince}d ago`}
-                </span>
+                {isCooling(card) ? (
+                  <span
+                    className="gr-skillcard-cooling"
+                    title={`Cooling off: nothing finished in ${card.daysSince} days`}
+                  >
+                    {card.daysSince}d quiet
+                  </span>
+                ) : (
+                  <span className="is-quiet">
+                    {card.daysSince === null
+                      ? 'never'
+                      : card.daysSince === 0
+                        ? 'today'
+                        : `${card.daysSince}d ago`}
+                  </span>
+                )}
               </div>
+
+              <Trend weeks={trends.get(card.key)} />
             </button>
           ))}
         </div>
       </section>
 
+      {/* --- What the record shows about the picked card ---------------------- */}
+      {chosen && (
+        <section
+          ref={insightsRef}
+          className="gr-panel gr-span-3"
+          id="gr-skill-insights"
+          aria-live="polite"
+        >
+          <PanelHead title={`${chosen.name}: how it's going`} icon="bulb" />
+          <ol className="gr-facts">
+            {(allInsights ? insights : insights.slice(0, INSIGHTS_SHOWN)).map((insight) => (
+              <InsightCard key={insight.key} insight={insight} />
+            ))}
+          </ol>
+          {insights.length > INSIGHTS_SHOWN && (
+            <button
+              type="button"
+              className="gr-facts-more"
+              aria-expanded={allInsights}
+              onClick={() => setAllInsights((open) => !open)}
+            >
+              {allInsights ? 'Show fewer' : `Show ${insights.length - INSIGHTS_SHOWN} more`}
+            </button>
+          )}
+        </section>
+      )}
+
       {/* --- One skill over time -------------------------------------------- */}
       <section className="gr-panel gr-span-2 gr-chart-panel">
         <PanelHead
-          title={chosen ? `${chosen.name} — growth` : 'Growth'}
+          title={chosen ? `${chosen.name}: growth` : 'Growth'}
           hint={
             thin
               ? 'Not enough work here to draw a line yet.'
-              : 'Level over time. Each mark is a level reached'
+              : 'Level over time. Each mark is a new level.'
           }
         >
           <Seg
@@ -247,7 +362,7 @@ export function SkillsChapter({ all, tasks, subjects }: SkillsChapterProps) {
         {thin ? (
           <p className="gr-plot-empty">
             {chosen?.label ?? 'This skill'} has {chosen?.tasks ?? 0} finished{' '}
-            {chosen?.tasks === 1 ? 'task' : 'tasks'} behind it. A line needs {CURVE_FLOOR}.
+            {chosen?.tasks === 1 ? 'task' : 'tasks'} so far. A line needs {CURVE_FLOOR}.
           </p>
         ) : (
           <LevelPlot curve={curve!} />
@@ -260,7 +375,7 @@ export function SkillsChapter({ all, tasks, subjects }: SkillsChapterProps) {
                 <span className="gr-lt-name">
                   {curve!.levels[0]!.toFixed(2) ===
                   curve!.levels[curve!.levels.length - 1]!.toFixed(2)
-                    ? `Level ${curve!.levels[0]!.toFixed(2)} — level with where the window opened`
+                    ? `Level ${curve!.levels[0]!.toFixed(2)}, same as the start`
                     : `Level ${curve!.levels[0]!.toFixed(2)} → ${curve!.levels[
                         curve!.levels.length - 1
                       ]!.toFixed(2)}`}
@@ -285,7 +400,7 @@ export function SkillsChapter({ all, tasks, subjects }: SkillsChapterProps) {
       <section className="gr-panel gr-balance">
         <PanelHead
           title="Balance"
-          hint="Five readings, each against your best subject"
+          hint="Five scores from 0 to 100, each on a fixed scale"
           note={chosen?.label}
         />
         {balance.length === 0 ? (
@@ -296,11 +411,25 @@ export function SkillsChapter({ all, tasks, subjects }: SkillsChapterProps) {
             <ul className="gr-balance-list">
               {balance.map((axis) => (
                 <li key={axis.key} title={axis.note}>
-                  <span className="gr-balance-name">{axis.label}</span>
+                  <span className="gr-balance-name">
+                    {axis.label}
+                    <small className="gr-balance-basis">{axis.basis}</small>
+                  </span>
                   <span className="gr-balance-value">{axis.value}</span>
                 </li>
               ))}
             </ul>
+            <details className="gr-balance-how">
+              <summary>How these are worked out</summary>
+              <ul>
+                {balance.map((axis) => (
+                  <li key={axis.key}>
+                    <b>{axis.label}:</b> {axis.note}
+                  </li>
+                ))}
+                <li>Each score is capped at 100.</li>
+              </ul>
+            </details>
           </>
         )}
       </section>
@@ -308,13 +437,13 @@ export function SkillsChapter({ all, tasks, subjects }: SkillsChapterProps) {
       {/* --- The ladder ahead ------------------------------------------------ */}
       <section className="gr-panel gr-span-2">
         <PanelHead
-          title={chosen ? `${chosen.label} — mastery track` : 'Mastery track'}
+          title={chosen ? `${chosen.label}: mastery track` : 'Mastery track'}
           icon="award"
-          hint="The levels behind and ahead, with what each costs"
+          hint="Levels behind you and ahead, with what each costs"
           note={
             chosen && chosen.xp30 > 0
               ? `${Math.round(chosen.xp30 / 30)} XP a day lately`
-              : 'no pace to project from'
+              : 'not enough recent work to guess'
           }
         />
         <ol className="gr-track">
@@ -335,7 +464,7 @@ export function SkillsChapter({ all, tasks, subjects }: SkillsChapterProps) {
                           chosen?.level.toNext ?? 0,
                         ).toLocaleString()} XP to go`
                       : node.inDays === null
-                        ? `${Math.round(node.needs).toLocaleString()} XP · no pace to estimate from`
+                        ? `${Math.round(node.needs).toLocaleString()} XP · no recent pace yet`
                         : `${Math.round(node.needs).toLocaleString()} XP · about ${node.inDays} days away`}
                 </span>
                 <span className="gr-track-rail">
@@ -352,13 +481,13 @@ export function SkillsChapter({ all, tasks, subjects }: SkillsChapterProps) {
         <PanelHead
           title="Moving and waiting"
           icon="trend"
-          hint="The last 30 days against the 30 before"
+          hint="Your last 30 days vs. the 30 before"
         />
         <div className="gr-movers">
           <div>
             <h3 className="gr-movers-title">Fastest growing</h3>
             {moving.rising.length === 0 ? (
-              <p className="gr-empty">Needs two months of history.</p>
+              <p className="gr-empty">Needs two months of work.</p>
             ) : (
               <ol className="gr-movers-list">
                 {moving.rising.map((row) => (
@@ -394,6 +523,10 @@ export function SkillsChapter({ all, tasks, subjects }: SkillsChapterProps) {
         </div>
       </section>
 
+      {/* Under the row the mastery track shares with "Moving and waiting", so
+          the grid keeps both rows full. */}
+      {slot}
+
       {/* --- What this page can and cannot see ------------------------------ */}
       <section className="gr-panel gr-span-3">
         <PanelHead title="How these are counted" icon="bulb" />
@@ -402,34 +535,111 @@ export function SkillsChapter({ all, tasks, subjects }: SkillsChapterProps) {
             {
               tone: 'note',
               icon: 'info',
-              head: 'A skill is a subject with finished work in it.',
-              hint: `Counted off your own tasks. The ladder runs 1 to ${MAX_LEVEL} across ${TIERS.length} bands and steepens as it climbs — level 1 costs ${costOf(1)} XP, level 99 costs ${costOf(99).toLocaleString()}. Not the ladder your account level follows.`,
+              head: 'Each subject you work on becomes a skill.',
+              hint: `Levels go from 1 to ${MAX_LEVEL} and get harder as you climb. Level 1 costs ${costOf(1)} XP. Level 99 costs ${costOf(99).toLocaleString()}. This is separate from your account level.`,
             },
             {
               tone: unfiled.xp > lifetime ? 'watch' : 'note',
               icon: unfiled.xp > lifetime ? 'alert' : 'info',
-              head: `${Math.round(unfiled.xp).toLocaleString()} XP is filed under no subject.`,
+              head: `${Math.round(unfiled.xp).toLocaleString()} XP has no subject.`,
               hint:
                 unfiled.count === 0
-                  ? 'Everything you have finished is filed, so these levels are the whole picture.'
-                  : `${unfiled.count} finished tasks carry no subject, so they count towards your account level and nothing here. A subject is what moves a skill.`,
+                  ? 'All your finished tasks have a subject.'
+                  : `${unfiled.count} finished tasks have no subject, so they only count toward your account level.`,
             },
             {
               tone: 'watch',
               icon: 'alert',
-              head: 'There are no prerequisites, because nothing records them.',
-              hint: 'A branching tree — Python before Data Science before PyTorch — needs a graph nobody has written yet. The track above is the real ladder.',
+              head: 'Skills here have no prerequisites.',
+              hint: 'For the full map with prerequisites, open the skill trees.',
             },
             {
               tone: 'good',
               icon: 'check',
               head: `${top.label} is your biggest at ${Math.round(top.xp).toLocaleString()} XP.`,
-              hint: `That is ${Math.round((top.xp / Math.max(1, lifetime)) * 100)}% of everything you have filed, over ${top.tasks} finished tasks.`,
+              hint: `${Math.round((top.xp / Math.max(1, lifetime)) * 100)}% of your subject XP, from ${top.tasks} tasks.`,
             },
           ]}
         />
       </section>
     </div>
+  );
+}
+
+// --------------------------------------------------------------------------
+// The weekly trend on each card
+// --------------------------------------------------------------------------
+/**
+ * XP a week over the last eight, as small bars with this week on the right.
+ * Bars rather than a line because weeks are separate buckets, and an empty
+ * week should read as a gap rather than as a dip between two points.
+ */
+function Trend({ weeks }: { weeks: number[] | undefined }) {
+  const values = weeks ?? new Array<number>(TREND_WEEKS).fill(0);
+  const peak = Math.max(...values, 1);
+  const label = `XP a week over the last ${TREND_WEEKS} weeks: ${values
+    .map((value) => Math.round(value))
+    .join(', ')}`;
+  return (
+    <span className="gr-skillcard-trend" role="img" aria-label={label} title={label}>
+      {values.map((value, index) => (
+        <i
+          key={index}
+          className={value > 0 ? undefined : 'is-empty'}
+          style={{ height: `${value > 0 ? Math.max(12, (value / peak) * 100) : 6}%` }}
+        />
+      ))}
+    </span>
+  );
+}
+
+/**
+ * One insight: what happened, the numbers behind it, and a small chart when
+ * there's something to put side by side. Two bars read as a pair of rows; more
+ * than two (a week, the parts of a day) as columns.
+ */
+function InsightCard({ insight }: { insight: SubjectInsight }) {
+  const bars = insight.bars ?? [];
+  const peak = Math.max(...bars.map((bar) => bar.value), 0) || 1;
+  const columns = bars.length > 2;
+  return (
+    <li className={`gr-fact is-${insight.tone}`}>
+      <strong>{insight.head}</strong>
+      <p>{insight.detail}</p>
+      {bars.length > 0 && (
+        <div
+          className={`gr-fact-bars${columns ? ' is-columns' : ''}`}
+          role="img"
+          aria-label={bars.map((bar) => `${bar.label}: ${bar.text}`).join(', ')}
+        >
+          {bars.map((bar) => (
+            <div key={bar.label} className={`gr-fact-bar${bar.lit ? ' is-lit' : ''}`}>
+              <span className="gr-fact-bar-label">{bar.label}</span>
+              <span className="gr-fact-bar-track">
+                <i
+                  style={
+                    columns
+                      ? { height: `${Math.max(4, (bar.value / peak) * 100)}%` }
+                      : { width: `${Math.max(2, (bar.value / peak) * 100)}%` }
+                  }
+                />
+              </span>
+              <span className="gr-fact-bar-text">{bar.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {insight.figures.length > 0 && (
+        <dl className="gr-fact-figs">
+          {insight.figures.map((figure) => (
+            <div key={figure.label}>
+              <dt>{figure.label}</dt>
+              <dd title={figure.value}>{figure.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </li>
   );
 }
 

@@ -16,13 +16,13 @@
  *
  * ## Two lengths, and why there are two
  *
- * A fortnight is the shortest span an average can be taken over without a
+ * Two weeks is the shortest span an average can be taken over without a
  * single good Saturday moving it, and it is short enough that the person it
  * describes is the person reading it. That is `RECENT_DAYS`, and it is what the
  * diagnosis and the next actions run on.
  *
  * Patterns need more. "Your accuracy is higher before 5pm" is a claim about two
- * groups of days, and splitting a fortnight in two leaves a week on each side —
+ * groups of days, and splitting two weeks in two leaves a week on each side —
  * which is not enough to tell a real difference from a good Tuesday. Those read
  * `PATTERN_DAYS`, a month, and still refuse to state a finding that thin
  * evidence would not carry.
@@ -36,15 +36,15 @@
  *
  * A week is the unit the app already thinks in — the streak, the weekly review,
  * the comparison the trends tab draws — and it is long enough to actually try
- * something. `weekStamp` names the current week; anything keyed on it holds
- * still for seven days and then moves, on its own, without a button being
- * pressed. The button exists too (`Refresh`), for the reader who wants a fresh
+ * something. The plan's tiebreak is keyed on the ISO week (on the server — see
+ * `week_stamp` in backend/tracking/next_actions.py), so it holds still for
+ * seven days and then moves, on its own, without a button being pressed. The button exists too (`Refresh`), for the reader who wants a fresh
  * read now, and it re-reads rather than re-rolls: the same week gives the same
  * answer, because the answer is derived, not shuffled.
  */
 import type { GrowthDay } from '@/types';
 
-/** The window advice is drawn from: a fortnight. */
+/** The window advice is drawn from: two weeks. */
 export const RECENT_DAYS = 14;
 
 /** The window pattern-finding is drawn from: about a month. */
@@ -86,23 +86,6 @@ export function recentWindow(all: GrowthDay[], span: number = RECENT_DAYS): Rece
     fromIso: current[0]?.date ?? '',
     toIso: current[current.length - 1]?.date ?? '',
   };
-}
-
-/**
- * The week a date falls in, as a sortable stamp — `2026-W34`.
- *
- * ISO weeks: Monday starts the week and the year is whichever year owns the
- * Thursday, which is what stops the last days of December and the first of
- * January from landing in two different "week 1"s.
- */
-export function weekStamp(date: Date = new Date()): string {
-  const at = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  // Thursday of this week decides the year.
-  const day = at.getUTCDay() || 7;
-  at.setUTCDate(at.getUTCDate() + 4 - day);
-  const yearStart = new Date(Date.UTC(at.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((at.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
-  return `${at.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
 }
 
 /** Monday of the week `date` falls in, at local midnight. */

@@ -25,6 +25,7 @@
  */
 import { goalNumbers, measureOf } from '@/components/Goals/numbers';
 import type { Goal, GrowthDay, Task } from '@/types';
+import { countsToward, goalIdsOf, isGoalWork } from '@/utils/goalLinks';
 
 /** A subject's share of the window's XP, and whether a goal already names it. */
 export interface SubjectShare {
@@ -78,8 +79,8 @@ export function suggestGoals(input: SuggestInput): GoalSuggestion[] {
         kind: 'first',
         title: busiest ? `Set a goal on ${busiest.label}` : 'Set your first goal',
         because: busiest
-          ? `${busiest.label} is where most of your work has gone and nothing is aiming it anywhere.`
-          : 'Nothing here is aimed at anything yet, so none of these figures have a target to be read against.',
+          ? `Most of your work is in ${busiest.label}, but it has no goal.`
+          : "You don't have any goals yet.",
       },
     ];
   }
@@ -101,8 +102,8 @@ export function suggestGoals(input: SuggestInput): GoalSuggestion[] {
     out.push({
       id: `subject-${orphan.id}`,
       kind: 'subject',
-      title: `Aim a goal at ${orphan.label}`,
-      because: `${Math.round(orphan.share * 100)}% of your work in this window was ${orphan.label}, and no goal names it.`,
+      title: `Set a goal for ${orphan.label}`,
+      because: `${Math.round(orphan.share * 100)}% of your recent work was ${orphan.label}, which has no goal.`,
     });
   }
 
@@ -118,9 +119,9 @@ export function suggestGoals(input: SuggestInput): GoalSuggestion[] {
     out.push({
       id: 'outcome',
       kind: 'outcome',
-      title: 'Set one goal that is not a counter',
+      title: "Set one goal that isn't a counter",
       because:
-        'Every goal you have counts something that only goes up, so none of them can tell you it is going badly. A checkpoint or a number goal can.',
+        "Your goals only count up, so they can't show when you fall behind. Add one with checkpoints or a target.",
     });
   }
 
@@ -130,8 +131,8 @@ export function suggestGoals(input: SuggestInput): GoalSuggestion[] {
     out.push({
       id: 'streak',
       kind: 'streak',
-      title: `Put a streak goal behind your ${currentStreak} days`,
-      because: `You are ${currentStreak} days in and nothing is holding you to it, so the run ends quietly when it ends.`,
+      title: `Turn your ${currentStreak}-day streak into a goal`,
+      because: `You're on a ${currentStreak}-day streak. A streak goal helps you keep it.`,
     });
   }
 
@@ -142,7 +143,7 @@ export function suggestGoals(input: SuggestInput): GoalSuggestion[] {
   const moving = active.filter((goal) => {
     if (goal.deadline) return false;
     if (goalNumbers(goal).progress <= 0) return false;
-    return tasks.some((task) => task.goal_id === goal.id && task.status === 'done');
+    return tasks.some((task) => countsToward(task, goal.id) && task.status === 'done');
   });
   if (moving.length > 0 && moving[0]) {
     out.push({
@@ -151,8 +152,8 @@ export function suggestGoals(input: SuggestInput): GoalSuggestion[] {
       title: `Put a date on "${moving[0].title}"`,
       because:
         moving.length === 1
-          ? 'It is moving and open-ended, so there is no pace to read and nothing to be early or late against.'
-          : `${moving.length} of your goals are moving with no date on them, so none of them has a pace to read.`,
+          ? "It has no due date, so there's no way to tell if it's on track."
+          : `${moving.length} of your goals have no due date, so there's no way to tell if they're on track.`,
     });
   }
 
@@ -170,7 +171,7 @@ export function suggestGoals(input: SuggestInput): GoalSuggestion[] {
 export function goalWorkShare(tasks: Task[]): { share: number; aimed: number; total: number } | null {
   const done = tasks.filter((task) => task.status === 'done');
   if (done.length === 0) return null;
-  const aimed = done.filter((task) => task.goal_id).length;
+  const aimed = done.filter(isGoalWork).length;
   return { share: aimed / done.length, aimed, total: done.length };
 }
 
@@ -214,8 +215,8 @@ export function goalHeadline(input: {
 
   if (active === 0) {
     return completed > 0
-      ? `No live goals. ${completed} finished — nothing is aimed anywhere right now.`
-      : 'No goals yet, so nothing on this page has a target to be read against.';
+      ? `No active goals. ${completed} finished. Time to set a new one?`
+      : "No goals yet. Set one to see how you're doing against it.";
   }
 
   const one = active === 1;
@@ -225,7 +226,7 @@ export function goalHeadline(input: {
   const head =
     leadWithStrength && behind > 0
       ? `${holding} of ${active} holding`
-      : `${active} ${one ? 'goal' : 'goals'} live`;
+      : `${active} active ${one ? 'goal' : 'goals'}`;
   const state =
     behind === 0
       ? one
@@ -240,7 +241,7 @@ export function goalHeadline(input: {
      A majority of unaimed work outranks naming a subject, because it says the
      rest of the tab is describing a minority of what the reader does. */
   if (aimedShare !== null && aimedShare < 0.5) {
-    return `${head}, ${state}, but most of your work is not aimed at any of them.`;
+    return `${head}, ${state}, but most of your work isn't aimed at any of them.`;
   }
   if (focusSubject) {
     return `${head}, ${state}, with most of the work going to ${focusSubject}.`;
@@ -342,12 +343,12 @@ export function effortAgainstPriority(goals: Goal[], tasks: Task[]): EffortRow[]
   const live = goals.filter((goal) => goal.status !== 'completed');
   if (live.length === 0) return [];
 
-  const done = tasks.filter((task) => task.status === 'done' && task.goal_id);
+  // A task toward two goals is work on both, so it counts once for each.
   const counts = new Map<string, number>();
-  done.forEach((task) => {
-    const id = String(task.goal_id);
-    counts.set(id, (counts.get(id) ?? 0) + 1);
-  });
+  for (const task of tasks) {
+    if (task.status !== 'done') continue;
+    for (const id of goalIdsOf(task)) counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
   const aimed = live.reduce((sum, goal) => sum + (counts.get(goal.id) ?? 0), 0);
 
   return live

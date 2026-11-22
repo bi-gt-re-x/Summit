@@ -11,7 +11,14 @@
  * Backend: backend/api/tasks.py, backend/api/dashboard.py.
  */
 import { del, get, post, put } from './api';
-import type { ApiResult, Task, UserStats } from '@/types';
+import type {
+  ApiResult,
+  GraceStatus,
+  StreakFields,
+  Task,
+  UserStats,
+  VacationWindow,
+} from '@/types';
 
 // --------------------------------------------------------------------------
 // Reading
@@ -43,7 +50,10 @@ export function getUserData(): Promise<ApiResult<UserData>> {
  * this is the read that makes every page agree on the streak.
  */
 export function getStats(): Promise<ApiResult<{ stats: UserStats }>> {
-  return get<{ stats: UserStats }>('/api/stats');
+  // A POST, because asking is also when a streak that went stale overnight is
+  // written down as broken (backend/api/dashboard.py). `GET /api/stats` gives
+  // the same numbers and writes nothing; no GET in the app writes.
+  return post<{ stats: UserStats }>('/api/stats');
 }
 
 /**
@@ -113,6 +123,8 @@ export function listTasks(): Promise<ApiResult<{ tasks: Task[] }>> {
 export interface NewTask {
   name: string;
   priority?: Task['priority'];
+  /** How hard it is, 1-7 (utils/priority). Sets the XP on the server. */
+  level?: number;
   xp_reward?: number;
   due_date?: string | null;
   show_on_calendar?: boolean;
@@ -154,6 +166,8 @@ export function createTask(
 export interface TaskEdit {
   name?: string;
   priority?: Task['priority'];
+  /** How hard it is, 1-7. Sets the XP and priority on the server. */
+  level?: number;
   xp_reward?: number;
   timer_duration?: number;
   due_date?: string | null;
@@ -231,6 +245,11 @@ export interface CompletionResult {
   xp_required: number;
   current_streak: number;
   best_streak: number;
+  last_task_date: string | null;
+  streak_grace_day: string | null;
+  streak_vacations?: [string, string][];
+  grace?: GraceStatus;
+  vacation?: VacationWindow | null;
   task_id: string;
   completion_status: 'done';
 }
@@ -243,8 +262,111 @@ export function completeTask(
   });
 }
 
+/** What one batch completion did, task by task, and where it left the account. */
+export interface BatchCompletionResult {
+  /** Finished by this call, each with the XP it earned. */
+  completed: { task_id: string; xp_earned: number; completed_at: string }[];
+  /** Already finished before it. Nothing was awarded again. */
+  already_done: string[];
+  /** Not this account's, or not there. */
+  not_found: string[];
+  /** In a chunk the server could not write. Untouched, and safe to send again. */
+  failed: string[];
+  xp_earned: number;
+  new_xp: number;
+  new_level: number;
+  new_tasks_completed: number;
+  xp_required: number;
+  current_streak: number;
+  best_streak: number;
+  last_task_date: string | null;
+  streak_grace_day: string | null;
+  streak_vacations?: [string, string][];
+  grace?: GraceStatus;
+  vacation?: VacationWindow | null;
+}
+
+/**
+ * The streak half of a completion reply, as a patch for the stats a page holds.
+ *
+ * Every page that finishes a task folds this into its copy of the stats, so
+ * the streak card's figure, week strip and grace line all move together —
+ * a page that copied the count and not the rest would show a 13-day streak
+ * over a strip that still ended yesterday.
+ */
+export function streakPatch(result: StreakFields): StreakFields {
+  return {
+    current_streak: result.current_streak,
+    best_streak: result.best_streak,
+    last_task_date: result.last_task_date,
+    streak_grace_day: result.streak_grace_day,
+    streak_vacations: result.streak_vacations,
+    grace: result.grace,
+    vacation: result.vacation,
+  };
+}
+
+/** The most one request may carry; backend MAX_COMPLETE. */
+export const MAX_COMPLETE = 1000;
+
+/**
+ * Complete many tasks as one action.
+ *
+ * One request for any selection up to MAX_COMPLETE, rather than one per task.
+ * Duplicate ids are dropped before sending. A larger selection goes as several
+ * requests, one after another — never in parallel, since they all move the
+ * same account — and the replies are merged into one, so the caller still
+ * makes one state update however many requests it took.
+ *
+ * Safe to retry: a task already done is reported in `already_done` and earns
+ * nothing twice.
+ */
+export async function completeTasks(
+  taskIds: readonly string[],
+): Promise<ApiResult<BatchCompletionResult>> {
+  const ids = [...new Set(taskIds.map(String))];
+  const merged: BatchCompletionResult = {
+    completed: [], already_done: [], not_found: [], failed: [],
+    xp_earned: 0, new_xp: 0, new_level: 0, new_tasks_completed: 0,
+    xp_required: 0, current_streak: 0, best_streak: 0,
+    last_task_date: null, streak_grace_day: null,
+  };
+  if (ids.length === 0) return { success: true, ...merged };
+
+  for (let at = 0; at < ids.length; at += MAX_COMPLETE) {
+    const part = ids.slice(at, at + MAX_COMPLETE);
+    const result = await post<BatchCompletionResult>('/api/complete_tasks', { task_ids: part });
+    if (!result.success) {
+      // Everything not yet sent is as untouched as a failed chunk, and as safe
+      // to send again.
+      if (at === 0) return result;
+      merged.failed.push(...ids.slice(at));
+      break;
+    }
+    merged.completed.push(...result.completed);
+    merged.already_done.push(...result.already_done);
+    merged.not_found.push(...result.not_found);
+    merged.failed.push(...result.failed);
+    merged.xp_earned += result.xp_earned;
+    // The account's standing is whatever the last reply left it at.
+    merged.new_xp = result.new_xp;
+    merged.new_level = result.new_level;
+    merged.new_tasks_completed = result.new_tasks_completed;
+    merged.xp_required = result.xp_required;
+    merged.current_streak = result.current_streak;
+    merged.best_streak = result.best_streak;
+    Object.assign(merged, streakPatch(result));
+    if (result.failed.length) break;
+  }
+  return { success: true, ...merged };
+}
+
 export interface TaskRating {
   task_id: string;
+  level?: number | null;
+  /** What the task pays now, and what changed on the account for it. */
+  xp_value?: number;
+  xp_change?: number;
   difficulty?: number;
   execution?: number;
   /** Null when the answer was taken back, absent when it was never asked. */
@@ -264,9 +386,23 @@ export interface TaskRating {
  * whose rating_depth is 'reasons'; the server drops a word it does not know
  * rather than failing the whole call over it.
  */
+/**
+ * What the rating prompt can send: the two stars, the reason, and the score
+ * ("how many did you get right?"). Every part is optional and independent.
+ */
+export interface RatingAnswers {
+  /** How hard it was, 1-7. Re-prices the task's XP on the server. */
+  level?: number;
+  difficulty?: number;
+  execution?: number;
+  reason?: string;
+  score_got?: number;
+  score_of?: number;
+}
+
 export function rateTask(
   taskId: string,
-  ratings: { difficulty?: number; execution?: number; reason?: string },
+  ratings: RatingAnswers,
 ): Promise<ApiResult<TaskRating>> {
   return post<TaskRating>('/api/rate_task', {
     task_id: taskId,

@@ -1,41 +1,14 @@
 /**
- * Analytics: the one figure on the page that needs more than one account.
+ * Analytics: the reads the page needs beyond the growth series — the baseline,
+ * adopted advice, metric history and the subject reads.
  *
  * Everything else the analytics page draws is computed on the client from the
- * growth series — see `@/components/Analytics/data`. This is the exception, and
- * necessarily so: "where you stand against other Summit users" cannot be derived
- * from the reader's own record, and the other accounts' records are not
- * something the client should ever hold.
+ * growth series — see `@/components/Analytics/data`.
  *
- * Backend: backend/api/analytics.py, backend/tracking/standing.py.
+ * Backend: backend/api/analytics.py.
  */
 import { get, post } from './api';
 import type { ApiResult, TaskPriority, TaskStatus } from '@/types';
-
-/** The measures, in the order the panel lists them. Matches MEASURES server-side. */
-export type StandingKey = 'xp' | 'focus' | 'consistency' | 'tasks' | 'score';
-
-export interface StandingRow {
-  key: StandingKey;
-  /** This account's own figure — XP, minutes, a percentage, a count, a score. */
-  value: number;
-  /** "Top N%", so lower is better. `null` when the cohort was too small. */
-  percentile: number | null;
-}
-
-export interface Standing {
-  /** The reader plus everyone they were measured against. */
-  cohort: number;
-  /** False when there were too few comparable accounts to place against. */
-  enough: boolean;
-  /** The number of *other* accounts the backend wanted before placing. */
-  floor: number;
-  rows: StandingRow[];
-}
-
-export function standing(): Promise<ApiResult<Standing>> {
-  return get<Standing>('/api/standing');
-}
 
 /** One dated reading of a graded metric. Scores are out of 100. */
 export interface MetricPoint {
@@ -69,7 +42,7 @@ export function metricHistory(
  *
  * The one thing on the analytics page that is stated rather than measured, and
  * the only reason a brand-new account has anything to do there. Everything else
- * the page draws needs a fortnight to three weeks of record first.
+ * the page draws needs two weeks to three weeks of record first.
  */
 export interface Baseline {
   /** Days a week they mean to work, 1-7. */
@@ -109,6 +82,12 @@ export interface AnalyticsTask {
   created_at: string;
   completed_at?: string;
   due_date?: string;
+  /** With `created_at` and `due_date`, a calendar task's block — see utils/timeSpent. */
+  show_on_calendar?: boolean;
+  /**
+   * How long the task sat between being written down and being finished —
+   * NOT time spent. Read time spent through `secondsSpent` (utils/timeSpent).
+   */
   completion_seconds?: number;
   met_deadline?: boolean;
   difficulty?: number;
@@ -116,10 +95,75 @@ export interface AnalyticsTask {
   reason?: string;
   goal_id?: string;
   milestone_id?: string;
+  /** Every goal it counts toward, from `goal_links`. See `goal_ids` on Task. */
+  goal_ids?: string[];
 }
 
 export interface AnalyticsTasksResult {
   tasks: AnalyticsTask[];
+}
+
+/** What the endpoint actually sends: the names once, then a row of values each. */
+interface ColumnarTasks {
+  fields: (keyof AnalyticsTask)[];
+  rows: unknown[][];
+  /**
+   * {task_id: goal ids} for the tasks that count toward any goal, as the
+   * server stored them when each task was written. Beside the rows rather
+   * than a column of them, since most rows would carry a null.
+   */
+  goal_links?: Record<string, string[]>;
+}
+
+/**
+ * Columns back into the objects every panel expects.
+ *
+ * The endpoint sends `{fields, rows}` because two thirds of the old payload was
+ * the sixteen field names repeated once per task — 4.00 MB of 5.99 MB on the
+ * largest account here. See `columns_table_for` in
+ * backend/database/connection.py for the measurements.
+ *
+ * This is the whole decoder, and it is deliberately the dumbest one that works:
+ * zip the names against each row. Anything cleverer on the wire — dropping
+ * nulls, interning repeated subjects, delta-encoding the dates — would save a
+ * little more and would need a decoder that can be subtly wrong about a field
+ * nothing notices for weeks.
+ *
+ * ## A null is a field that is not there
+ *
+ * The one thing this has to get right. The old endpoint sent objects built by
+ * `_decode_records`, which **omits** a NULL column rather than sending it — so
+ * a task that was never rated arrived with no `met_deadline` key at all. A
+ * positional row cannot omit anything, so the wire carries nulls to keep the
+ * columns lined up and they are dropped here.
+ *
+ * That is not tidiness. `utils/diagnosis` filters on
+ * `task.met_deadline !== undefined` to find the tasks that had a deadline, and
+ * `null !== undefined` is true — so a null left in place would put every
+ * unrated task into that count and quietly change what the page says about
+ * deadlines, with nothing on screen looking wrong.
+ *
+ * A row shorter than `fields` is not defended against, because SQLite cannot
+ * produce one: every row comes from one SELECT of the same column list.
+ */
+export function rehydrate(data: ColumnarTasks): AnalyticsTask[] {
+  const { fields, rows } = data;
+  const links = data.goal_links ?? {};
+  const width = fields.length;
+  const out = new Array<AnalyticsTask>(rows.length);
+  for (let at = 0; at < rows.length; at += 1) {
+    const values = rows[at]!;
+    const task = {} as Record<string, unknown>;
+    for (let field = 0; field < width; field += 1) {
+      const value = values[field];
+      if (value !== null) task[fields[field] as string] = value;
+    }
+    // Attached once, here, so no panel ever has to look a task up in the map.
+    const goals = links[task.id as string];
+    if (goals && goals.length) task.goal_ids = goals;
+    out[at] = task as unknown as AnalyticsTask;
+  }
+  return out;
 }
 
 /**
@@ -128,9 +172,16 @@ export interface AnalyticsTasksResult {
  * Unwindowed on purpose — the picker slices in the browser so that changing it
  * costs nothing, and the goal and habit panels are not scoped by it at all. The
  * saving is the width of each row, not the number of them.
+ *
+ * Callers get `{ tasks }` exactly as they always did; the columnar shape does
+ * not escape this function. Use `taskHistory` in ./taskHistory rather than
+ * calling this directly — two pages want this same answer and it is the largest
+ * response the app makes.
  */
-export function analyticsTasks(): Promise<ApiResult<AnalyticsTasksResult>> {
-  return get<AnalyticsTasksResult>('/api/analytics/tasks');
+export async function analyticsTasks(): Promise<ApiResult<AnalyticsTasksResult>> {
+  const result = await get<ColumnarTasks>('/api/analytics/tasks');
+  if (!result.success) return result;
+  return { success: true, tasks: rehydrate(result) };
 }
 
 export interface BaselineResult {
@@ -207,7 +258,7 @@ export function dropAdvice(id: string): Promise<ApiResult<AdoptedResult>> {
  * The windows the Growth tab offers. Mirrors `PERIODS` in
  * backend/tracking/analytics.py, which is where the day counts live.
  */
-export type PeriodKey = '7d' | '30d' | '90d' | '180d' | '365d' | 'all';
+export type PeriodKey = '7d' | '30d' | '90d' | '365d' | '730d' | 'all';
 
 /** The five graded measures, in the order the tab lists them. */
 export const PERIOD_METRICS = [
@@ -327,7 +378,7 @@ export interface BriefFindings {
   goals: Array<{ title: string; progress: number; deadline: string; drift: number | null }>;
 }
 
-/** One thing to practise, and the figure that says why. */
+/** One thing to practice, and the figure that says why. */
 export interface BriefPractice {
   title: string;
   /** A suggested sitting length. The one number the model supplies. */
@@ -387,6 +438,15 @@ export const STEP_WORDS: Record<StepType, string> = {
 /** One finding, with how sure the model is and what it rests on. */
 export interface Diagnosis {
   finding: string;
+  /**
+   * Which way it cuts, and what the row is coloured by.
+   *
+   * The same closed word `goal_evidence` uses, rather than a second
+   * vocabulary for the same idea. Normalised server-side, so a reading
+   * saved before the field existed comes back as `watch` rather than
+   * undefined. See `_way` in backend/tracking/subject_ai.py.
+   */
+  direction: EvidenceDirection;
   /** 0-1. Bounded server-side; out-of-range confidence is not confidence. */
   confidence: number;
   evidence: string[];
@@ -407,14 +467,45 @@ export interface Priority {
  * clamped by the server. `id` is the row it was stored as, which is what the
  * feedback loop is keyed on.
  */
+/** One link under a recommended session. */
+export interface StepResource {
+  name: string;
+  url: string;
+  yours?: boolean;
+  /**
+   * How much signing up it takes, set by the server's free-link check
+   * (backend/tracking/free_resources.py): 'none' to use it straight away,
+   * 'quick' for a free account by email or Google. Absent on readings
+   * saved before the check, which the server fills in as it serves them.
+   */
+  signup?: 'none' | 'quick';
+}
+
 export interface NextStep {
   id: string;
   title: string;
+  /**
+   * What to work, how fast, and where to get it — the three fields that make
+   * a step an instruction rather than a category: "MATHCOUNTS 2021 School
+   * Sprint, problems 1-10", "2 min per problem", "mathcounts.org". Absent on
+   * steps written before they existed.
+   */
+  problems?: string;
+  pace?: string;
+  /** The single named source steps carried before `resources`. */
+  resource?: string;
+  /**
+   * Up to three links to the material, best first. `yours` marks a link the
+   * reader already keeps — in a task's note, a note or the library — which
+   * the model is told to put first when it fits. Absent on older steps.
+   */
+  resources?: StepResource[];
   focus: string;
   type: StepType;
   /** 1-5, on Summit's own scale. */
   difficulty: number;
-  minutes: number;
+  /** The suggested sitting, or null when the step names no time. */
+  minutes: number | null;
   reason: string;
   /**
    * What would say this worked, written when the advice was given.
@@ -429,12 +520,28 @@ export interface NextStep {
    * step advised before the field existed.
    */
   signal: string;
+  /** The in-session checklist steps carried before `plan`. */
   drills: string[];
+  /** Kit to have ready when it isn't a link: "Pull-up bar, optional dumbbells". */
+  equipment?: string;
+  /** The session in order, each part timed when a set time helps. Absent on older steps. */
+  plan?: StepPart[];
+  /** Two or three things to check off when the session ends. Absent on older steps. */
+  success?: string[];
+}
+
+/** One part of a session plan: "Solve (80 min): Attempt all five problems." */
+export interface StepPart {
+  label: string;
+  minutes: number | null;
+  what: string;
 }
 
 /** An observation is not an insight until it says what to do differently. */
 export interface Insight {
   observation: string;
+  /** Read exactly as it is on a `Diagnosis` — the two draw as one list. */
+  direction: EvidenceDirection;
   evidence: string;
   implication: string;
 }
@@ -485,7 +592,7 @@ export interface GoalRead {
  * One thing about the record that matters *for this goal*.
  *
  * Not the highest figure and not the lowest — the one that would change the
- * reader's next fortnight. "Quality: 78" is not evidence; "your contest
+ * reader's next two weeks. "Quality: 78" is not evidence; "your contest
  * execution is improving, 24 to 30 across recent timed work" is. `relevance`
  * is what keeps it honest: a sentence equally true of any goal in any subject
  * is filler, and the server is told to cut the card rather than write it.
@@ -538,6 +645,8 @@ export interface SubjectReading {
  */
 export interface SubjectStatePayload {
   subject: string;
+  /** The catalogue id, so the server can find the reader's own links for it. */
+  subject_id?: string;
   span: string;
   aim?: string;
   level?: string;
@@ -588,6 +697,56 @@ export interface SubjectStatePayload {
   }>;
   /** The authored tree's area names. A curriculum, carrying no measurement. */
   vocabulary?: string[];
+  /**
+   * The work itself: the most recently finished tasks, with their titles.
+   *
+   * The one input here that is not a measurement, and the reason a next step
+   * can name real material instead of saying the difficulty curve back with a
+   * verb in front of it. The server looks each row's note up by `id` rather
+   * than having the browser carry free text it never reads.
+   * See components/Subject/recentWork.
+   */
+  recent_work?: Array<{
+    id: string;
+    title: string;
+    on: string;
+    difficulty: number | null;
+    execution: number | null;
+    minutes: number | null;
+    reason: string;
+  }>;
+  /** Every finished task in the window, grouped by name and counted. See
+      `workGroups` in components/Subject/recentWork. */
+  work_groups?: WorkGroup[];
+  /**
+   * What the call is for. `fresh` replaces the steps on screen with three new
+   * ones; `more` adds three under them, up to six; `read` wants the findings
+   * and leaves the steps exactly as they are.
+   */
+  mode?: 'fresh' | 'more' | 'read';
+}
+
+/** Every finished task in a window sharing one name, as the brief prints it. */
+export interface WorkGroup {
+  /** The name with its numbers blanked to `#` — "MATHCOUNTS Sprint #". */
+  name: string;
+  count: number;
+  /** Up to four distinct titles as typed, newest first. */
+  examples: string[];
+  /** How many of them were rated on both rows. */
+  rated: number;
+  /** Averages over the rated ones, one decimal; null when none were rated. */
+  difficulty: number | null;
+  execution: number | null;
+  /** Average whole minutes over the timed ones; null when none were timed. */
+  minutes: number | null;
+  /** Rated 4-5 on execution, and 1-2. */
+  well: number;
+  badly: number;
+  /** The commonest reasons picked, as "Label ×n". */
+  reasons: string[];
+  /** ISO day the newest one was finished. */
+  last: string;
 }
 
 /** Whether the reading is available at all on this install. */
@@ -641,6 +800,27 @@ export interface PastRecommendation {
    */
   was: number | null;
   task_id: string;
+  /**
+   * open: can be planned. planned: booked as a task that is still open, and
+   * locked until that task is completed or deleted. done: acted on.
+   */
+  state: StepState;
+  /** The booked task while `planned`, else null. */
+  task: PlannedSession | null;
+}
+
+export type StepState = 'open' | 'planned' | 'done';
+
+/** A recommended session booked onto the calendar. Times are local ISO. */
+export interface PlannedSession {
+  id: string;
+  start: string;
+  end: string;
+  xp: number;
+  /** The subject the task was filed under, when it was filed under one. */
+  subject?: string;
+  /** Why this time, in a sentence or two. Only on the booking's own reply. */
+  why?: string;
 }
 
 /**
@@ -681,6 +861,22 @@ export function takeRecommendation(
   taskId = '',
 ): Promise<ApiResult<{ id: string }>> {
   return post<{ id: string }>('/api/subject_recommendation', { id, task_id: taskId });
+}
+
+/**
+ * Book one recommendation as a task at the best free time for this reader,
+ * spaced from the sessions already booked for its subject, with an estimated
+ * length and XP (backend/tracking/session_timing.py, session_plan.py). Refused while
+ * the step is already planned or done.
+ */
+export function planSession(
+  id: string,
+  subjectId: string,
+): Promise<ApiResult<{ id: string; task: PlannedSession; minutes: number }>> {
+  return post<{ id: string; task: PlannedSession; minutes: number }>(
+    '/api/subject_recommendation/plan',
+    { id, subject_id: subjectId },
+  );
 }
 
 // --------------------------------------------------------------------------
@@ -822,4 +1018,50 @@ export function suggestSubjectGoal(
   findings: DraftFindings,
 ): Promise<ApiResult<{ draft: GoalDraft }>> {
   return post<{ draft: GoalDraft }>('/api/suggest_subject_goal', findings);
+}
+
+// --------------------------------------------------------------------------
+// Three next sessions, from the dashboard and the Recommendations tab
+// --------------------------------------------------------------------------
+/** A suggested session, with where it stands. */
+export interface SuggestedSession extends NextStep {
+  state: StepState;
+  task: PlannedSession | null;
+}
+
+/** A subject there is recent work in, for the picker. */
+export interface SessionSubject {
+  id: string;
+  name: string;
+  count: number;
+}
+
+export interface NextSessions {
+  /** "All subjects", or the subject's name. */
+  subject: string;
+  /** '' for every subject. */
+  subject_id: string;
+  steps: SuggestedSession[];
+}
+
+/**
+ * The sessions already suggested for a subject — or across every subject,
+ * with no id — the subjects to choose from, and whether a model is there to
+ * suggest more. Backend: `/api/next_sessions` in backend/api/subject_ai.py.
+ */
+export function nextSessions(
+  subjectId = '',
+): Promise<ApiResult<NextSessions & { subjects: SessionSubject[]; available: boolean }>> {
+  return get<NextSessions & { subjects: SessionSubject[]; available: boolean }>(
+    `/api/next_sessions${subjectId ? `?subject_id=${encodeURIComponent(subjectId)}` : ''}`,
+  );
+}
+
+/**
+ * Three new sessions in place of the ones on screen. Costs a model call.
+ * Across every subject, `subjects` narrows the plan to those ids; left out,
+ * it reads them all.
+ */
+export function suggestNextSessions(subjectId = '', subjects?: string[]): Promise<ApiResult<NextSessions>> {
+  return post<NextSessions>('/api/next_sessions', subjects ? { subject_id: subjectId, subjects } : { subject_id: subjectId });
 }

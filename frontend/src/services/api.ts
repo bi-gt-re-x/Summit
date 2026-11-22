@@ -34,10 +34,32 @@
  * `onUnauthorized` is how it gets there. AuthProvider registers a callback on
  * mount; this module calls it once per 401 and still returns the envelope, so
  * a caller that wants to render something in the meantime can.
+ *
+ * ## And one header: the task list changed
+ *
+ * The browser keeps copies of the account's tasks — the shared list Tasks,
+ * the calendar and the dashboard read (context/UserDataProvider) and the
+ * analytics history (services/taskHistory). They used to go stale whenever a
+ * page changed a task and forgot to say so. The server now marks every
+ * response from a request that wrote the task list
+ * (`X-Summit-Tasks-Changed`, backend/middleware/writes.py), and this is where
+ * it is read: the change is announced once (utils/statsBus), and the copies
+ * refresh themselves off that. No caller has to remember.
+ *
+ * `X-Summit-Live` is the same idea for the live blocks on a space's page: it
+ * names which of their sources the request moved (utils/liveBus).
  */
 import { ApiError } from '@/types';
 import type { ApiResult } from '@/types';
+import { announceLiveChanged } from '@/utils/liveBus';
+import { announceStatsChanged } from '@/utils/statsBus';
 import { API_BASE } from './constants';
+
+/** Set by the server on a response from a request that changed the task list. */
+export const TASKS_CHANGED_HEADER = 'X-Summit-Tasks-Changed';
+
+/** The live block sources a request changed, comma-separated (utils/liveBus). */
+export const LIVE_HEADER = 'X-Summit-Live';
 
 /**
  * What to do when the server says nobody is signed in.
@@ -95,6 +117,14 @@ async function request<T>(
     unauthorized?.();
   }
 
+  // The task list changed on the server: say so, whoever called. Read before
+  // the body, because the change happened whatever the body turns out to be.
+  if (response.headers?.get?.(TASKS_CHANGED_HEADER)) {
+    announceStatsChanged();
+  }
+  const live = response.headers?.get?.(LIVE_HEADER);
+  if (live) announceLiveChanged(live.split(',').filter(Boolean));
+
   const body = await response.text();
   if (!body) {
     throw new ApiError('The server returned an empty response', response.status);
@@ -117,12 +147,16 @@ export function get<T>(path: string, query?: Query): Promise<ApiResult<T>> {
   return request<T>(path, { method: 'GET' }, query);
 }
 
-export function post<T>(path: string, body?: unknown): Promise<ApiResult<T>> {
-  return request<T>(path, {
-    method: 'POST',
-    headers: JSON_HEADERS,
-    body: JSON.stringify(body ?? {}),
-  });
+export function post<T>(path: string, body?: unknown, query?: Query): Promise<ApiResult<T>> {
+  return request<T>(
+    path,
+    {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(body ?? {}),
+    },
+    query,
+  );
 }
 
 export function put<T>(path: string, body?: unknown): Promise<ApiResult<T>> {

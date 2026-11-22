@@ -11,7 +11,7 @@
  * and "open now, nothing in the way" are the two states `0%` was printing
  * identically, and they are the two a reader acts on most differently.
  */
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { LatticePanel } from './LatticePanel';
 import type { GraphNode, NodeStatus, SkillGraph } from '@/utils/skillGraph';
@@ -63,14 +63,14 @@ function draw(id: string, over: Record<string, Partial<GraphNode>> = {}) {
 describe('the lattice panel', () => {
   it('separates the three kinds of claim', () => {
     draw('algebra');
-    expect(screen.getByRole('heading', { name: 'Your progress' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'The curriculum' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Your next move' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Progress' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'What to learn' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Steps' })).toBeInTheDocument();
   });
 
   it('says where the reader stands before it says a percentage', () => {
     draw('algebra');
-    expect(screen.getByText(/Open now — nothing is in the way/)).toBeInTheDocument();
+    expect(screen.getByText(/Open now. Nothing in the way/)).toBeInTheDocument();
   });
 
   it('counts what is in the way rather than printing a nought', () => {
@@ -83,14 +83,14 @@ describe('the lattice panel', () => {
     // was the half that went unsaid.
     draw('algebra');
     expect(screen.getByText(/Open because all 2 of these are done/)).toBeInTheDocument();
-    const why = screen.getByLabelText('What this skill sits on');
+    const why = screen.getByLabelText('What you need first');
     expect(within(why).getByText('fractions')).toBeInTheDocument();
     expect(within(why).getByText('negatives')).toBeInTheDocument();
   });
 
   it('says so when a node sits on nothing', () => {
     draw('fractions');
-    expect(screen.getByText(/A foundation of this subject/)).toBeInTheDocument();
+    expect(screen.getByText(/A starting point/)).toBeInTheDocument();
   });
 
   it('tells a gate apart from a suggestion', () => {
@@ -104,5 +104,31 @@ describe('the lattice panel', () => {
   it('gives "done when" its own weight', () => {
     draw('algebra');
     expect(screen.getByText('Done when')).toBeInTheDocument();
+  });
+});
+
+describe('the short panel', () => {
+  function drawBrief(id: string) {
+    const built = graph();
+    const picked = built.nodes.find((one) => one.id === id)!;
+    render(<LatticePanel brief graph={built} node={picked} onSelect={vi.fn()} />);
+  }
+
+  it('opens with progress and steps only', () => {
+    drawBrief('algebra');
+    expect(screen.getByRole('heading', { name: 'Progress' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Steps' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'What to learn' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Problems for/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Common trap')).not.toBeInTheDocument();
+  });
+
+  it('shows the rest on Show details, and hides it again', () => {
+    drawBrief('algebra');
+    fireEvent.click(screen.getByRole('button', { name: 'Show details' }));
+    expect(screen.getByRole('heading', { name: 'What to learn' })).toBeInTheDocument();
+    expect(screen.getAllByText(/Problems for/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Show less' }));
+    expect(screen.queryByRole('heading', { name: 'What to learn' })).not.toBeInTheDocument();
   });
 });

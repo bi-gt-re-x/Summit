@@ -28,7 +28,6 @@ import {
   dayName,
   focusMix,
   habitRows,
-  onTimeShare,
   plannedGrid,
   recoveryProfile,
   scoreCards,
@@ -37,7 +36,7 @@ import {
   type PlanDay,
 } from '@/utils/growthFocus';
 import { HEAT_WEEKDAYS } from '@/utils/growthSummary';
-import { EmptyChapter, HeroRow, Notes, PanelHead, Seg } from './ChapterParts';
+import { EmptyChapter, HeroRow, PanelHead, Seg } from './ChapterParts';
 import { Glyph } from './GrowthPanels';
 
 /**
@@ -71,10 +70,28 @@ export interface FocusChapterProps {
   all: GrowthDay[];
   tasks: Task[];
   subjects: Map<string, Subject>;
-  streak: number;
+  /** Panels this host already draws itself — see `FocusPanel`. */
+  omit?: FocusPanel[];
 }
 
-export function FocusChapter({ all, tasks, subjects, streak }: FocusChapterProps) {
+/**
+ * The panels a host can turn off.
+ *
+ * Three of the eight below are drawn elsewhere on the Insights tab by that
+ * tab's own components — the calendar, the per-habit steadiness list and the
+ * consistency trail. Rendering this chapter whole inside a group on that page
+ * meant a reader opened one heading and met the same calendar they had just
+ * scrolled past, plus a second opinion on the same habits, at a different size
+ * and from a different window.
+ *
+ * An opt-out rather than a split, because the Growth page still wants all
+ * eight and the chapter is one argument there. A host that already answers
+ * part of it names the part.
+ */
+export type FocusPanel = 'calendar' | 'stability' | 'trail';
+
+export function FocusChapter({ all, tasks, subjects, omit = [] }: FocusChapterProps) {
+  const hides = (panel: FocusPanel) => omit.includes(panel);
   const [window, setWindow] = useState<WindowKey>('30');
   /** Which square the reader has opened. Null means the most recent day. */
   const [picked, setPicked] = useState<string | null>(null);
@@ -98,7 +115,6 @@ export function FocusChapter({ all, tasks, subjects, streak }: FocusChapterProps
   );
   const recovery = useMemo(() => recoveryProfile(all, tasks), [all, tasks]);
   const trail = useMemo(() => consistencyTrail(all), [all]);
-  const onTime = useMemo(() => onTimeShare(tasks), [tasks]);
 
   /** Every drawn day, flattened, so the detail panel can find one by date. */
   const days = useMemo(
@@ -110,8 +126,8 @@ export function FocusChapter({ all, tasks, subjects, streak }: FocusChapterProps
   if (all.length < 3) {
     return (
       <EmptyChapter
-        title="Focus & Consistency"
-        message="Not enough days yet to say anything about a habit."
+        title="Focus and consistency"
+        message="Not enough days yet to spot a habit."
       />
     );
   }
@@ -125,7 +141,9 @@ export function FocusChapter({ all, tasks, subjects, streak }: FocusChapterProps
       {/* --- Four figures, the whole width ---------------------------------- */}
       <div className="gr-span-3">
         <HeroRow
-          cards={scores.map((score) => ({
+          /* No Consistency card: the share of days worked is the Overview's
+             Consistency tile and is printed nowhere else. */
+          cards={scores.filter((score) => score.key !== 'consistency').map((score) => ({
             key: score.key,
             label: score.label,
             value: score.value,
@@ -141,10 +159,11 @@ export function FocusChapter({ all, tasks, subjects, streak }: FocusChapterProps
       </div>
 
       {/* --- The calendar, and the day the reader opened -------------------- */}
+      {!hides('calendar') && (
       <section className="gr-panel gr-span-2 gr-heat gr-plan" data-window={window}>
         <PanelHead
           title="Consistency"
-          hint={`One square a day across ${shape.days} — darkest is the busiest`}
+          hint={`One square a day across ${shape.days}. Darker means busier.`}
         >
           <Seg
             value={window}
@@ -211,21 +230,25 @@ export function FocusChapter({ all, tasks, subjects, streak }: FocusChapterProps
           <span>More XP</span>
         </div>
       </section>
+      )}
 
+      {/* The day detail is the calendar's other half — there is nothing to tap
+          without it, so the two go together. */}
+      {!hides('calendar') && (
       <section className="gr-panel gr-day">
-        <PanelHead title={chosen ? dayName(chosen.date) : 'No day'} icon="calendar" note="tap a square" />
+        <PanelHead title={chosen ? dayName(chosen.date) : 'No day picked'} icon="calendar" note="tap a square" />
         {!chosen ? (
           <p className="gr-empty">Nothing to open yet.</p>
         ) : (
           <>
             <div className="gr-day-figure">
               <strong className={chosen.completion === null ? 'is-none' : ''}>
-                {chosen.completion === null ? '—' : `${Math.round(chosen.completion)}%`}
+                {chosen.completion === null ? '-' : `${Math.round(chosen.completion)}%`}
               </strong>
               <span>
                 {chosen.completion === null
                   ? 'nothing was planned for this day'
-                  : 'of the day’s plan completed'}
+                  : "of the day's plan completed"}
               </span>
             </div>
             <dl className="gr-day-list">
@@ -233,13 +256,13 @@ export function FocusChapter({ all, tasks, subjects, streak }: FocusChapterProps
                 <dt>Planned</dt>
                 <dd>
                   {chosen.planned === 0
-                    ? '—'
+                    ? '-'
                     : `${chosen.planned} ${chosen.planned === 1 ? 'task' : 'tasks'}`}
                 </dd>
               </div>
               <div>
                 <dt>Of those, done</dt>
-                <dd>{chosen.planned === 0 ? '—' : chosen.met}</dd>
+                <dd>{chosen.planned === 0 ? '-' : chosen.met}</dd>
               </div>
               <div>
                 <dt>Finished on the day</dt>
@@ -261,17 +284,18 @@ export function FocusChapter({ all, tasks, subjects, streak }: FocusChapterProps
           </>
         )}
       </section>
+      )}
 
       {/* --- Week by week, with the line through it ------------------------- */}
       <section className="gr-panel gr-span-2 gr-chart-panel">
         <PanelHead
-          title="Planned against completed"
+          title="Planned vs. done"
           hint="How much of each week's plan you finished"
           note={planned > 0 ? `${WEEKS} weeks` : 'nothing planned yet'}
         />
         {planned === 0 ? (
           <p className="gr-empty">
-            No due dates in these weeks, so there is no plan to measure against.
+            No due dates in these weeks, so there was no plan to check.
           </p>
         ) : (
           <WeeklyPlot weeks={weeks} />
@@ -282,8 +306,8 @@ export function FocusChapter({ all, tasks, subjects, streak }: FocusChapterProps
       <section className="gr-panel gr-mix">
         <PanelHead
           title="Focus depth"
-          hint={`Focus days by length, against a ${FOCUS_REFERENCE_MINUTES}-minute day`}
-          note={`${mix.focusDays} of ${mix.totalDays} days`}
+          hint={`Your focus days by length, vs. a ${FOCUS_REFERENCE_MINUTES}-minute day`}
+          note="Last 90 days"
         />
         {mix.focusDays === 0 ? (
           <p className="gr-empty">No focus sessions in the last 90 days.</p>
@@ -305,7 +329,7 @@ export function FocusChapter({ all, tasks, subjects, streak }: FocusChapterProps
                   <span className="gr-mix-name">{band.label}</span>
                   <span className="gr-mix-share">{band.share}%</span>
                   {band.delta === null ? (
-                    <span className="gr-mix-delta is-quiet">—</span>
+                    <span className="gr-mix-delta is-quiet">-</span>
                   ) : (
                     <span
                       className={`gr-mix-delta${band.delta > 0 ? ' is-up' : band.delta < 0 ? ' is-down' : ''}`}
@@ -317,22 +341,23 @@ export function FocusChapter({ all, tasks, subjects, streak }: FocusChapterProps
               ))}
             </ul>
             <p className="gr-mix-foot">
-              Against the 90 days before, in percentage points of your focus days.
+              Compared with the 90 days before.
             </p>
           </>
         )}
       </section>
 
       {/* --- The recurring work --------------------------------------------- */}
+      {!hides('stability') && (
       <section className="gr-panel gr-span-2">
         <PanelHead
           title="Habit stability"
-          hint={`Your ${HABIT_ROWS} steadiest subjects, counted since day one`}
+          hint={`Your ${HABIT_ROWS} steadiest subjects since day one`}
           note={habits.length ? `since day one · ${habits[0]!.spanDays} days` : undefined}
         />
         {habits.length === 0 ? (
           <p className="gr-empty">
-            No finished task carries a subject yet.
+            None of your finished tasks have a subject yet.
           </p>
         ) : (
           <ul className="gr-habits">
@@ -370,13 +395,15 @@ export function FocusChapter({ all, tasks, subjects, streak }: FocusChapterProps
           </ul>
         )}
       </section>
+      )}
 
       {/* --- The same score, four times ------------------------------------- */}
+      {!hides('trail') && (
       <section className="gr-panel">
         <PanelHead
           title="Consistency over time"
           icon="trend"
-          hint="The same 30-day score at four points"
+          hint="Your 30-day score at four points in time"
         />
         <ul className="gr-trail">
           {trail.map((point) => (
@@ -385,7 +412,7 @@ export function FocusChapter({ all, tasks, subjects, streak }: FocusChapterProps
               <span className="gr-trail-track">
                 <i className="gr-trail-fill" style={{ width: `${point.value ?? 0}%` }} />
               </span>
-              <span className="gr-trail-value">{point.value === null ? '—' : point.value}</span>
+              <span className="gr-trail-value">{point.value === null ? '-' : point.value}</span>
             </li>
           ))}
         </ul>
@@ -394,24 +421,25 @@ export function FocusChapter({ all, tasks, subjects, streak }: FocusChapterProps
             ? `${consistencyNow >= (consistencyThen.value ?? 0) ? 'Up' : 'Down'} ${Math.abs(
                 consistencyNow - (consistencyThen.value ?? 0),
               )} points since ${consistencyThen.label.toLowerCase()}.`
-            : 'A second reading appears once the account is a month older.'}
+            : 'A second point shows up in a month.'}
         </p>
       </section>
+      )}
 
       {/* --- The calendar, read for recovery rather than for failure -------- */}
       <section className="gr-panel gr-span-2 gr-recov">
         <PanelHead
-          title="Getting back on"
-          hint="Ranked against your own median day"
-          note={`${recovery.totalDays} days on record`}
+          title="Bouncing back"
+          hint="Compared with your usual day"
+          note={`${recovery.totalDays} days logged`}
         />
         <div className="gr-recov-row">
           <div className="gr-recov-figure">
-            <strong>{recovery.rate === null ? '—' : `${recovery.rate}%`}</strong>
+            <strong>{recovery.rate === null ? '-' : `${recovery.rate}%`}</strong>
             <span>Recovery rate</span>
             <p>
               {recovery.rate === null
-                ? 'You have not missed a day yet, so there is nothing to recover from.'
+                ? "You haven't missed a day yet, so there's nothing to recover from."
                 : `You usually return to your routine within ${
                     recovery.typicalDays !== null && recovery.typicalDays <= 1.5
                       ? '1 day'
@@ -439,7 +467,7 @@ export function FocusChapter({ all, tasks, subjects, streak }: FocusChapterProps
             <ul className="gr-mix-list">
               {(
                 [
-                  ['perfect', 'Full days — plan kept, XP above your median'],
+                  ['perfect', 'Full days: plan done, more than usual done'],
                   ['strong', 'Solid days'],
                   ['partial', 'Light days'],
                   ['missed', 'Rest days'],
@@ -456,43 +484,10 @@ export function FocusChapter({ all, tasks, subjects, streak }: FocusChapterProps
         </div>
       </section>
 
-      {/* --- What all of it comes to ---------------------------------------- */}
-      <section className="gr-panel">
-        <PanelHead title="What this says" icon="bulb" />
-        <Notes
-          rows={[
-            {
-              tone: recovery.rate !== null && recovery.rate >= 60 ? 'good' : 'note',
-              icon: 'check',
-              head:
-                recovery.rate === null
-                  ? 'Nothing to come back from yet.'
-                  : `You come back from ${recovery.rate}% of quiet runs inside a day.`,
-              hint:
-                'The longest you have ever been away is ' +
-                `${recovery.longestGap} ${recovery.longestGap === 1 ? 'day' : 'days'}, and you came back from it.`,
-            },
-            {
-              tone: onTime.pct !== null && onTime.pct >= 70 ? 'good' : 'watch',
-              icon: onTime.pct !== null && onTime.pct >= 70 ? 'check' : 'alert',
-              head:
-                onTime.pct === null
-                  ? 'No finished task has carried a deadline yet.'
-                  : `${onTime.pct}% of finished tasks beat their own deadline.`,
-              hint:
-                onTime.pct === null
-                  ? 'Follow-through is measured off tasks with a due date — give one a date and this figure appears.'
-                  : `${onTime.met} of ${onTime.total} timed tasks. Follow-through above counts late-but-done as done; this one does not.`,
-            },
-            {
-              tone: 'note',
-              icon: 'info',
-              head: `The current streak is ${streak} ${streak === 1 ? 'day' : 'days'}.`,
-              hint: 'A streak is one number about today. Everything else on this page is about the shape of the months behind it.',
-            },
-          ]}
-        />
-      </section>
+      {/* "What this says" closed the chapter with the recovery rate, the
+          on-time share and the streak. The first is the panel above, the
+          second is Efficiency on the Growth tab, the third is a personal best
+          on Achievements — so it is gone. */}
     </div>
   );
 }
@@ -557,7 +552,7 @@ function WeeklyPlot({ weeks }: { weeks: ReturnType<typeof weeklyPlan> }) {
             viewBox="0 0 100 100"
             preserveAspectRatio="none"
             role="img"
-            aria-label="The trend through the weekly completion rates."
+            aria-label="The trend in your weekly completion rate."
           >
             <path d={path} vectorEffect="non-scaling-stroke" />
           </svg>
@@ -566,7 +561,7 @@ function WeeklyPlot({ weeks }: { weeks: ReturnType<typeof weeklyPlan> }) {
         <div className="gr-wk-names">
           {weeks.map((week) => (
             <span key={week.key}>
-              <strong>{week.completion === null ? '—' : `${week.completion}%`}</strong>
+              <strong>{week.completion === null ? '-' : `${week.completion}%`}</strong>
               {week.opensOn}
             </span>
           ))}

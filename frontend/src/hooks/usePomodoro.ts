@@ -34,9 +34,24 @@
  * ordinary one with a structure over it. Both calls are no-ops when the session
  * is already in that state, which is what makes driving them from an effect
  * safe.
+ *
+ * ## It also writes down how each interval went
+ *
+ * The session banks *hours*. What it cannot say is where one sitting ended, how
+ * often it was interrupted, or whether it was abandoned — and those are what a
+ * recommendation about length has to be read off. So every focus phase leaves a
+ * row in the interval log as it ends: hooks/useIntervals holds them,
+ * components/Timer/intervals.ts says what may be concluded from them.
+ *
+ * This is the only writer. Both pages that run a cycle run this hook, so a
+ * pomodoro started on the dashboard is recorded exactly as one started on the
+ * Timer page — the same reason the session itself lives here.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UseFocusSession } from '@/hooks/useFocusSession';
+import { useIntervals } from '@/hooks/useIntervals';
+import { POMODORO_CHANGED, pomodoroKey } from '@/utils/pomodoroChoice';
+import { KINDS, type Interval, type Kind, type Readiness } from '@/components/Timer/intervals';
 import {
   DEFAULT_LEVEL,
   DEFAULT_STYLE,
@@ -77,10 +92,89 @@ interface Stored {
    */
   dayIso: string;
   doneToday: number;
+  /**
+   * Times the phase now running has been paused.
+   *
+   * Reset by every phase change rather than carried, because it describes one
+   * interval and is the interruption term in its focus score — see
+   * `focusScore` in components/Timer/intervals.ts. A pause during a break is
+   * not an interruption of anything and is not counted.
+   */
+  pauses: number;
+  /**
+   * What this sitting is for, and the number it named.
+   *
+   * Kept with the cycle rather than in page state so that it survives a reload
+   * and a walk to another page mid-sitting: an intention that vanished when the
+   * tab was refreshed would be worse than not asking for one, because the
+   * sitting it belonged to carries on either way.
+   *
+   * Cleared when a sitting ends, by the same rule as `pauses` — the row it
+   * belonged to has it by then, and a stale objective sitting over a new
+   * interval would be claiming something nobody said.
+   */
+  intent: string;
+  target: number | null;
+  /**
+   * How ready the account said it was today, or null for unasked.
+   *
+   * Unlike the intention this survives the sitting that carried it: it is an
+   * answer about the person and not about the interval, and re-asking after
+   * every break would make it a reflex rather than a reading. It is dropped
+   * with the day, by `load`, for the same reason `doneToday` is.
+   */
+  readiness: Readiness | null;
+  /**
+   * Minutes into the phase now running at which it was paused, in order.
+   *
+   * The positions behind `pauses`. Reset with it on every phase change, for
+   * the same reason: it describes one interval.
+   */
+  breaks: number[];
+  /**
+   * What kind of work this is, when the account has said.
+   *
+   * Carried across sittings like readiness rather than cleared like the
+   * intention — an afternoon of drills is an afternoon of drills, and asking
+   * again after every break would be asking somebody to re-state something
+   * that has not changed.
+   */
+  kind: Kind | null;
+  /**
+   * The task these sittings are for, when one has been picked.
+   *
+   * Carried across sittings and resets like the kind: an afternoon on one
+   * task is several pomodoros, and picking it again after every break would
+   * be busywork. Dropped with the day, and cleared by the Timer page once the
+   * task is finished and no focus phase is running.
+   */
+  task: PickedTask | null;
 }
 
-function key(user: string): string {
-  return `pomodoro:${user}`;
+/** A task as the cycle remembers it: enough to label a row without a lookup. */
+export interface PickedTask {
+  id: string;
+  title: string;
+}
+
+/* The key itself lives in utils/pomodoroChoice, beside the reader that
+   hooks/useFocusSession.ts uses to take the day's focus goal off the style and
+   level stored under it. One key, written down once; this hook is still the
+   only thing that writes to it. */
+const key = pomodoroKey;
+
+function isReadiness(value: unknown): value is Readiness {
+  return value === 'low' || value === 'normal' || value === 'high';
+}
+
+function isKind(value: unknown): value is Kind {
+  return KINDS.some((kind) => kind.id === value);
+}
+
+function isTask(value: unknown): value is PickedTask {
+  if (!value || typeof value !== 'object') return false;
+  const it = value as Partial<PickedTask>;
+  return typeof it.id === 'string' && typeof it.title === 'string';
 }
 
 function todayIso(): string {
@@ -102,6 +196,16 @@ function fresh(styleId: string, levelId = DEFAULT_LEVEL, keep?: Stored): Stored 
     // day and survives it, or Reset would be a way to un-work an afternoon.
     dayIso: keep?.dayIso ?? todayIso(),
     doneToday: keep?.doneToday ?? 0,
+    pauses: 0,
+    intent: '',
+    target: null,
+    // Kept across a reset with the day's count, and for the same reason: how
+    // the reader feels, and what they are working on, are not part of the
+    // cycle they have just restarted.
+    readiness: keep?.readiness ?? null,
+    breaks: [],
+    kind: keep?.kind ?? null,
+    task: keep?.task ?? null,
   };
 }
 
@@ -125,6 +229,23 @@ function load(user: string): Stored {
       // Yesterday's count is not today's. Read against the stored day rather
       // than trusted, so the tile is right on a page left open overnight.
       doneToday: saved.dayIso === today ? Number(saved.doneToday) || 0 : 0,
+      pauses: Number(saved.pauses) || 0,
+      // An intention is for the sitting it was written on. One stored on a
+      // previous day is not this day's, and reading it back would put
+      // yesterday's objective over this morning's first interval.
+      intent: saved.dayIso === today && typeof saved.intent === 'string' ? saved.intent : '',
+      target: saved.dayIso === today && typeof saved.target === 'number'
+        ? saved.target
+        : null,
+      // Yesterday's answer is not today's, whatever it was.
+      readiness: saved.dayIso === today && isReadiness(saved.readiness)
+        ? saved.readiness
+        : null,
+      breaks: Array.isArray(saved.breaks)
+        ? saved.breaks.filter((at): at is number => typeof at === 'number')
+        : [],
+      kind: saved.dayIso === today && isKind(saved.kind) ? saved.kind : null,
+      task: saved.dayIso === today && isTask(saved.task) ? saved.task : null,
     };
   } catch {
     // A private window, cleared site data, or a value from an older shape.
@@ -164,6 +285,30 @@ export interface UsePomodoro {
   setLevel: (levelId: number) => void;
   /** The focus goal this level and style imply, in hours. */
   goalHours: number;
+  /** Times the phase now running has been paused. */
+  pauses: number;
+  /** The account's recent focus intervals, oldest first. */
+  intervals: Interval[];
+  /** What this sitting is for, in the account's own words. Empty when unset. */
+  intent: string;
+  /** The number that intention named, or null when it named none. */
+  target: number | null;
+  /** Set both. An empty line clears the target with it. */
+  setIntent: (intent: string, target: number | null) => void;
+  /** How ready the account said it was today, or null for unasked. */
+  readiness: Readiness | null;
+  /** Answer it, or press the same one again to take the answer back. */
+  setReadiness: (readiness: Readiness | null) => void;
+  /** What kind of work this is, or null for untagged. */
+  kind: Kind | null;
+  /** Tag it, or press the same one again to untag. */
+  setKind: (kind: Kind | null) => void;
+  /** The task these sittings are for, or null for none. */
+  task: PickedTask | null;
+  /** Pick one, or null to clear. A sitting under way takes the new pick. */
+  setTask: (task: PickedTask | null) => void;
+  /** Answer the newest row's intention. See `amend` in hooks/useIntervals. */
+  report: (result: { done?: number; met?: boolean }) => void;
 }
 
 export function usePomodoro(
@@ -175,12 +320,17 @@ export function usePomodoro(
   const [, setTick] = useState(0);
   const latest = useRef(state);
   latest.current = state;
+  const log = useIntervals(username);
 
   const write = useCallback(
     (nextState: Stored) => {
       latest.current = nextState;
       setState(nextState);
       save(user, nextState);
+      /* The focus session reads the style and the level out of this record to
+         work out the day's goal, and it is a different hook — nothing tells it
+         that localStorage moved inside one tab. See utils/pomodoroChoice. */
+      window.dispatchEvent(new CustomEvent(POMODORO_CHANGED));
     },
     [user],
   );
@@ -189,6 +339,47 @@ export function usePomodoro(
   useEffect(() => {
     setState(load(user));
   }, [user]);
+
+  /**
+   * The row for the focus interval a state is in the middle of, or null.
+   *
+   * Null for a break — there is nothing to record about one — and null for a
+   * focus phase less than a minute in, which is a timer somebody started and
+   * changed their mind about rather than a sitting. `finished` is passed rather
+   * than inferred because only the caller knows how the phase ended: the clock
+   * reaching it is one thing and Skip, Reset or a change of style are another,
+   * and a recommendation built from them without the distinction would read an
+   * abandoned interval as a completed one.
+   */
+  const leaving = useCallback(
+    (from: Stored, at: number, finished: boolean): Interval | null => {
+      if (from.phase !== 'focus') return null;
+      const style = styleFor(from.styleId);
+      const total = style.focus * 60_000;
+      const leftMs = from.endsAt !== null ? Math.max(0, from.endsAt - at) : from.leftMs;
+      const minutes = Math.round((total - Math.min(total, leftMs)) / 60_000);
+      if (minutes < 1) return null;
+      return {
+        day: todayIso(),
+        styleId: style.id,
+        planned: style.focus,
+        minutes,
+        pauses: from.pauses,
+        finished,
+        at,
+        // Written only when there was one, so a row's own shape says whether
+        // this sitting was ever going to be scored. See `intent` in
+        // components/Timer/intervals.ts.
+        ...(from.intent ? { intent: from.intent } : {}),
+        ...(from.intent && from.target !== null ? { target: from.target } : {}),
+        ...(from.readiness ? { readiness: from.readiness } : {}),
+        ...(from.breaks.length ? { breaks: from.breaks } : {}),
+        ...(from.kind ? { kind: from.kind } : {}),
+        ...(from.task ? { taskId: from.task.id, taskTitle: from.task.title } : {}),
+      };
+    },
+    [],
+  );
 
   /** Walk a finished phase forward. Returns the state to store. */
   const advance = useCallback((from: Stored, at: number): Stored => {
@@ -216,6 +407,15 @@ export function usePomodoro(
       done: cycle.done,
       dayIso: today,
       doneToday,
+      // A new phase has not been interrupted yet, and is not yet for anything.
+      // The interval that was both has already been written down by the caller.
+      pauses: 0,
+      intent: '',
+      target: null,
+      readiness: from.readiness,
+      breaks: [],
+      kind: from.kind,
+      task: from.task,
     };
 
     if (endsAt <= at) {
@@ -233,19 +433,26 @@ export function usePomodoro(
       const now = Date.now();
       const current = latest.current;
       if (current.endsAt && now >= current.endsAt) {
+        // Recorded before the walk, and only once however many phases the walk
+        // covers: the first of them is the interval that was actually sat, and
+        // the rest are the arithmetic of catching up on an empty room.
+        const row = leaving(current, now, true);
+        if (row) log.record(row);
         write(advance(current, now));
       } else {
         setTick((n) => n + 1);
       }
     }, TICK_MS);
     return () => window.clearInterval(id);
-  }, [state.endsAt, advance, write]);
+  }, [state.endsAt, advance, leaving, log, write]);
 
   // Catch up once on mount too, so a phase that ended while the page was
   // closed has already rolled over by the time anything is drawn.
   useEffect(() => {
     const current = latest.current;
     if (current.endsAt && Date.now() >= current.endsAt) {
+      const row = leaving(current, Date.now(), true);
+      if (row) log.record(row);
       write(advance(current, Date.now()));
     }
     // Once, for the state this mounted with.
@@ -277,25 +484,38 @@ export function usePomodoro(
   const pause = useCallback(() => {
     const current = latest.current;
     if (!current.endsAt) return;
+    const leftMs = Math.max(0, current.endsAt - Date.now());
+    const work = current.phase === 'focus';
+    // Where in the sitting it happened, for the replay. Whole minutes: the
+    // strip it draws is a couple of hundred pixels wide, and a second's
+    // precision on it would be a number nobody can see and nobody can use.
+    const into = Math.round((styleFor(current.styleId).focus * 60_000 - leftMs) / 60_000);
     write({
       ...current,
       endsAt: null,
-      leftMs: Math.max(0, current.endsAt - Date.now()),
+      leftMs,
+      // Counted only against work. A break that was paused was not interrupted.
+      pauses: work ? current.pauses + 1 : current.pauses,
+      breaks: work ? [...current.breaks, into] : current.breaks,
     });
   }, [write]);
 
   const skip = useCallback(() => {
     const current = latest.current;
     const now = Date.now();
+    const row = leaving(current, now, false);
+    if (row) log.record(row);
     // Treated as a phase that has just ended, so one path decides what comes
     // next whether the clock got there or the reader did.
     write(advance({ ...current, endsAt: now }, now));
-  }, [advance, write]);
+  }, [advance, leaving, log, write]);
 
   const reset = useCallback(() => {
     const current = latest.current;
+    const row = leaving(current, Date.now(), false);
+    if (row) log.record(row);
     write(fresh(current.styleId, current.levelId, current));
-  }, [write]);
+  }, [leaving, log, write]);
 
   const choose = useCallback(
     (styleId: string) => {
@@ -303,9 +523,53 @@ export function usePomodoro(
       // three rounds into a method they have just stopped using. The day's
       // count is not part of the cycle and carries over.
       const current = latest.current;
+      // An interval under way when the style changes is one that was abandoned
+      // at that length, which is exactly the kind of row a recommendation
+      // about length should see.
+      const row = leaving(current, Date.now(), false);
+      if (row) log.record(row);
       write(fresh(styleId, current.levelId, current));
     },
+    [leaving, log, write],
+  );
+
+  const setIntent = useCallback(
+    (intent: string, target: number | null) => {
+      const text = intent.trim();
+      // No line, no number: a target without an objective is a figure with
+      // nothing to be a figure *of*, and it would score a sitting against a
+      // goal nobody wrote down.
+      write({ ...latest.current, intent: text, target: text ? target : null });
+    },
     [write],
+  );
+
+  const setReadiness = useCallback(
+    (readiness: Readiness | null) => {
+      write({ ...latest.current, readiness });
+    },
+    [write],
+  );
+
+  const setKind = useCallback(
+    (kind: Kind | null) => {
+      write({ ...latest.current, kind });
+    },
+    [write],
+  );
+
+  const setTask = useCallback(
+    (task: PickedTask | null) => {
+      write({ ...latest.current, task });
+    },
+    [write],
+  );
+
+  const report = useCallback(
+    (result: { done?: number; met?: boolean }) => {
+      log.amend(result);
+    },
+    [log],
   );
 
   const setLevel = useCallback(
@@ -333,5 +597,17 @@ export function usePomodoro(
     doneToday: state.dayIso === todayIso() ? state.doneToday : 0,
     setLevel,
     goalHours: goalHoursFor(level, style),
+    pauses: state.pauses,
+    intervals: log.intervals,
+    intent: state.intent,
+    target: state.target,
+    setIntent,
+    readiness: state.readiness,
+    setReadiness,
+    kind: state.kind,
+    setKind,
+    task: state.task,
+    setTask,
+    report,
   };
 }

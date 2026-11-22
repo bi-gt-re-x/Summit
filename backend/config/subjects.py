@@ -1,4 +1,4 @@
-"""The subject catalogue — the hundred things a task is usually *about*.
+"""The subject catalogue — the 150 things a task is usually *about*.
 
 A task has always had a name, a priority and an XP value, and nothing that
 says what kind of work it is. "Finish essay" and "Leg day" are the same shape
@@ -9,8 +9,11 @@ thing.
 
 Three rules the list follows, and they are the reason it is a list at all:
 
-**One hundred, and the common ones.** Not an ontology — the subjects a student
-or a working adult actually files a task under. They are grouped below in the
+**150, and the common ones.** Not an ontology — the subjects a student or a
+working adult actually files a task under. It was a hundred until 2026-10-11,
+when fifty more were added for students: the classes they take (Trig, Orgo,
+AP Gov), the things school asks of them (test prep, college apps, financial
+aid) and the clubs and sports they fill their weeks with. They are grouped below in the
 order the picker offers them to someone who has never chosen one, so the
 groups double as the default ordering.
 
@@ -43,113 +46,160 @@ task points at it. Names and icons above it can be edited freely.
 # categories and building that column from a second hand-written list would be
 # the same nine names in two places — free to write and certain to drift.
 #
-# Flattening below preserves the order exactly, so `SUBJECTS` is the same
-# hundred in the same sequence it always was. That matters: catalogue order is
+# Flattening below preserves the order exactly. That matters: catalogue order is
 # the picker's default offer, and it runs from study through work to home.
 _GROUPS = (
-    ('Maths and science', (
+    ('Math and science', (
         ('mathematics', 'Mathematics', 'Math', 'math'),
         ('algebra', 'Algebra', None, 'algebra'),
-        ('calculus', 'Calculus', None, 'calculus'),
         ('geometry', 'Geometry', None, 'geometry'),
+        ('trigonometry', 'Trigonometry', 'Trig', 'trigonometry'),
+        ('precalculus', 'Precalculus', 'Precalc', 'precalculus'),
+        ('calculus', 'Calculus', None, 'calculus'),
         ('statistics', 'Statistics', 'Stats', 'statistics'),
-        ('physics', 'Physics', None, 'physics'),
-        ('chemistry', 'Chemistry', 'Chem', 'chemistry'),
+        ('differential_equations', 'Differential Equations', 'Diff Eq', 'diffeq'),
+        ('science', 'Science', None, 'science'),
         ('biology', 'Biology', None, 'biology'),
+        ('chemistry', 'Chemistry', 'Chem', 'chemistry'),
+        ('physics', 'Physics', None, 'physics'),
         ('anatomy', 'Anatomy', None, 'anatomy'),
         ('genetics', 'Genetics', None, 'genetics'),
+        ('ecology', 'Ecology', None, 'ecology'),
+        ('environmental_science', 'Environmental Science', 'Env Sci', 'recycle'),
         ('astronomy', 'Astronomy', 'Astro', 'astronomy'),
         ('geology', 'Geology', None, 'geology'),
-        ('ecology', 'Ecology', None, 'ecology'),
-        ('science', 'Science', None, 'science'),
+        ('organic_chemistry', 'Organic Chemistry', 'Orgo', 'benzene'),
+        ('biochemistry', 'Biochemistry', 'Biochem', 'enzyme'),
+        ('microbiology', 'Microbiology', 'Microbio', 'microscope'),
+        ('neuroscience', 'Neuroscience', 'Neuro', 'neuron'),
+        ('forensic_science', 'Forensic Science', 'Forensic', 'forensics'),
+        ('lab_work', 'Lab Work', None, 'lab'),
+        ('science_fair', 'Science Fair', 'Sci Fair', 'experiment'),
     )),
     ('Studying', (
+        ('school', 'School', None, 'backpack'),
         ('homework', 'Homework', None, 'homework'),
-        ('revision', 'Revision', None, 'revision'),
         ('exams', 'Exams', None, 'exam'),
+        ('test_prep', 'Test Prep', 'TestPrep', 'testprep'),
+        ('revision', 'Revision', None, 'revision'),
+        ('flashcards', 'Flashcards', 'Cards', 'flashcards'),
+        ('note_taking', 'Note-Taking', 'Notes', 'notes'),
         ('lectures', 'Lectures', None, 'school'),
+        ('coursework', 'Coursework', 'Course', 'coursework'),
+        ('study_group', 'Study Group', 'Group', 'studygroup'),
+        ('tutoring', 'Tutoring', None, 'tutoring'),
         ('research', 'Research', None, 'research'),
         ('thesis', 'Thesis', None, 'thesis'),
-        ('coursework', 'Coursework', 'Course', 'coursework'),
-        ('tutoring', 'Tutoring', None, 'tutoring'),
-        ('study_group', 'Study Group', 'Group', 'studygroup'),
-        ('flashcards', 'Flashcards', 'Cards', 'flashcards'),
+        ('college_apps', 'College Applications', 'College', 'graduation'),
+        ('financial_aid', 'Financial Aid', 'Fin Aid', 'piggy-bank'),
+        ('extracurriculars', 'Extracurriculars', 'ECs', 'star'),
+        ('pre_med', 'Pre-Med', None, 'doctor'),
+        ('ai_tools', 'AI Tools', None, 'spark'),
     )),
     ('Language and humanities', (
         ('english', 'English', None, 'english'),
+        ('essays', 'Essays', None, 'essay'),
         ('literature', 'Literature', 'Lit', 'reading'),
         ('writing', 'Writing', None, 'writing'),
         ('grammar', 'Grammar', None, 'grammar'),
         ('vocabulary', 'Vocabulary', 'Vocab', 'vocabulary'),
+        ('creative_writing', 'Creative Writing', 'Creative', 'story'),
+        ('poetry', 'Poetry', None, 'poem'),
+        ('journalism', 'Journalism', 'Journo', 'newspaper'),
+        ('public_speaking', 'Public Speaking', 'Speaking', 'speaking'),
         ('spanish', 'Spanish', None, 'language'),
         ('french', 'French', None, 'language'),
         ('german', 'German', None, 'language'),
         ('japanese', 'Japanese', None, 'language'),
         ('mandarin', 'Mandarin', None, 'language'),
+        ('latin', 'Latin', None, 'monument'),
+        ('sign_language', 'Sign Language', 'ASL', 'hands'),
         ('history', 'History', None, 'history'),
+        ('civics', 'Civics', None, 'civics'),
+        ('politics', 'Politics', None, 'politics'),
         ('geography', 'Geography', 'Geo', 'geography'),
+        ('model_un', 'Model UN', None, 'globe'),
         ('philosophy', 'Philosophy', 'Philos', 'philosophy'),
         ('psychology', 'Psychology', 'Psych', 'psychology'),
         ('sociology', 'Sociology', 'Sociol', 'sociology'),
-        ('politics', 'Politics', None, 'politics'),
     )),
     ('Computing', (
         ('programming', 'Programming', 'Coding', 'code'),
+        ('python', 'Python', None, 'code'),
+        ('java', 'Java', None, 'code'),
         ('computer_science', 'Computer Science', 'CompSci', 'computer'),
         ('web_design', 'Web Design', 'Web', 'web'),
+        ('app_dev', 'App Development', 'App Dev', 'phone'),
+        ('game_dev', 'Game Development', 'Game Dev', 'game'),
         ('data_science', 'Data Science', 'Data', 'data'),
+        ('spreadsheets', 'Spreadsheets', 'Sheets', 'spreadsheet'),
         ('machine_learning', 'Machine Learning', 'ML', 'ai'),
         ('cybersecurity', 'Cybersecurity', 'Cyber', 'security'),
         ('databases', 'Databases', 'Database', 'database'),
         ('networking', 'Networking', 'Network', 'network'),
         ('robotics', 'Robotics', None, 'robotics'),
+        ('electronics', 'Electronics', 'Circuits', 'circuit'),
         ('engineering', 'Engineering', 'Eng', 'engineering'),
     )),
     ('Business and money', (
         ('economics', 'Economics', 'Econ', 'economics'),
+        ('finance', 'Finance', None, 'finance'),
+        ('budgeting', 'Budgeting', 'Budget', 'budget'),
+        ('entrepreneurship', 'Entrepreneurship', 'Startup', 'rocket'),
         ('business', 'Business', None, 'business'),
         ('marketing', 'Marketing', 'Market', 'marketing'),
         ('accounting', 'Accounting', 'Accounts', 'accounting'),
-        ('finance', 'Finance', None, 'finance'),
-        ('budgeting', 'Budgeting', 'Budget', 'budget'),
         ('investing', 'Investing', 'Invest', 'investing'),
         ('taxes', 'Taxes', None, 'tax'),
         ('law', 'Law', None, 'law'),
         ('management', 'Management', 'Manage', 'management'),
     )),
     ('Work', (
+        ('part_time_job', 'Part-Time Job', 'Job', 'job'),
+        ('internships', 'Internships', 'Intern', 'internship'),
+        ('job_search', 'Job Search', 'Jobs', 'jobsearch'),
+        ('interviews', 'Interviews', 'Intervw', 'interview'),
+        ('leadership', 'Leadership', 'Leader', 'leadership'),
+        ('presenting', 'Presenting', 'Present', 'presentation'),
+        ('planning', 'Planning', None, 'plan'),
         ('work', 'Work', None, 'work'),
         ('meetings', 'Meetings', None, 'meeting'),
         ('email', 'Email', None, 'email'),
         ('calls', 'Calls', None, 'call'),
         ('admin', 'Admin', None, 'admin'),
-        ('planning', 'Planning', None, 'plan'),
-        ('presenting', 'Presenting', 'Present', 'presentation'),
         ('reports', 'Reports', None, 'report'),
-        ('interviews', 'Interviews', 'Intervw', 'interview'),
-        ('job_search', 'Job Search', 'Jobs', 'jobsearch'),
     )),
     ('Creative', (
         ('art', 'Art', None, 'art'),
         ('drawing', 'Drawing', None, 'drawing'),
         ('design', 'Design', None, 'design'),
         ('photography', 'Photography', 'Photo', 'photo'),
+        ('film', 'Film', None, 'film'),
+        ('theater', 'Theater', None, 'theater'),
+        ('art_history', 'Art History', 'Art Hist', 'museum'),
+        ('cad', '3D Modeling & CAD', '3D & CAD', 'cad'),
         ('music', 'Music', None, 'music'),
-        ('guitar', 'Guitar', None, 'guitar'),
+        ('music_theory', 'Music Theory', 'Theory', 'theory'),
+        ('band', 'Band & Orchestra', 'Band', 'band'),
         ('piano', 'Piano', None, 'piano'),
+        ('guitar', 'Guitar', None, 'guitar'),
+        ('violin', 'Violin', None, 'violin'),
+        ('drums', 'Drums', None, 'drum'),
         ('singing', 'Singing', None, 'singing'),
         ('dance', 'Dance', None, 'dance'),
-        ('film', 'Film', None, 'film'),
     )),
     ('Health and fitness', (
         ('gym', 'Gym', None, 'gym'),
         ('running', 'Running', None, 'run'),
-        ('cycling', 'Cycling', None, 'bike'),
+        ('basketball', 'Basketball', 'Hoops', 'basketball'),
+        ('soccer', 'Soccer', None, 'soccer'),
         ('swimming', 'Swimming', None, 'swim'),
+        ('cycling', 'Cycling', None, 'bike'),
         ('yoga', 'Yoga', None, 'yoga'),
+        ('sleep', 'Sleep', None, 'sleep'),
+        ('stress', 'Stress', None, 'stress'),
         ('meditation', 'Meditation', 'Meditate', 'meditation'),
         ('nutrition', 'Nutrition', 'Nutri', 'nutrition'),
-        ('sleep', 'Sleep', None, 'sleep'),
         ('therapy', 'Therapy', None, 'therapy'),
         ('health', 'Health', None, 'health'),
     )),
@@ -159,11 +209,13 @@ _GROUPS = (
         ('cooking', 'Cooking', None, 'cooking'),
         ('groceries', 'Groceries', 'Grocery', 'groceries'),
         ('errands', 'Errands', None, 'errand'),
+        ('driving', 'Driving', None, 'car'),
         ('family', 'Family', None, 'family'),
         ('friends', 'Friends', None, 'friends'),
         ('travel', 'Travel', None, 'travel'),
         ('reading', 'Reading', None, 'reading'),
         ('journaling', 'Journaling', 'Journal', 'journal'),
+        ('chess', 'Chess', None, 'chess'),
     )),
 )
 
@@ -210,8 +262,8 @@ def is_valid(subject_id):
 # The two invariants the docstring promises, checked once at import rather
 # than trusted: a typo in the table above should fail loudly on startup, not
 # quietly ship a pill with no icon or a name too long for its row.
-assert len(SUBJECTS) == 100, 'the catalogue is a hundred subjects'
-assert len(BY_ID) == 100, 'subject ids have to be unique'
+assert len(SUBJECTS) == 150, 'the catalog is 150 subjects'
+assert len(BY_ID) == 150, 'subject ids have to be unique'
 assert all(
     len(subject['label']) <= LABEL_LIMIT for subject in SUBJECTS
 ), 'every name longer than eight characters needs an abbreviation'

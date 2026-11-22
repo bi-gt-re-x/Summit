@@ -1,148 +1,327 @@
 /**
- * DO THIS NEXT — the part of the page everything else exists to produce.
+ * The model's recommended sessions for one subject, three at a time, up to six.
+ *
+ * Restored from before 48bcdc4, where it was the second half of "Do this
+ * next". Each step is a dropdown: the title, its kind and subject, difficulty
+ * and time on the shut row; where to get the material (or the equipment), why
+ * this one, a timed session plan, the success criteria and the actions
+ * inside. A second batch of three goes
+ * under the first, so the list grows down to six.
+ *
+ * A step is an instruction, not a finding. "Easy algorithm drills, timed" is
+ * a category; "Easy MATHCOUNTS Sprint #1-10, 2 min each" is something a person
+ * can start, and so is "Practice Bach Concerto intonation" — `problems`,
+ * `pace` and the minutes are filled when they help and left out when not.
+ * Inside, up to three links say where the material is, best first, with the
+ * ones the reader already keeps marked as theirs.
+ *
+ * The whole card is the dropdown's handle: a click anywhere on it that is not
+ * on a link or a button opens or shuts it.
  *
  * ## The loop, and why the buttons matter more than the prose
  *
  *   activity → analytics → diagnosis → recommendation → action → new data → …
  *
- * Every panel above this one is the left-hand side of that arrow. This is the
- * right-hand side, and it only closes if the reader can act on a step *and*
- * the app finds out that they did. So each step carries two controls:
+ * Each step carries two controls:
  *
- *   **Make it a task** — writes a real task, filed under this subject, at the
- *   recommended difficulty. Not a note to self: a task in the ordinary system,
- *   which means finishing it produces a rating, which is the new data.
+ *   **Plan my next session** — books the step as a task filed under this
+ *   subject at the best free time for the reader: the hours their work goes
+ *   best, the days they usually work, how full each day is, and a day or two
+ *   from the other sessions booked for the subject
+ *   (backend/tracking/session_timing.py), with an estimated length and XP
+ *   (backend/tracking/session_plan.py). The step is then locked to that task:
+ *   completing it marks the step done, deleting it opens the step again.
+ *   Finishing it produces a rating, which is the new data the next batch is
+ *   argued from.
  *
- *   **I did this** — records the step as taken without creating anything, for
+ *   **I did this** — records the step as done without creating anything, for
  *   the reader who did the work outside Summit.
  *
- * Either one stamps `taken_at` on the stored recommendation. Without that
- * stamp the whole feedback loop is blind in the one way that matters: "this
- * kind of session did not help" becomes indistinguishable from "this kind of
- * session was never tried", and the second is by far the commoner case.
+ * Done stamps `taken_at` on the stored recommendation. Without that stamp
+ * "this kind of session did not help" is indistinguishable from "this kind of
+ * session was never tried".
  *
  * ## What is a measurement and what is a suggestion
  *
- * The difficulty and the minutes on a step are the model's recommendations —
- * two of exactly three numbers on this page it is allowed to produce — and
- * they are drawn as chips rather than in the tabular figures used everywhere
- * else, so they do not read as counted. The `reason` under each is required to
- * cite a figure that *was* counted, which is what makes a step arguable
- * instead of oracular.
- *
- * ## Effectiveness, once there is any
- *
- * The strip at the foot is what the loop is for: which kinds of session have
- * actually been followed by movement for this account — and that half now
- * lives in ./Verdicts with the rest of "did the advice work", because at the
- * foot of this panel it was evidence filed underneath the prescription it was
- * evidence for.
+ * The difficulty and the minutes are the model's suggestions and are drawn as
+ * chips rather than as counted figures. The `reason` under each is required to
+ * cite a figure that *was* counted, which is what makes a step arguable.
  */
-import { STEP_WORDS, type NextStep } from '@/services/analytics';
-import { DIFFICULTY_WORDS } from '@/utils/ratings';
+import type { MouseEvent } from 'react';
+import {
+  STEP_WORDS,
+  type NextStep,
+  type PlannedSession,
+  type StepPart,
+  type StepResource,
+  type StepState,
+} from '@/services/analytics';
+import { DEFAULT_LEVEL, fiveToLevel, levelLabel, levelXp } from '@/utils/priority';
+import { RULES } from '@/utils/sharedRules';
+
+/** How many steps make a batch. The model is asked for at most this many
+    and the page never draws more. From shared/rules.json, as the server's is. */
+export const BATCH: number = RULES.recommendations.batch;
+
+/** The most the panel holds at once — two batches. The server enforces the
+    same number, from the same file. */
+export const MAX_STEPS: number = RULES.recommendations.max_steps;
+
+/**
+ * The session in order. A step written before plans existed has its drills,
+ * untimed, so older steps still read as a list of what to do.
+ */
+export function stepPlan(step: NextStep): StepPart[] {
+  if (step.plan?.length) return step.plan.filter((part) => part.what?.trim());
+  return (step.drills ?? []).map((what) => ({ label: '', minutes: null, what }));
+}
+
+/** What to check off at the end. An older step has its one signal. */
+export function stepSuccess(step: NextStep): string[] {
+  if (step.success?.length) return step.success.filter((line) => line.trim());
+  return step.signal ? [step.signal] : [];
+}
+
+/** One link to the material, with what it costs to open. */
+function StepLink({ link }: { link: StepResource }) {
+  const cost = link.yours
+    ? 'Yours'
+    : link.signup === 'quick'
+      ? 'Free account'
+      : link.signup
+        ? 'Free'
+        : '';
+  return (
+    <>
+      <a href={link.url} target="_blank" rel="noopener noreferrer">
+        {link.name || siteOf(link.url)}
+      </a>
+      {cost && <span className="sx-step-cost"> · {cost}</span>}
+    </>
+  );
+}
+
+/** The links worth drawing: http(s) only, whatever a saved reading holds. */
+export function stepLinks(step: NextStep): StepResource[] {
+  return (step.resources ?? [])
+    .filter((link) => /^https?:\/\//i.test(link.url ?? ''))
+    .slice(0, 3);
+}
+
+/**
+ * Whether a pace only says the session's length again — "30 minutes total"
+ * beside a "30 min" chip — so it is not drawn twice.
+ */
+export function paceRepeatsLength(pace: string, minutes: number | null | undefined): boolean {
+  const text = pace.trim().toLowerCase();
+  const only = /^(\d+)\s*(?:min|mins|minutes?)(?:\s+(?:total|in total|overall|for the set|for the session))?$/.exec(text);
+  return Boolean(only && minutes && Number(only[1]) === minutes);
+}
+
+function siteOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * A click anywhere on a step's card opens or shuts it, not only on its head.
+ *
+ * The `summary` still does the toggling for itself (and for the keyboard), so
+ * a click there is left to it; links and buttons do their own thing; and a
+ * click that ends a text selection is somebody copying, not folding.
+ */
+function foldFromCard(event: MouseEvent<HTMLLIElement>) {
+  const target = event.target as HTMLElement;
+  if (target.closest('summary, a, button, input, select, textarea, label')) return;
+  if (window.getSelection()?.toString()) return;
+  const fold = event.currentTarget.querySelector('details');
+  if (fold) fold.open = !fold.open;
+}
+
+/** "Tue 6 Oct, 4:00–4:45 PM" for a booked session's local ISO times. */
+export function sessionWhen(task: PlannedSession): string {
+  const start = new Date(task.start);
+  const end = new Date(task.end);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return '';
+  const day = start.toLocaleDateString(undefined, {
+    weekday: 'short', day: 'numeric', month: 'short',
+  });
+  const time = (date: Date) =>
+    date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return `${day}, ${time(start)}-${time(end)}`;
+}
 
 export interface NextStepsProps {
   steps: NextStep[];
-  /** Ids already acted on, so a step does not offer twice. */
-  taken: Set<string>;
+  /** Where each step stands, by id. A step missing here is open. */
+  status: Map<string, { state: StepState; task: PlannedSession | null }>;
   busy: string;
-  onMakeTask: (step: NextStep) => void;
+  onPlan: (step: NextStep) => void;
   onDidIt: (step: NextStep) => void;
+  /** Whether the first step starts open. Off where the steps sit side by side. */
+  firstOpen?: boolean;
 }
 
-export function NextSteps({
-  steps,
-  taken,
-  busy,
-  onMakeTask,
-  onDidIt,
-}: NextStepsProps) {
-  if (!steps.length) return null;
+export function NextSteps({ steps, status, busy, onPlan, onDidIt, firstOpen = true }: NextStepsProps) {
+  const batch = steps.slice(0, MAX_STEPS);
+  if (!batch.length) return null;
 
   return (
     <div className="sx-steps">
       <ol className="sx-step-list">
-        {steps.map((step, at) => {
-          const done = taken.has(step.id);
+        {batch.map((step, at) => {
+          const state = status.get(step.id)?.state ?? 'open';
+          const planned = state === 'planned' ? status.get(step.id)?.task ?? null : null;
+          const done = state === 'done';
+          const links = stepLinks(step);
+          const plan = stepPlan(step);
+          const success = stepSuccess(step);
           return (
-            <li key={step.id || step.title} className={`sx-step${done ? ' is-taken' : ''}`}>
+            <li
+              key={step.id || step.title}
+              className={`sx-step${done ? ' is-taken' : ''}`}
+              onClick={foldFromCard}
+            >
               <span className="sx-step-rank" aria-hidden="true">
                 {String(at + 1).padStart(2, '0')}
               </span>
 
-              <div className="sx-step-body">
-                <div className="sx-step-head">
-                  <strong>{step.title}</strong>
-                  <span className="sx-step-kind">{STEP_WORDS[step.type] ?? step.type}</span>
-                </div>
-
-                {/* The model's own two numbers, marked as suggestions. */}
-                <div className="sx-step-chips">
-                  <span className="sx-chip is-difficulty" data-level={step.difficulty}>
-                    {DIFFICULTY_WORDS[step.difficulty - 1] ?? `Level ${step.difficulty}`}
-                    <i>{step.difficulty}/5</i>
-                  </span>
-                  <span className="sx-chip">{step.minutes} min</span>
-                  {step.focus && <span className="sx-chip is-focus">{step.focus}</span>}
-                </div>
-
-                <p className="sx-step-why">{step.reason}</p>
-
-                {/* What would say this worked.
-
-                    The field that turns a recommendation into an experiment
-                    somebody can settle, and the reason it is worth a line of
-                    its own rather than a clause in the reason: a reader who
-                    knows what to watch can tell in a fortnight whether to keep
-                    doing this, and the app records the same thing next to the
-                    row. Without it, "that did not help" and "I never tried it"
-                    look identical from here — the failure the whole loop
-                    exists to prevent. */}
-                {step.signal && (
-                  <p className="sx-step-signal">
-                    <span>Expected signal</span>
-                    {step.signal}
+              <details className="sx-step-body sx-step-fold" open={firstOpen && at === 0 && !done}>
+                <summary>
+                  <div className="sx-step-head">
+                    <strong>{step.title}</strong>
+                  </div>
+                  <p className="sx-step-meta">
+                    {[STEP_WORDS[step.type] ?? step.type, step.focus].filter(Boolean).join(' · ')}
+                    {planned && <span className="sx-chip is-planned">Planned</span>}
+                    {done && <span className="sx-chip">Done</span>}
                   </p>
-                )}
 
-                {step.drills.length > 0 && (
-                  <ul className="sx-step-drills">
-                    {step.drills.map((drill) => (
-                      <li key={drill}>{drill}</li>
-                    ))}
-                  </ul>
-                )}
+                  {/* The model's own two numbers, marked as suggestions. */}
+                  <p className="sx-step-facts">
+                    {/* The step's 1-5 as the level it's booked at, and the XP that
+                        level pays (backend/tracking/session_plan.py). */}
+                    <span className="is-difficulty" data-level={step.difficulty}>
+                      <b>Level:</b> {levelLabel(fiveToLevel(step.difficulty) ?? DEFAULT_LEVEL)}
+                      {' · '}{levelXp(fiveToLevel(step.difficulty) ?? DEFAULT_LEVEL)} XP
+                    </span>
+                    {step.minutes ? <span><b>Time:</b> {step.minutes} min</span> : null}
+                  </p>
 
-                <div className="sx-step-actions">
-                  {done ? (
-                    <span className="sx-step-done">Recorded. It counts toward what works</span>
-                  ) : (
-                    <>
-                      <button
-                        type="button"
-                        className="sx-btn is-primary"
-                        disabled={busy === step.id}
-                        onClick={() => onMakeTask(step)}
-                      >
-                        {busy === step.id ? 'Adding…' : 'Make it a task'}
-                      </button>
-                      <button
-                        type="button"
-                        className="sx-btn is-quiet"
-                        disabled={busy === step.id}
-                        onClick={() => onDidIt(step)}
-                      >
-                        I did this
-                      </button>
-                    </>
+                  {/* Exactly what to work, on the shut row: the line that makes
+                      this an instruction rather than a category. Left out when
+                      the title already says it word for word. */}
+                  {step.problems
+                    && !step.title.toLowerCase().includes(step.problems.toLowerCase()) && (
+                    <p className="sx-step-what">{step.problems}</p>
                   )}
+                </summary>
+
+                <div className="sx-step-inside">
+                  {/* Where the material is, best first, the reader's own
+                      marked. A step from before links existed keeps its one
+                      named source as plain text. */}
+                  {links.length === 1 ? (
+                    <p className="sx-step-line">
+                      <b>Where to get it:</b>{' '}
+                      <StepLink link={links[0]!} />
+                    </p>
+                  ) : links.length > 1 ? (
+                    <div className="sx-step-line">
+                      <b>Where to get it:</b>
+                      <ol className="sx-step-links">
+                        {links.map((link) => (
+                          <li key={link.url}><StepLink link={link} /></li>
+                        ))}
+                      </ol>
+                    </div>
+                  ) : step.resource ? (
+                    <p className="sx-step-line"><b>Where to get it:</b> {step.resource}</p>
+                  ) : null}
+
+                  {step.equipment && (
+                    <p className="sx-step-line"><b>Equipment:</b> {step.equipment}</p>
+                  )}
+
+                  {step.pace && !paceRepeatsLength(step.pace, step.minutes) && (
+                    <p className="sx-step-line"><b>Pace:</b> {step.pace}</p>
+                  )}
+
+                  {step.reason && (
+                    <section className="sx-step-section">
+                      <h4>Why this recommendation</h4>
+                      <p>{step.reason}</p>
+                    </section>
+                  )}
+
+                  {plan.length > 0 && (
+                    <section className="sx-step-section">
+                      <h4>Your session plan</h4>
+                      <ol className="sx-step-plan">
+                        {plan.map((part, n) => (
+                          <li key={`${n}-${part.label}`}>
+                            {part.label && (
+                              <b>
+                                {part.label}
+                                {part.minutes ? ` (${part.minutes} min)` : ''}:
+                              </b>
+                            )}{' '}
+                            {part.what}
+                          </li>
+                        ))}
+                      </ol>
+                    </section>
+                  )}
+
+                  {success.length > 0 && (
+                    <section className="sx-step-section">
+                      <h4>Success criteria</h4>
+                      <ul className="sx-step-success">
+                        {success.map((line) => (
+                          <li key={line}>{line}</li>
+                        ))}
+                      </ul>
+                    </section>
+                  )}
+
+                  <div className="sx-step-actions">
+                    {done ? (
+                      <span className="sx-step-done">Saved. It helps us learn what works for you.</span>
+                    ) : planned ? (
+                      <span className="sx-step-done">
+                        Planned for {sessionWhen(planned)} · {planned.xp} XP. Finish or delete that task to plan another.
+                        {planned.why && <span className="sx-step-why">{planned.why}</span>}
+                      </span>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="sx-btn is-primary"
+                          disabled={busy === step.id}
+                          onClick={() => onPlan(step)}
+                        >
+                          {busy === step.id ? 'Planning…' : 'Plan my next session'}
+                        </button>
+                        <button
+                          type="button"
+                          className="sx-btn is-quiet"
+                          disabled={busy === step.id}
+                          onClick={() => onDidIt(step)}
+                        >
+                          I did this
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
+              </details>
             </li>
           );
         })}
       </ol>
-
     </div>
   );
 }

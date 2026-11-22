@@ -68,17 +68,17 @@ describe('the difficulty curve', () => {
     ]);
 
     expect(curve.threshold?.label).toBe('Hard');
-    expect(curve.holds?.label).toBe('Fair');
+    expect(curve.holds?.label).toBe('Medium');
     expect(curve.drop).toBe(50);
   });
 
   it('finds no cliff when the curve does not fall away', () => {
     // A real answer with its own instruction — go up a level, rather than
-    // practise more — and one that a "lowest rung wins" rule would never give.
+    // practice more — and one that a "lowest rung wins" rule would never give.
     const curve = difficultyCurve([...rung(5, 2, 4), ...rung(5, 3, 4), ...rung(5, 4, 4)]);
     expect(curve.threshold).toBeNull();
     expect(curve.holds).toBeNull();
-    expect(curve.best?.label).toBe('Easy');
+    expect(curve.best?.label).toBe('Slightly Easy');
   });
 
   it('does not call half a star a cliff', () => {
@@ -232,7 +232,7 @@ describe('the dimensions', () => {
 
 describe('standings', () => {
   it('counts a run rather than a rate', () => {
-    /* A rate lets a bad fortnight hide inside a good quarter. The achievement
+    /* A rate lets a bad two weeks hide inside a good quarter. The achievement
        is about doing it again, so the measure is the longest run. */
     const state = subjectState(
       [

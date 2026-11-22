@@ -27,13 +27,15 @@ append-only and "the latest event" is the last row, not the largest id.
 The JSON files under data/backups/ are the JSON store this replaced, kept as a
 record of the last JSON-era state. They are not read or written.
 """
+import contextvars
 import json
 import os
+import re
 import sqlite3
 import threading
-from datetime import datetime
+from datetime import date, datetime
 
-from backend.config.settings import DB_PATH, SCHEMA_FILES, SQL_DIR
+from backend.config.settings import DB_PATH, SCHEMA_FILES, SQL_DIR, database_url
 
 # Columns holding JSON. SQLite has no JSON type, so these are TEXT columns
 # that get decoded on the way out and encoded on the way in — what the JSONB
@@ -45,6 +47,9 @@ JSON_COLUMNS = {
     ('setting_defaults', 'value'),
     ('library_items', 'tags'),
     ('calendar_documents', 'data'),
+    ('skill_steps', 'checks'),
+    ('skill_problems', 'checks'),
+    ('users', 'streak_vacations'),
 }
 
 # The JSON columns that hold a *scalar* — a word, a number, a flag — rather
@@ -111,6 +116,14 @@ ADDED_COLUMNS = (
     ('goals', 'current_value', 'NUMERIC'),
     ('goals', 'target_number', 'NUMERIC'),
     ('goals', 'subject_ids', 'TEXT'),
+    # Which chart the card draws; empty lets the page pick.
+    ('goals', 'chart', 'TEXT'),
+    # A goal its own numbers have finished, waiting for the reader to confirm
+    # it, and when they did. Existing rows get NULL: a goal completed before
+    # this existed is not asked about again. See `verify_goal` in
+    # backend/api/goals.py.
+    ('goals', 'needs_verify', 'BOOLEAN'),
+    ('goals', 'verified_at', 'TEXT'),
 
     # Which goal and which checkpoint a task is execution for. Both nullable
     # and both meaningless to every task that already exists, which is the
@@ -140,12 +153,20 @@ ADDED_COLUMNS = (
 
     ('tasks', 'difficulty', 'INTEGER'),
     ('tasks', 'execution', 'INTEGER'),
+    # How hard the task is on the seven-level scale that sets its XP (Easy to
+    # Grueling, shared/rules.json). NULL on tasks made before it existed, which
+    # backend/tracking/levels.py reads off their old rating or their XP.
+    ('tasks', 'level', 'INTEGER'),
 
     # The one missed day a streak was forgiven, so the grace day in
     # backend/tracking/xp.py can be rationed by date rather than by a counter
     # that nothing resets. NULL on every account that predates it, which reads
     # as "no grace spent" — the honest answer, since there was none to spend.
     ('users', 'streak_grace_day', 'TEXT'),
+    # Vacation mode: the days the streak is paused for, as a JSON list of
+    # [first, last] ISO days (backend/tracking/xp.py, `plan_vacation`). NULL is
+    # "never been on one", which every reader takes as an empty list.
+    ('users', 'streak_vacations', 'TEXT'),
 
     # What a note is about, and which shelf it is on. Both empty on every note
     # written before the notes page could say either, which is the honest
@@ -176,6 +197,46 @@ ADDED_COLUMNS = (
     # cannot attach one to a table with rows in it, and the endpoint in
     # backend/api/records.py narrows the value to the two words anyway.
     ('records', 'comparison_direction', 'TEXT'),
+
+    # What the goal matcher concluded about a task, and which version did.
+    # Existing rows get NULL: never looked at, which the matcher treats as due
+    # a lazy first pass rather than as "no goal". See data/sql/tasks.sql.
+    ('tasks', 'goal_match_status', 'TEXT'),
+    ('tasks', 'goal_match_version', 'INTEGER'),
+
+    # Which task a completion event is for — with the timestamp, the event's
+    # idempotency key. Existing rows get NULL: logged before anyone recorded
+    # it, and outside the unique index below. See data/sql/growth.sql.
+    ('xp_events', 'task_id', 'TEXT'),
+
+    # "How many did you get right?", asked after a task whose title names a
+    # count of problems. Existing rows get NULL: never asked. Read by
+    # backend/tracking/record.py, which is what lets the plan say which work
+    # went wrong instead of how much there was. See data/sql/tasks.sql.
+    ('tasks', 'score_got', 'INTEGER'),
+    ('tasks', 'score_of', 'INTEGER'),
+
+    # How the day felt, tapped on the Log page: mood 1-5, energy 1-3. NULL on
+    # every entry written before the check-in existed and on every one where
+    # it was skipped, and backend/tracking/mood.py reads NULL as "not said",
+    # never as a middling day. Ranges are enforced by backend/api/journal.py.
+    ('log_entries', 'mood', 'INTEGER'),
+    ('log_entries', 'energy', 'INTEGER'),
+)
+
+# Indexes on columns that ADDED_COLUMNS supplies. Their own list, applied after
+# the columns, because an index is created against the table as it is at that
+# moment: put in ADDED_TABLES, which runs first, it would name a column a
+# database older than the column does not have yet, and startup would fail.
+ADDED_INDEXES = (
+    # The goal matcher's "what is out of date" question, answered from an
+    # index rather than a scan of the account's tasks. See data/sql/tasks.sql.
+    'CREATE INDEX IF NOT EXISTS tasks_user_match_idx ON tasks (user_id, goal_match_version)',
+    # One completion of one task is one ledger row, however often the request
+    # that completed it arrives. Partial, so every event without a task —
+    # daily rolls, older rows — is untouched by it.
+    'CREATE UNIQUE INDEX IF NOT EXISTS xp_events_task_completion_idx '
+    'ON xp_events (task_id, timestamp) WHERE task_id IS NOT NULL',
 )
 
 # Tables added to the app after the database was first created.
@@ -376,6 +437,318 @@ ADDED_TABLES = ('''
 ''', '''
     CREATE UNIQUE INDEX IF NOT EXISTS subject_readings_one_per_subject
         ON subject_readings (user_id, subject)
+''', '''
+    -- Which goals a task counts toward. Mirrors data/sql/goals.sql, where the
+    -- note on what is stored and why lives.
+    CREATE TABLE IF NOT EXISTS task_goal_matches (
+        task_id  TEXT NOT NULL REFERENCES tasks (id) ON DELETE CASCADE,
+        goal_id  TEXT NOT NULL REFERENCES goals (id) ON DELETE CASCADE,
+        user_id  TEXT NOT NULL,
+        score    REAL NOT NULL DEFAULT 0 CHECK (score BETWEEN 0 AND 1),
+        source   TEXT NOT NULL DEFAULT 'rule'
+                 CHECK (source IN ('explicit', 'rule', 'ai')),
+        PRIMARY KEY (task_id, goal_id)
+    )
+''', '''
+    CREATE INDEX IF NOT EXISTS task_goal_matches_goal_idx
+        ON task_goal_matches (user_id, goal_id)
+''', '''
+    -- What the model said about an ambiguous task, keyed on the question.
+    -- Mirrors data/sql/goals.sql, where the note on it lives.
+    CREATE TABLE IF NOT EXISTS goal_ai_answers (
+        user_id     TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+        ask_key     TEXT NOT NULL,
+        goal_ids    TEXT NOT NULL DEFAULT '',
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (user_id, ask_key)
+    )
+''', '''
+    -- The written practice program for every node in the skill library.
+    -- Mirrors data/sql/skillsteps.sql, where the note on why these are stored
+    -- rather than derived in the browser lives.
+    --
+    -- Not account-scoped, and the only table here that is not: this is the
+    -- curriculum, identical for every reader, which is what lets it be written
+    -- once by scripts/generate_skill_steps.py instead of per person.
+    CREATE TABLE IF NOT EXISTS skill_steps (
+        node_id      TEXT    NOT NULL,
+        ordinal      INTEGER NOT NULL,
+        title        TEXT    NOT NULL,
+        mastery      TEXT    NOT NULL,
+        practice     TEXT    NOT NULL,
+        detail       TEXT    NOT NULL,
+        proof        TEXT    NOT NULL,
+        pitfall      TEXT    NOT NULL,
+        minutes      INTEGER NOT NULL DEFAULT 20,
+        tree_id      TEXT    NOT NULL,
+        tier         TEXT    NOT NULL,
+        model        TEXT    NOT NULL,
+        generated_at TEXT    NOT NULL,
+        attempts     INTEGER NOT NULL DEFAULT 1,
+        verified_at  TEXT    NOT NULL,
+        verifier     TEXT    NOT NULL,
+        checks       TEXT    NOT NULL DEFAULT '[]',
+        PRIMARY KEY (node_id, ordinal),
+        CHECK (ordinal >= 1),
+        CHECK (length(title) > 0),
+        CHECK (length(mastery) > 0),
+        CHECK (length(practice) > 0),
+        CHECK (length(detail) > 0),
+        CHECK (length(proof) > 0),
+        CHECK (length(pitfall) > 0),
+        CHECK (length(verified_at) > 0),
+        CHECK (length(verifier) > 0),
+        CHECK (checks LIKE '["%')
+    )
+''', '''
+    CREATE INDEX IF NOT EXISTS skill_steps_tree ON skill_steps (tree_id, node_id)
+''', '''
+    -- What quality control did, failures included. Mirrors
+    -- data/sql/skillsteps.sql. Append-only: a step that failed, was rewritten
+    -- and then passed is three rows in that order.
+    CREATE TABLE IF NOT EXISTS skill_step_audit (
+        run_id     TEXT    NOT NULL,
+        node_id    TEXT    NOT NULL,
+        ordinal    INTEGER,
+        stage      TEXT    NOT NULL,
+        outcome    TEXT    NOT NULL,
+        reason     TEXT    NOT NULL DEFAULT '',
+        at         TEXT    NOT NULL,
+        CHECK (stage IN ('generate', 'rules', 'review', 'repair', 'store')),
+        CHECK (outcome IN ('pass', 'fail', 'drop', 'error'))
+    )
+''', '''
+    CREATE INDEX IF NOT EXISTS skill_step_audit_run
+        ON skill_step_audit (run_id, node_id)
+''', '''
+    -- The questions behind a step. Mirrors data/sql/skillsteps.sql, where the
+    -- note on why a problem set is rows rather than a column lives.
+    CREATE TABLE IF NOT EXISTS skill_problems (
+        node_id      TEXT    NOT NULL,
+        ordinal      INTEGER NOT NULL,
+        slot         INTEGER NOT NULL,
+        weight       TEXT    NOT NULL,
+        prompt       TEXT    NOT NULL,
+        answer       TEXT    NOT NULL,
+        hint         TEXT    NOT NULL DEFAULT '',
+        tree_id      TEXT    NOT NULL,
+        model        TEXT    NOT NULL,
+        generated_at TEXT    NOT NULL,
+        verified_at  TEXT    NOT NULL,
+        verifier     TEXT    NOT NULL,
+        checks       TEXT    NOT NULL DEFAULT '[]',
+        PRIMARY KEY (node_id, ordinal, slot),
+        CHECK (ordinal >= 1),
+        CHECK (slot >= 1),
+        CHECK (weight IN ('warmup', 'core', 'stretch')),
+        CHECK (length(prompt) > 0),
+        CHECK (length(answer) > 0),
+        CHECK (length(verified_at) > 0),
+        CHECK (length(verifier) > 0),
+        CHECK (checks LIKE '["%')
+    )
+''', '''
+    CREATE INDEX IF NOT EXISTS skill_problems_step
+        ON skill_problems (node_id, ordinal, slot)
+''', '''
+    -- What the reader got right and wrong, per skill. Mirrors
+    -- data/sql/skillattempts.sql, where the note on why it is batches lives.
+    CREATE TABLE IF NOT EXISTS skill_attempts (
+        id         TEXT    PRIMARY KEY,
+        user_id    TEXT    NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+        node_id    TEXT    NOT NULL,
+        ordinal    INTEGER NOT NULL DEFAULT 0,
+        slot       INTEGER,
+        weight     TEXT    NOT NULL,
+        attempted  INTEGER NOT NULL DEFAULT 1,
+        correct    INTEGER NOT NULL DEFAULT 0,
+        source     TEXT    NOT NULL DEFAULT 'problem',
+        at         TEXT    NOT NULL,
+        CHECK (ordinal >= 0),
+        CHECK (weight IN ('warmup', 'core', 'stretch')),
+        CHECK (attempted >= 1),
+        CHECK (correct >= 0 AND correct <= attempted),
+        CHECK (source IN ('problem', 'log'))
+    )
+''', '''
+    CREATE INDEX IF NOT EXISTS skill_attempts_user_idx
+        ON skill_attempts (user_id, node_id, ordinal)
+''', '''
+    -- What an account says about itself at sign-up. The DDL is data/sql/background.sql's; see the note on ADDED_TABLES.
+    CREATE TABLE IF NOT EXISTS user_background (
+        user_id     TEXT PRIMARY KEY REFERENCES users (username) ON DELETE CASCADE,
+        describe    TEXT NOT NULL DEFAULT '',
+        doing       TEXT NOT NULL DEFAULT '',
+        done        TEXT NOT NULL DEFAULT '',
+        improve     TEXT NOT NULL DEFAULT '',
+        words       INTEGER NOT NULL DEFAULT 0,
+        detail      TEXT NOT NULL DEFAULT 'none',
+        head_start  INTEGER NOT NULL DEFAULT 0,
+        updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        CHECK (detail IN ('none', 'brief', 'good', 'detailed')),
+        CHECK (head_start >= 0)
+    )
+''', '''
+    CREATE TABLE IF NOT EXISTS user_facts (
+        id          TEXT PRIMARY KEY,
+        user_id     TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+        kind        TEXT NOT NULL,
+        text        TEXT NOT NULL,
+        subject     TEXT,
+        value       REAL,
+        unit        TEXT NOT NULL DEFAULT '',
+        question    TEXT NOT NULL DEFAULT '',
+        position    INTEGER NOT NULL DEFAULT 0,
+        source      TEXT NOT NULL DEFAULT 'background',
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        CHECK (kind IN ('achievement', 'stat', 'activity', 'aim', 'about'))
+    )
+''', '''
+    CREATE INDEX IF NOT EXISTS user_facts_user_idx
+        ON user_facts (user_id, position)
+''', '''
+    -- One row per focus sitting. The DDL is data/sql/focus.sql's; see the note on ADDED_TABLES.
+    CREATE TABLE IF NOT EXISTS focus_sittings (
+        -- Made by the browser that ran the sitting, so a row written offline and
+        -- sent again later is the same row rather than a second one. Scoped to the
+        -- account by the key, so two accounts can never collide on one.
+        id          TEXT NOT NULL,
+        user_id     TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+
+        day         TEXT NOT NULL,
+        -- Epoch milliseconds the sitting ended. NULL for rows logged before the
+        -- browser kept it, which read as "some time that day".
+        at          INTEGER,
+        style_id    TEXT NOT NULL,
+        planned     INTEGER NOT NULL DEFAULT 0,
+        minutes     INTEGER NOT NULL DEFAULT 0,
+        pauses      INTEGER NOT NULL DEFAULT 0,
+        finished    BOOLEAN NOT NULL DEFAULT FALSE,
+        -- Minutes into the sitting at which it was paused, comma-separated.
+        breaks      TEXT NOT NULL DEFAULT '',
+
+        -- The task it was for. The title is copied, so a renamed or deleted task
+        -- still reads back as what it was called at the time.
+        task_id     TEXT,
+        task_title  TEXT,
+
+        -- The optional answers the sitting carried. See components/Timer/intervals.ts.
+        intent      TEXT,
+        target      NUMERIC,
+        done        NUMERIC,
+        met         BOOLEAN,
+        readiness   TEXT,
+        kind        TEXT,
+
+        PRIMARY KEY (user_id, id),
+        CHECK (minutes >= 0 AND planned >= 0 AND pauses >= 0)
+    )
+''', '''
+    CREATE INDEX IF NOT EXISTS focus_sittings_user_at ON focus_sittings (user_id, at)
+''', '''
+    -- Free study resources, by subject: what session plans link to first.
+    -- Not account-scoped, like skill_steps: one catalog for every reader,
+    -- loaded from data/free_resources.json (backend/tracking/free_resources.py),
+    -- which is the committed copy.
+    --
+    -- Only free things are in it, and only things that are quick to start:
+    -- `signup` is 'none' (use it straight away) or 'quick' (a free account by
+    -- email or Google, a minute or two). Anything slower isn't listed.
+    CREATE TABLE IF NOT EXISTS free_resources (
+        id        TEXT    NOT NULL PRIMARY KEY,
+        subject   TEXT    NOT NULL,
+        name      TEXT    NOT NULL,
+        url       TEXT    NOT NULL,
+        kind      TEXT    NOT NULL,
+        signup    TEXT    NOT NULL,
+        good_for  TEXT    NOT NULL DEFAULT '',
+        -- JSON list of words and phrases matched against task names.
+        keywords  TEXT    NOT NULL DEFAULT '[]',
+        ordinal   INTEGER NOT NULL DEFAULT 1,
+        CHECK (signup IN ('none', 'quick')),
+        CHECK (url LIKE 'http%')
+    )
+''', '''
+    CREATE INDEX IF NOT EXISTS free_resources_subject ON free_resources (subject, ordinal)
+''', '''
+    -- Each account's free resources for a subject, sorted by how well they fit
+    -- the names of that account's tasks there: a subject full of "LeetCode
+    -- session" puts LeetCode first. Rewritten whole per subject whenever a
+    -- plan is made, so `place` is always 1..n with no gaps.
+    CREATE TABLE IF NOT EXISTS subject_resources (
+        user_id     TEXT    NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+        subject     TEXT    NOT NULL,
+        resource_id TEXT    NOT NULL,
+        place       INTEGER NOT NULL,
+        -- How many of the subject's task names it matched, and a few of them.
+        matched     INTEGER NOT NULL DEFAULT 0,
+        titles      TEXT    NOT NULL DEFAULT '[]',
+        sorted_at   TEXT    NOT NULL,
+        PRIMARY KEY (user_id, subject, resource_id),
+        CHECK (place >= 1)
+    )
+''', '''
+    CREATE INDEX IF NOT EXISTS subject_resources_place
+        ON subject_resources (user_id, subject, place)
+''', '''
+    -- The Log page's entries and what Summit learned from them. The DDL is data/sql/log.sql's; see the note on ADDED_TABLES.
+    CREATE TABLE IF NOT EXISTS log_entries (
+        id          TEXT PRIMARY KEY,
+        user_id     TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+        title       TEXT NOT NULL DEFAULT '',
+        body        TEXT NOT NULL DEFAULT '',
+        -- Whether the current text has been read for insights yet.
+        learn_state TEXT NOT NULL DEFAULT 'waiting',
+        learned_at  TEXT,
+        mood        INTEGER,
+        energy      INTEGER,
+        created_at  TEXT NOT NULL,
+        updated_at  TEXT NOT NULL,
+        CHECK (learn_state IN ('waiting', 'done', 'failed', 'off'))
+    )
+''', '''
+    CREATE INDEX IF NOT EXISTS log_entries_user_idx
+        ON log_entries (user_id, created_at)
+''', '''
+    CREATE TABLE IF NOT EXISTS log_insights (
+        id          TEXT PRIMARY KEY,
+        user_id     TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+        kind        TEXT NOT NULL,
+        topic       TEXT NOT NULL,
+        text        TEXT NOT NULL,
+        sources     TEXT NOT NULL DEFAULT '',
+        status      TEXT NOT NULL DEFAULT 'active',
+        expires_at  TEXT,
+        created_at  TEXT NOT NULL,
+        updated_at  TEXT NOT NULL,
+        CHECK (kind IN ('goal', 'pattern', 'preference', 'feeling')),
+        CHECK (status IN ('active', 'retired', 'removed'))
+    )
+''', '''
+    CREATE INDEX IF NOT EXISTS log_insights_user_idx
+        ON log_insights (user_id, status)
+''', '''
+    -- First-week quests already cashed in. The DDL is data/sql/quests.sql's; see the note on ADDED_TABLES.
+    CREATE TABLE IF NOT EXISTS quest_claims (
+        user_id     TEXT    NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+        quest_id    TEXT    NOT NULL,
+        xp          INTEGER NOT NULL DEFAULT 0,
+        claimed_at  TEXT    NOT NULL,
+        PRIMARY KEY (user_id, quest_id),
+        CHECK (xp >= 0)
+    )
+''', '''
+    -- Marks on the review queue. The DDL is data/sql/review.sql's; see the note on ADDED_TABLES.
+    CREATE TABLE IF NOT EXISTS review_marks (
+        id       TEXT PRIMARY KEY,
+        user_id  TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+        item     TEXT NOT NULL,
+        result   TEXT NOT NULL,
+        at       TEXT NOT NULL,
+        CHECK (result IN ('right', 'missed'))
+    )
+''', '''
+    CREATE INDEX IF NOT EXISTS review_marks_user_idx ON review_marks (user_id, item)
 ''')
 
 
@@ -485,9 +858,10 @@ def _rebuild_table(con, spec):
 def _catch_up(path):
     """Bring an existing database up to the shape the app expects.
 
-    Tables first, then columns, then the constraint rebuilds: a column cannot
-    be added to a table that is not there, and a rebuild has to copy the
-    columns the two lists above have already put in place.
+    Tables first, then columns, then the indexes on those columns, then the
+    constraint rebuilds: a column cannot be added to a table that is not
+    there, an index cannot name a column that is not there, and a rebuild has
+    to copy the columns the lists above have already put in place.
     """
     con = sqlite3.connect(path)
     try:
@@ -502,11 +876,54 @@ def _catch_up(path):
                 continue
             con.execute('ALTER TABLE "{}" ADD COLUMN "{}" {}'.format(
                 table, column, sql_type))
+        for statement in ADDED_INDEXES:
+            con.execute(statement)
         for spec in REBUILT_TABLES:
             _rebuild_table(con, spec)
         con.commit()
     finally:
         con.close()
+
+
+def _ensure_postgres(url):
+    """Bring a Postgres database up to the shape the app expects.
+
+    The schema is not written out twice. A scratch SQLite database is built
+    from data/sql/*.sql and caught up exactly as a real one would be, and
+    `pg.mirror_schema` creates in Postgres whatever of it is missing — so the
+    seed files and the ADDED_* lists above stay the one description of the
+    tables, and a column added there reaches Postgres on the next start. An
+    empty Postgres database also gets the seed rows, the same as a fresh
+    SQLite file does. An advisory lock keeps two workers starting together
+    from both doing it.
+    """
+    import tempfile
+    import psycopg
+    from backend.database import pg
+
+    scratch_dir = tempfile.mkdtemp(prefix='summit-schema-')
+    scratch = os.path.join(scratch_dir, 'schema.db')
+    try:
+        _build(scratch)
+        _catch_up(scratch)
+        lite = sqlite3.connect(scratch)
+        try:
+            with psycopg.connect(url, autocommit=True) as raw:
+                raw.execute('SELECT pg_advisory_lock(52130)')
+                try:
+                    fresh = pg.is_empty(raw)
+                    _, tables, indexes = pg.mirror_schema(raw, lite)
+                    if fresh:
+                        pg.copy_rows(raw, lite, tables)
+                    pg.finish_schema(raw, tables, indexes)
+                finally:
+                    raw.execute('SELECT pg_advisory_unlock(52130)')
+        finally:
+            lite.close()
+    finally:
+        for name in os.listdir(scratch_dir):
+            os.remove(os.path.join(scratch_dir, name))
+        os.rmdir(scratch_dir)
 
 
 def _ensure_database():
@@ -517,9 +934,17 @@ def _ensure_database():
     with _build_lock:
         if _built:
             return
+        url = database_url()
+        if url:
+            _forget_schemas()
+            _ensure_postgres(url)
+            _forget_schemas()
+            _built = True
+            return
         directory = os.path.dirname(DB_PATH)
         if directory and not os.path.isdir(directory):
             os.makedirs(directory)
+        _forget_schemas()
         if not os.path.exists(DB_PATH) or os.path.getsize(DB_PATH) == 0:
             _build(DB_PATH)
         # Run for a fresh build too. It costs one PRAGMA per entry and it
@@ -527,7 +952,41 @@ def _ensure_database():
         # like, rather than a build that is right and a catch-up that has to
         # be remembered to agree with it.
         _catch_up(DB_PATH)
+        # The catch-up is the one thing that adds columns and rebuilds tables.
+        _forget_schemas()
         _built = True
+
+
+# --------------------------------------------------------------------------
+# Which tables a request wrote
+# --------------------------------------------------------------------------
+# The browser keeps copies of the task list (frontend/src/context/
+# UserDataProvider, services/taskHistory) and used to rely on every page that
+# changed a task remembering to say so. One that forgot — "Plan my next
+# session" — left Tasks and the calendar without the new task until a reload.
+#
+# So the database says it instead. Every connection reports the statements it
+# runs; a write is noted against the table it writes, in a set the request
+# opens (backend/middleware/writes.py), and a request that wrote `tasks` is
+# answered with a header the browser's one request function reads
+# (frontend/src/services/api.ts). Nothing has to remember, and a new endpoint
+# that writes tasks is covered the day it is written.
+WRITTEN: contextvars.ContextVar = contextvars.ContextVar('summit_tables_written', default=None)
+
+#: The table a writing statement writes to.
+WRITE = re.compile(
+    r'^\s*(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|REPLACE\s+INTO|UPDATE(?:\s+OR\s+\w+)?|DELETE\s+FROM)'
+    r'\s+["`\[]?(\w+)', re.IGNORECASE)
+
+
+def _note_write(statement: str) -> None:
+    """A connection's trace callback: note the table a write touches."""
+    written = WRITTEN.get()
+    if written is None:
+        return
+    match = WRITE.match(statement)
+    if match:
+        written.add(match.group(1).lower())
 
 
 def connect():
@@ -538,21 +997,92 @@ def connect():
     cheap, and WAL means a reader never blocks on the writer.
     """
     _ensure_database()
+    url = database_url()
+    if url:
+        # Postgres, through a connection that speaks sqlite3's interface — see
+        # backend/database/pg.py for what that covers.
+        from backend.database import pg
+        return pg.connect(url, trace=_note_write)
     con = sqlite3.connect(DB_PATH, timeout=10)
     con.row_factory = sqlite3.Row
     con.execute('PRAGMA foreign_keys = ON')
     con.execute('PRAGMA journal_mode = WAL')
     con.execute('PRAGMA synchronous = NORMAL')
+    con.set_trace_callback(_note_write)
     return con
 
 
 # --------------------------------------------------------------------------
 # Columns
 # --------------------------------------------------------------------------
+# A table's columns, per database file. Filled on first use and dropped
+# whenever the shape can change — which is only when the database is built or
+# caught up, at startup.
+#
+# Worth having because every targeted write asks: `insert_row`, `update_row`
+# and `columns_for` each read the schema to decide which keys are columns, so
+# creating one task ran five PRAGMAs before this. They are fast, and they were
+# still a third of the statements in that request.
+_schema_cache = {}
+
+
+def _forget_schemas():
+    _schema_cache.clear()
+    _key_cache.clear()
+
+
+#: Postgres column types, as the SQLite declared types the rest of this module
+#: reasons about (`_decode`, `_encode`).
+_PG_DECLARED = {
+    'boolean': 'BOOLEAN',
+    'numeric': 'NUMERIC',
+    'bigint': 'INTEGER',
+    'integer': 'INTEGER',
+    'double precision': 'REAL',
+    'text': 'TEXT',
+}
+
+#: A table's primary key columns, per database. Postgres only — see
+#: `_pg_write_table`.
+_key_cache = {}
+
+
+def _primary_key(con, table):
+    key = (database_url(), table)
+    held = _key_cache.get(key)
+    if held is None:
+        held = [row[0] for row in con.execute(
+            'SELECT kcu.column_name FROM information_schema.table_constraints tc '
+            'JOIN information_schema.key_column_usage kcu '
+            '  ON kcu.constraint_name = tc.constraint_name AND kcu.table_schema = tc.table_schema '
+            "WHERE tc.table_schema = current_schema() AND tc.table_name = ? "
+            "AND tc.constraint_type = 'PRIMARY KEY' ORDER BY kcu.ordinal_position",
+            (table,)).fetchall()]
+        _key_cache[key] = held
+    return held
+
+
 def _schema(con, table):
     """[(name, declared type, nullable)] for a table, or [] if there isn't one."""
-    rows = con.execute('PRAGMA table_info("{}")'.format(table)).fetchall()
-    return [(r['name'], (r['type'] or '').upper(), not r['notnull']) for r in rows]
+    url = database_url()
+    key = (url or DB_PATH, table)
+    held = _schema_cache.get(key)
+    if held is not None:
+        return held
+    if url:
+        rows = con.execute(
+            'SELECT column_name, data_type, is_nullable FROM information_schema.columns '
+            "WHERE table_schema = current_schema() AND table_name = ? AND column_name != 'rowid' "
+            'ORDER BY ordinal_position', (table,)).fetchall()
+        found = [(r[0], _PG_DECLARED.get(r[1], 'TEXT'), r[2] == 'YES') for r in rows]
+    else:
+        rows = con.execute('PRAGMA table_info("{}")'.format(table)).fetchall()
+        found = [(r['name'], (r['type'] or '').upper(), not r['notnull']) for r in rows]
+    # A table that is not there yet is not cached: the next caller may be
+    # asking after it has been created.
+    if found:
+        _schema_cache[key] = found
+    return found
 
 
 def _decode(table, column, value, sql_type):
@@ -584,6 +1114,30 @@ def _encode(table, column, value):
         return json.dumps(value, sort_keys=True)
     if (table, column) in JSON_COLUMNS and value is not None:
         return json.dumps(value, sort_keys=True)
+    if isinstance(value, str) and database_url():
+        return _pg_text(table, column, value)
+    return value
+
+
+def _pg_text(table, column, value):
+    """A string bound for a Postgres column that is not text.
+
+    SQLite stores '' or 'n/a' in a NUMERIC column without complaint, and the
+    app reads such a value back as missing anyway. Postgres refuses the write,
+    so the same value is stored as what it reads as: NULL.
+    """
+    kinds = {name: kind for name, kind, _ in
+             _schema_cache.get((database_url(), table), ())}
+    kind = kinds.get(column)
+    if kind in ('NUMERIC', 'INTEGER', 'REAL'):
+        text = value.strip()
+        try:
+            float(text)
+        except ValueError:
+            return None
+        return text
+    if kind == 'BOOLEAN':
+        return value.strip().lower() in ('1', 'true', 't', 'yes', 'on')
     return value
 
 
@@ -656,6 +1210,10 @@ def write_table(table, rows, columns=None):
                     ', '.join('?' for _ in names)),
                 values))
 
+        if database_url():
+            _pg_write_table(con, table, fields, rows)
+            return
+
         # Has to be set before the transaction opens; inside one it does
         # nothing.
         con.execute('PRAGMA foreign_keys = OFF')
@@ -674,6 +1232,56 @@ def write_table(table, rows, columns=None):
             con.execute('PRAGMA foreign_keys = ON')
     finally:
         con.close()
+
+
+def _pg_write_table(con, table, fields, rows):
+    """`write_table` for Postgres: the same result, without switching keys off.
+
+    SQLite's version empties the table and refills it with foreign keys off,
+    so the ON DELETE CASCADE on every child table does not fire. Postgres has
+    no per-connection switch for that short of superuser, so instead the rows
+    that are no longer in the list are deleted (and their children with them,
+    which is what deleting a row means) and every other row is upserted on
+    its primary key. `rowid = excluded.rowid` renumbers each row as it is
+    written, so the table keeps the order of the list, as SQLite's does.
+    """
+    pk = _primary_key(con, table)
+    with con:
+        if not pk:
+            con.execute('DELETE FROM "{}"'.format(table))
+        else:
+            wanted = {tuple(str(row.get(k)) for k in pk) for row in rows}
+            gone = [key for key in (tuple(str(v) for v in record)
+                                    for record in con.execute('SELECT {} FROM "{}"'.format(
+                                        ', '.join('"{}"'.format(k) for k in pk), table)))
+                    if key not in wanted]
+            for at in range(0, len(gone), _IN_CHUNK):
+                chunk = gone[at:at + _IN_CHUNK]
+                if len(pk) == 1:
+                    con.execute('DELETE FROM "{}" WHERE "{}" IN ({})'.format(
+                        table, pk[0], ', '.join('?' for _ in chunk)), [key[0] for key in chunk])
+                else:
+                    tuple_marks = '({})'.format(', '.join('?' for _ in pk))
+                    con.execute('DELETE FROM "{}" WHERE ({}) IN ({})'.format(
+                        table, ', '.join('"{}"'.format(k) for k in pk),
+                        ', '.join(tuple_marks for _ in chunk)),
+                        [value for key in chunk for value in key])
+
+        grouped = {}
+        for row in rows:
+            present = tuple(name for name, nullable in fields if name in row or nullable)
+            grouped.setdefault(present, []).append(
+                [_encode(table, name, row.get(name)) for name in present])
+        for names, values in grouped.items():
+            sql = 'INSERT INTO "{}" ({}) VALUES ({})'.format(
+                table, ', '.join('"{}"'.format(n) for n in names),
+                ', '.join('?' for _ in names))
+            if pk:
+                setters = ['"{0}" = excluded."{0}"'.format(n) for n in names if n not in pk]
+                setters.append('rowid = excluded.rowid')
+                sql += ' ON CONFLICT ({}) DO UPDATE SET {}'.format(
+                    ', '.join('"{}"'.format(k) for k in pk), ', '.join(setters))
+            con.executemany(sql, values)
 
 
 # --------------------------------------------------------------------------
@@ -777,6 +1385,49 @@ def insert_row(table, row, key='id'):
         raise sqlite3.IntegrityError(
             'could not find a free {}.{} after {} tries'.format(
                 table, key, ID_RETRIES))
+    finally:
+        con.close()
+
+
+def insert_rows(table, rows, key='id'):
+    """Add many rows in one transaction. Returns (written, skipped ids).
+
+    `insert_row` in a loop is a connection, an id query and an INSERT each;
+    this reserves the ids in one go (`new_ids`) and writes them together.
+
+    A row carrying an id that is already there is skipped rather than
+    replaced or renumbered, which is what makes a repeated bulk write safe:
+    the caller sends the same list again and gets back what was missing.
+    """
+    rows = [dict(row) for row in rows]
+    if not rows:
+        return [], []
+    con = connect()
+    try:
+        named = [str(row[key]) for row in rows if row.get(key)]
+        taken = set()
+        for at in range(0, len(named), _IN_CHUNK):
+            chunk = named[at:at + _IN_CHUNK]
+            taken.update(str(found[0]) for found in con.execute(
+                'SELECT "{}" FROM "{}" WHERE "{}" IN ({})'.format(
+                    key, table, key, ', '.join('?' for _ in chunk)), chunk))
+
+        wanted = [row for row in rows if not row.get(key) or str(row[key]) not in taken]
+        fresh = new_ids(table, sum(1 for row in wanted if not row.get(key)))
+        for row in wanted:
+            if not row.get(key):
+                row[key] = fresh.pop(0)
+
+        names = _insert_columns(con, table, wanted[0]) if wanted else []
+        if names:
+            sql = 'INSERT INTO "{}" ({}) VALUES ({})'.format(
+                table,
+                ', '.join('"{}"'.format(name) for name in names),
+                ', '.join('?' for _ in names))
+            with con:
+                con.executemany(sql, [[_encode(table, name, row.get(name)) for name in names]
+                                      for row in wanted])
+        return wanted, sorted(taken)
     finally:
         con.close()
 
@@ -952,6 +1603,251 @@ def columns_for(table, user_id, columns, order='rowid'):
         con.close()
 
 
+def columns_by_ids(table, user_id, ids, columns):
+    """`columns_for`, narrowed to a named handful of rows.
+
+    For the caller that already holds most of what it needs and wants one
+    more field off a few dozen specific rows. The subject reading is the one
+    that needed it: the page sends up the tasks it sampled, and the server
+    adds each one's `description` — free text that
+    `ANALYTICS_TASK_FIELDS` deliberately keeps out of the browser's copy, and
+    which would be the largest thing in it if it did not.
+
+    Reading the account's whole task table to find forty rows would undo that
+    saving on the server instead, so this is one indexed query over an `IN`
+    list bounded by the caller. Ids are parameters rather than interpolated;
+    column names are checked against the live schema, for the two reasons
+    `columns_for` gives.
+
+    Returns {id: row}, and a row that is not this account's is simply absent
+    — the same answer as a row that does not exist, which is the right one.
+    """
+    wanted_ids = [str(value) for value in (ids or []) if str(value or '').strip()]
+    if not wanted_ids:
+        return {}
+
+    con = connect()
+    try:
+        schema = _schema(con, table)
+        if not schema:
+            return {}
+        known = {name for name, _, _ in schema}
+        wanted = [name for name in columns if name in known]
+        # Without the key there is nothing to file the rows under, and a
+        # caller asking for a column that this deployment does not have
+        # should get nothing rather than every row of the table.
+        if 'id' not in known or not wanted:
+            return {}
+        if 'id' not in wanted:
+            wanted = ['id'] + wanted
+
+        query = 'SELECT {} FROM "{}" WHERE user_id = ? AND id IN ({})'.format(
+            ', '.join('"{}"'.format(name) for name in wanted), table,
+            ', '.join('?' * len(wanted_ids)))
+        rows = _decode_records(con, table,
+                               con.execute(query, [user_id] + wanted_ids))
+        return {row['id']: row for row in rows if row.get('id')}
+    finally:
+        con.close()
+
+
+def series_signature(user_id):
+    """A cheap reading of everything the growth series is folded out of.
+
+    Four scalars in one round trip, for `series` in backend/tracking/growth.py
+    to compare against the value its cached rows were built from. ~1ms against
+    the ~49ms the series costs to build, which is the whole point of it.
+
+    Sums rather than counts where a row can change without being added: editing
+    a task's rating moves its day's quality and changes no count, and a focus
+    session lengthening a day already on the ledger does the same. A count
+    alone would serve a chart that silently stopped updating.
+    """
+    con = connect()
+    try:
+        parts = []
+        for table, expression, clause in (
+            ('xp_events', 'COUNT(*) || \'/\' || CAST(COALESCE(SUM(amount), 0) AS INTEGER)', 'TRUE'),
+            ('focus_days', 'COUNT(*) || \'/\' || CAST(COALESCE(SUM(seconds), 0) AS INTEGER)', 'TRUE'),
+            # Only the rated, finished rows reach the series, so only their
+            # count and the sum of what they are rated matter here.
+            ('tasks',
+             'COUNT(*) || \'/\' || CAST(COALESCE(SUM(difficulty * execution), 0) AS INTEGER)',
+             "status = 'done' AND difficulty BETWEEN 1 AND 5 AND execution BETWEEN 1 AND 5"),
+        ):
+            if not _schema(con, table):
+                parts.append('-')
+                continue
+            row = con.execute(
+                'SELECT {} AS sig FROM "{}" WHERE user_id = ? AND {}'.format(
+                    expression, table, clause),
+                (user_id,)).fetchone()
+            parts.append(str(row['sig'] if row else ''))
+        return ':'.join(parts)
+    finally:
+        con.close()
+
+
+def rollup_signature(user_id):
+    """A cheap reading of everything the daily rollup is built out of.
+
+    For `period_scores` in backend/tracking/analytics.py, which keeps the
+    rollup between calls the way `series` keeps its rows. Broader than
+    `series_signature` on purpose: the rollup reads more of each row — the XP
+    on every finished task, rated or not, how long it took and whether it made
+    its deadline, and the focus goal beside the focus seconds — and a field the
+    signature does not cover is an edit the cache would never notice.
+
+    Sums of each column rather than counts alone, for the reason
+    `series_signature` gives; `julianday` of the stamps so a task moved to
+    another day moves the signature even though no count changes.
+    """
+    con = connect()
+    try:
+        parts = []
+        for table, expression, clause in (
+            ('xp_events',
+             'COUNT(*) || \'/\' || COALESCE(SUM(amount), 0) || \'/\' '
+             '|| COALESCE(SUM(julianday(substr(COALESCE(timestamp, date), 1, 19))), 0) || \'/\' '
+             '|| COALESCE(SUM(tasks_completed), 0)',
+             'TRUE'),
+            ('focus_days',
+             'COUNT(*) || \'/\' || COALESCE(SUM(seconds), 0) || \'/\' '
+             '|| COALESCE(SUM(goal_hours), 0) || \'/\' || COALESCE(SUM(julianday(date)), 0)',
+             'TRUE'),
+            ('tasks',
+             'COUNT(*) || \'/\' || COALESCE(SUM(xp_value), 0) || \'/\' '
+             '|| COALESCE(SUM(julianday(substr(completed_at, 1, 19))), 0) || \'/\' '
+             '|| COALESCE(SUM(difficulty * 7 + execution), 0) || \'/\' '
+             '|| COALESCE(SUM(completion_seconds), 0) || \'/\' '
+             '|| COALESCE(SUM(CASE WHEN met_deadline THEN 1 WHEN met_deadline IS NULL THEN 0 ELSE 2 END), 0)',
+             "status = 'done'"),
+        ):
+            if not _schema(con, table):
+                parts.append('-')
+                continue
+            row = con.execute(
+                'SELECT {} AS sig FROM "{}" WHERE user_id = ? AND {}'.format(
+                    expression, table, clause),
+                (user_id,)).fetchone()
+            parts.append(str(row['sig'] if row else ''))
+        return ':'.join(parts)
+    finally:
+        con.close()
+
+
+def rated_days_for(user_id):
+    """Per-day quality, difficulty and execution, aggregated by SQLite.
+
+    `{day: {rated_tasks, quality_score, avg_difficulty, avg_execution}}` — the
+    same map `_ratings_by_day` in backend/tracking/growth.py used to build by
+    pulling every task the account owns into Python and looping.
+
+    ## Why it moved down here
+
+    That loop read `tasks_for`, which is every column of every row — including
+    `description`, unbounded free text that this calculation does not look at.
+    On the largest account in this database it was 90ms of the 141ms the whole
+    growth series took, to produce about 1,800 rows of output from 20,000 rows
+    of input. Aggregating where the rows already are is ~5ms.
+
+    ## The rule is the same rule
+
+    Both halves or neither, each between 1 and 5 — that is `rating_of` in
+    backend/tracking/analytics.py, which is the authority on what counts as
+    rated and stays the authority for every other caller. The WHERE clause here
+    is that function, in SQL, and tests/test_report_card.py holds the two to the
+    same answer.
+
+    Written out rather than derived from it because a predicate cannot be
+    shared across that boundary: one is a Python function over a dict and the
+    other is a string SQLite parses. What can be shared is the test.
+    """
+    con = connect()
+    try:
+        if not _schema(con, 'tasks'):
+            return {}
+        rows = con.execute(
+            "SELECT substr(completed_at, 1, 10) AS day, "
+            '       COUNT(*) AS rated, '
+            '       AVG(difficulty * execution) AS quality, '
+            '       AVG(difficulty) AS difficulty, '
+            '       AVG(execution) AS execution '
+            'FROM tasks '
+            "WHERE user_id = ? AND status = 'done' "
+            "  AND completed_at IS NOT NULL AND completed_at != '' "
+            '  AND difficulty BETWEEN 1 AND 5 '
+            '  AND execution BETWEEN 1 AND 5 '
+            'GROUP BY day',
+            (user_id,)).fetchall()
+
+        # Rounded here to the same places the Python version rounded to, so the
+        # numbers on the chart do not move by a tenth when this lands.
+        return {
+            row['day']: {
+                'rated_tasks': row['rated'],
+                'quality_score': round(row['quality'], 1),
+                'avg_difficulty': round(row['difficulty'], 1),
+                'avg_execution': round(row['execution'], 1),
+            }
+            for row in rows if row['day']
+        }
+    finally:
+        con.close()
+
+
+def columns_table_for(table, user_id, columns, order='rowid'):
+    """`columns_for`, as columns rather than as rows.
+
+    Returns `(fields, rows)` — the field names once, and a list of value lists
+    in that order. The same data `columns_for` returns and the same query
+    behind it; what changes is the shape it is serialised in.
+
+    ## Why this exists
+
+    Measured on the largest account in this database — 20,538 tasks, the
+    sixteen fields in ANALYTICS_TASK_FIELDS:
+
+        one object per row    5.99 MB
+        the field names alone 4.00 MB      (67% of it)
+        as columns            3.44 MB      (57% of the original)
+
+    Two thirds of what that endpoint sent was the string "completed_at" and
+    fifteen others, repeated twenty thousand times. JSON has no way to say a
+    key once, so the only way to stop paying for it is not to send objects.
+
+    It parses about twice as fast on the client for the same reason — half the
+    tokens, and no per-row object allocation during the parse.
+
+    ## Why not something cleverer
+
+    Dropping nulls, interning the repeated `subject` and `priority` values, or
+    delta-encoding the dates would each save a little more and each needs a
+    matching decoder that can be wrong. This one has a decoder that cannot: zip
+    the names against each row. See `rehydrate` in
+    frontend/src/services/analytics.ts.
+    """
+    con = connect()
+    try:
+        schema = _schema(con, table)
+        if not schema:
+            return [], []
+        known = {name for name, _, _ in schema}
+        wanted = [name for name in columns if name in known]
+        if not wanted:
+            return [], []
+        query = 'SELECT {} FROM "{}" WHERE user_id = ? ORDER BY {}'.format(
+            ', '.join('"{}"'.format(name) for name in wanted), table, order)
+        records = _decode_records(con, table, con.execute(query, (user_id,)))
+        # Decoded through the same path as `columns_for`, so a JSON column or a
+        # stored boolean arrives as whatever the app expects rather than as
+        # whatever SQLite happened to hold. The transposition is the only
+        # difference between the two functions.
+        return wanted, [[row.get(name) for name in wanted] for row in records]
+    finally:
+        con.close()
+
+
 def find_row(table, row_id, user_id=None, key='id'):
     """One row by id, scoped to an account when one is given, or None."""
     con = connect()
@@ -1011,9 +1907,13 @@ def new_id(table):
             if not _schema(con, table):
                 highest = 0
             else:
-                row = con.execute(
-                    'SELECT MAX(CAST(id AS INTEGER)) FROM "{}"'.format(table)
-                ).fetchone()
+                # Postgres refuses to cast an id that is not a number, where
+                # SQLite reads it as 0; only the numeric ones can be a floor.
+                query = ('SELECT MAX(CAST(id AS BIGINT)) FROM "{}" '
+                         "WHERE CAST(id AS TEXT) ~ '^[0-9]{{1,18}}$'"
+                         if database_url() else
+                         'SELECT MAX(CAST(id AS INTEGER)) FROM "{}"').format(table)
+                row = con.execute(query).fetchone()
                 highest = int(row[0] or 0)
         finally:
             con.close()
@@ -1026,6 +1926,118 @@ def new_id(table):
             stamp = floor + 1
         _last_id[table] = stamp
         return str(stamp)
+
+
+def new_ids(table, count):
+    """`count` fresh ids for `table` at once, consecutive and in order.
+
+    `new_id` in a loop, without a connection per id: the floor is found once,
+    under the same lock, and the block is reserved past it so the next
+    `new_id` call steps over all of them.
+    """
+    if count <= 0:
+        return []
+    first = int(new_id(table))
+    with _id_lock:
+        last = first + count - 1
+        _last_id[table] = max(_last_id.get(table, 0), last)
+    return [str(first + at) for at in range(count)]
+
+
+# --------------------------------------------------------------------------
+# Completing tasks, several at once
+# --------------------------------------------------------------------------
+def complete_tasks(username, account_id, task_ids, stamp, day, derive, account, level_for):
+    """Mark tasks done and move the account on for them, in one transaction.
+
+    Everything a completion writes lands together or not at all: each task's
+    row, one ledger event per task, and the account's XP, task count, streak
+    and level. BEGIN IMMEDIATE holds the write lock from the first read, so a
+    second request for the same tasks waits for this one and then finds them
+    done.
+
+    A task is only completed if it is not done already — the UPDATE says so
+    itself (`status != 'done'`), and only the rows it actually changed earn
+    XP. That is what makes a retry, or two requests racing, harmless: the
+    second finds nothing left to change and awards nothing.
+
+    `derive(row)` gives the timing fields for one task (completion_seconds,
+    met_deadline — None leaves a field as it was) and `xp_earned`, what the
+    completion pays (the task's xp_value when absent). `account` is the streak
+    fields to set, applied only if something was completed. `level_for(xp)`
+    turns the new XP total into a level.
+
+    Returns {'completed': [(id, xp)], 'already_done': [id], 'not_found': [id],
+    'account': the account row after}.
+    """
+    task_ids = [str(task_id) for task_id in task_ids]
+    con = connect()
+    try:
+        con.execute('BEGIN IMMEDIATE')
+        try:
+            found = {}
+            for at in range(0, len(task_ids), _IN_CHUNK):
+                chunk = task_ids[at:at + _IN_CHUNK]
+                for row in con.execute(
+                        'SELECT id, status, xp_value, created_at, due_date FROM tasks '
+                        'WHERE user_id = ? AND id IN ({})'.format(', '.join('?' for _ in chunk)),
+                        [username] + chunk):
+                    found[row['id']] = dict(row)
+
+            completed, already, missing = [], [], []
+            for task_id in task_ids:
+                row = found.get(task_id)
+                if row is None:
+                    missing.append(task_id)
+                    continue
+                if row['status'] == 'done':
+                    already.append(task_id)
+                    continue
+                timing = derive(row)
+                changed = con.execute(
+                    "UPDATE tasks SET status = 'done', completed_at = ?, "
+                    'completion_seconds = COALESCE(?, completion_seconds), '
+                    'met_deadline = COALESCE(?, met_deadline) '
+                    "WHERE id = ? AND user_id = ? AND status != 'done'",
+                    (stamp, timing.get('completion_seconds'),
+                     _encode('tasks', 'met_deadline', timing.get('met_deadline')),
+                     task_id, username)).rowcount
+                if changed:
+                    row['status'] = 'done'
+                    completed.append((task_id, int(timing.get('xp_earned', row.get('xp_value')) or 0)))
+                else:
+                    already.append(task_id)
+
+            if completed:
+                # OR IGNORE against the (task_id, timestamp) key: the status
+                # guard above already means a completion is only logged once,
+                # and this is the ledger refusing a duplicate even if a
+                # future path were to forget that guard.
+                con.executemany(
+                    'INSERT INTO xp_events (id, user_id, amount, reason, timestamp, '
+                    'date, tasks_completed, task_id) VALUES (?, ?, ?, ?, ?, ?, 1, ?) '
+                    'ON CONFLICT DO NOTHING',
+                    [(event_id, username, xp, 'task_completion', stamp, day, task_id)
+                     for event_id, (task_id, xp)
+                     in zip(new_ids('xp_events', len(completed)), completed)])
+                setters = ['xp = COALESCE(xp, 0) + ?', 'tasks_completed = COALESCE(tasks_completed, 0) + ?']
+                params = [sum(xp for _, xp in completed), len(completed)]
+                for name in _columns_for(con, 'users', account):
+                    setters.append('"{}" = ?'.format(name))
+                    params.append(_encode('users', name, account[name]))
+                con.execute('UPDATE users SET {} WHERE id = ?'.format(', '.join(setters)),
+                            params + [account_id])
+                total = con.execute('SELECT xp FROM users WHERE id = ?', (account_id,)).fetchone()
+                con.execute('UPDATE users SET level = ? WHERE id = ?',
+                            (level_for(int(total[0] or 0)), account_id))
+            con.execute('COMMIT')
+        except BaseException:
+            con.execute('ROLLBACK')
+            raise
+    finally:
+        con.close()
+    return {'completed': completed, 'already_done': already, 'not_found': missing,
+            'account': find_row('users', account_id)}
 
 
 # --------------------------------------------------------------------------
@@ -1070,6 +2082,52 @@ def tasks():
     return read_table('tasks')
 
 
+def reprice_task(username, account_id, task_id, earned, stamp, day, level_for):
+    """Pay a finished task what its new level is worth, in one transaction.
+
+    A task's XP follows its level, and the level can change after the task is
+    done: the rating prompt asks it again. What was already paid is the sum of
+    the ledger's events for the task, so this writes one more event for the
+    difference (`task_level`, counting no task) and moves the account's XP and
+    level by it. Running it twice pays nothing the second time. `day` is the
+    day the task was finished, so the XP stays on the day the work was done.
+    A task with no event at all is left alone (see below).
+
+    Returns the difference paid, which may be negative or zero.
+    """
+    con = connect()
+    try:
+        con.execute('BEGIN IMMEDIATE')
+        try:
+            paid = con.execute('SELECT COUNT(*) AS c, COALESCE(SUM(amount), 0) AS n '
+                               'FROM xp_events WHERE user_id = ? AND task_id = ?',
+                               (username, str(task_id))).fetchone()
+            # No event for the task means it was finished before the ledger
+            # named tasks, or by a route that pays nothing. Either way there's
+            # no record of what it was paid, so nothing is re-paid.
+            delta = int(earned) - int(paid[1] or 0) if int(paid[0] or 0) else 0
+            if delta:
+                con.execute(
+                    'INSERT INTO xp_events (id, user_id, amount, reason, timestamp, '
+                    'date, tasks_completed, task_id) VALUES (?, ?, ?, ?, ?, ?, 0, ?) '
+                    'ON CONFLICT DO NOTHING',
+                    (new_ids('xp_events', 1)[0], username, delta, 'task_level', stamp, day,
+                     str(task_id)))
+                con.execute('UPDATE users SET xp = CASE WHEN COALESCE(xp, 0) + ? < 0 THEN 0 '
+                            'ELSE COALESCE(xp, 0) + ? END WHERE id = ?',
+                            (delta, delta, account_id))
+                total = con.execute('SELECT xp FROM users WHERE id = ?', (account_id,)).fetchone()
+                con.execute('UPDATE users SET level = ? WHERE id = ?',
+                            (level_for(int(total[0] or 0)), account_id))
+            con.execute('COMMIT')
+        except BaseException:
+            con.execute('ROLLBACK')
+            raise
+    finally:
+        con.close()
+    return delta
+
+
 def save_tasks(rows):
     write_table('tasks', rows)
 
@@ -1096,6 +2154,28 @@ def save_task(task, username):
 # The day is passed in rather than computed here. Stored stamps are local ISO
 # text with no zone (see backend/tracking/xp.py), so "today" is the caller's
 # day, and the caller is the only one who knows it.
+
+
+def subject_usage(username):
+    """{subject_id: how many of this account's tasks carry it}, in SQL.
+
+    The subject catalogue sorts by this on every page, and it used to read and
+    decode every task the account owns to count one column — on a five-year
+    account, twenty thousand rows and most of 150 ms, for a few dozen numbers.
+    An aggregate on the indexed `user_id` returns just the numbers.
+    """
+    con = connect()
+    try:
+        if not _schema(con, 'tasks'):
+            return {}
+        rows = con.execute(
+            "SELECT subject, COUNT(*) AS n FROM tasks "
+            "WHERE user_id = ? AND subject IS NOT NULL AND subject != '' "
+            "GROUP BY subject",
+            (username,)).fetchall()
+        return {row['subject']: row['n'] for row in rows}
+    finally:
+        con.close()
 
 
 def task_alert_counts(username, day):
@@ -1220,6 +2300,276 @@ def save_goal_milestones(rows):
     write_table('goal_milestones', rows)
 
 
+# --------------------------------------------------------------------------
+# Which goals a task counts toward — see backend/goal_matcher
+# --------------------------------------------------------------------------
+# SQLite's limit on bound parameters is far above this, but an IN list the
+# size of a whole task history is a statement nobody should be building.
+_IN_CHUNK = 500
+
+
+def save_goal_mappings(username, entries):
+    """Store several tasks' goal matches and statuses in one transaction.
+
+    `entries` is [(task_id, status, version, [(goal_id, score, source)])].
+    Tasks that are not this account's are skipped. Goal ids are checked
+    against this account's goals once, for the whole batch, and any that are
+    missing or someone else's are dropped rather than raised; a 'matched'
+    status left with no goals after that is stored as 'unmatched', the one
+    honest answer when every goal it named has gone.
+
+    BEGIN IMMEDIATE takes the write lock before the goals are read, so no
+    other writer can delete one between the check and the insert.
+
+    Returns {task_id: [goal ids kept]} for the tasks that were stored.
+    """
+    entries = list(entries)
+    if not entries:
+        return {}
+    con = connect()
+    try:
+        con.execute('BEGIN IMMEDIATE')
+        try:
+            ids = list(dict.fromkeys(str(entry[0]) for entry in entries))
+            owned = set()
+            for at in range(0, len(ids), _IN_CHUNK):
+                chunk = ids[at:at + _IN_CHUNK]
+                owned.update(row[0] for row in con.execute(
+                    'SELECT id FROM tasks WHERE user_id = ? AND id IN ({})'.format(
+                        ', '.join('?' for _ in chunk)), [username] + chunk))
+            goals = {row[0] for row in con.execute(
+                'SELECT id FROM goals WHERE user_id = ?', (username,))}
+
+            kept, links, statuses = {}, [], []
+            for task_id, status, version, matches in entries:
+                task_id = str(task_id)
+                if task_id not in owned or task_id in kept:
+                    continue
+                named = []
+                for goal_id, score, source in matches:
+                    if goal_id in goals and goal_id not in named:
+                        named.append(goal_id)
+                        links.append((task_id, goal_id, username, score, source))
+                kept[task_id] = named
+                if status == 'matched' and not named:
+                    status = 'unmatched'
+                statuses.append((status, version, task_id, username))
+
+            stored = list(kept)
+            for at in range(0, len(stored), _IN_CHUNK):
+                chunk = stored[at:at + _IN_CHUNK]
+                con.execute('DELETE FROM task_goal_matches WHERE task_id IN ({})'.format(
+                    ', '.join('?' for _ in chunk)), chunk)
+            con.executemany(
+                'INSERT INTO task_goal_matches (task_id, goal_id, user_id, score, source) '
+                'VALUES (?, ?, ?, ?, ?)', links)
+            # Grouped, not one statement per task: a pass over a whole history
+            # lands nearly every task on the same (status, version) pair, so
+            # this is two or three statements per chunk rather than a hundred.
+            grouped = {}
+            for status, version, task_id, _ in statuses:
+                grouped.setdefault((status, version), []).append(task_id)
+            for (status, version), ids_for in grouped.items():
+                for at in range(0, len(ids_for), _IN_CHUNK):
+                    part = ids_for[at:at + _IN_CHUNK]
+                    con.execute(
+                        'UPDATE tasks SET goal_match_status = ?, goal_match_version = ? '
+                        'WHERE user_id = ? AND id IN ({})'.format(', '.join('?' for _ in part)),
+                        [status, version, username] + part)
+            con.execute('COMMIT')
+        except BaseException:
+            con.execute('ROLLBACK')
+            raise
+        return kept
+    finally:
+        con.close()
+
+
+def save_goal_mapping(username, task_id, status, version, matches):
+    """One task's version of `save_goal_mappings`.
+
+    Returns the goal ids kept, in the order given, or None when the task is
+    not this account's.
+    """
+    return save_goal_mappings(username, [(task_id, status, version, matches)]).get(str(task_id))
+
+
+def goal_ai_answer(username, key):
+    """A cached model answer as a list of goal ids, or None if it was never asked."""
+    con = connect()
+    try:
+        row = con.execute(
+            'SELECT goal_ids FROM goal_ai_answers WHERE user_id = ? AND ask_key = ?',
+            (username, key)).fetchone()
+    finally:
+        con.close()
+    if row is None:
+        return None
+    return [part for part in str(row[0] or '').split(',') if part]
+
+
+def save_goal_ai_answer(username, key, goal_ids):
+    """Keep one model answer against the question that produced it."""
+    con = connect()
+    try:
+        with con:
+            con.execute(
+                'INSERT INTO goal_ai_answers (user_id, ask_key, goal_ids) '
+                'VALUES (?, ?, ?) ON CONFLICT (user_id, ask_key) '
+                'DO UPDATE SET goal_ids = excluded.goal_ids', (username, key, ','.join(str(g) for g in goal_ids)))
+    finally:
+        con.close()
+
+
+def goal_links_for(username):
+    """{task_id: [goal_id, ...]} for every task of this account that has any.
+
+    What every page reads to know which goals a task counts toward, and all it
+    reads: stored rows, one query on (user_id, goal_id), no matching. Tasks
+    with no goals are absent rather than mapped to an empty list, so on an
+    account where most work is toward nothing the answer stays small.
+
+    Explicit links first, then by score, so the first id is the strongest.
+    Rows naming a goal that no longer exists are left out by the join.
+    """
+    con = connect()
+    try:
+        out = {}
+        for row in con.execute(
+                'SELECT m.task_id, m.goal_id FROM task_goal_matches m '
+                'JOIN goals g ON g.id = m.goal_id AND g.user_id = m.user_id '
+                'WHERE m.user_id = ? '
+                "ORDER BY m.task_id, m.source != 'explicit', m.score DESC, m.goal_id",
+                (username,)):
+            out.setdefault(row['task_id'], []).append(row['goal_id'])
+        return out
+    finally:
+        con.close()
+
+
+def stale_goal_tasks(username, version, limit, fields=('id', 'title', 'subject', 'goal_id')):
+    """Up to `limit` of this account's tasks due a goal match, oldest first.
+
+    Due means never matched, or matched by a version of the matcher older than
+    `version`. Only the fields matching reads are selected — never the
+    description — and the list is bounded, so a caller works through a large
+    history a slice at a time instead of loading it whole.
+    """
+    con = connect()
+    try:
+        known = {name for name, _, _ in _schema(con, 'tasks')}
+        wanted = [name for name in fields if name in known]
+        query = ('SELECT {} FROM tasks WHERE user_id = ? '
+                 'AND (goal_match_version IS NULL OR goal_match_version < ?) '
+                 'ORDER BY rowid LIMIT ?').format(', '.join('"{}"'.format(n) for n in wanted))
+        return _decode_records(con, 'tasks', con.execute(query, (username, version, int(limit))))
+    finally:
+        con.close()
+
+
+def mark_goal_tasks_stale(username, subjects=None, goal_id=None):
+    """Mark the tasks a goal change could affect as due a fresh match.
+
+    `subjects` None means every task (a cross-subject goal reaches all of
+    them); otherwise the tasks filed under one of them, the tasks filed under
+    nothing (which are compared with every goal), and the tasks already
+    matched to `goal_id`. One UPDATE, setting the version to 0: the stored
+    answer stays readable until the catch-up replaces it. Tasks never matched
+    are already due and are left alone. Returns how many were marked.
+    """
+    where = ['user_id = ?', 'goal_match_version IS NOT NULL', 'goal_match_version > 0']
+    params = [username]
+    if subjects is not None:
+        either = ["subject IS NULL", "subject = ''"]
+        wanted = sorted(subjects)
+        if wanted:
+            either.append('subject IN ({})'.format(', '.join('?' for _ in wanted)))
+            params.extend(wanted)
+        if goal_id:
+            either.append('id IN (SELECT task_id FROM task_goal_matches WHERE goal_id = ?)')
+            params.append(goal_id)
+        where.append('({})'.format(' OR '.join(either)))
+    con = connect()
+    try:
+        with con:
+            return con.execute('UPDATE tasks SET goal_match_version = 0 WHERE {}'.format(
+                ' AND '.join(where)), params).rowcount
+    finally:
+        con.close()
+
+
+def mark_pending_goal_tasks_stale(username, queued=()):
+    """Mark tasks stuck at 'pending' as due a fresh match. Returns how many.
+
+    'Pending' means a question is queued about the task, and the queue is one
+    process's memory: after a restart nothing is queued and the state is a
+    claim about work that no longer exists. `queued` is what genuinely is in
+    flight right now and is left alone.
+    """
+    where = ["user_id = ?", "goal_match_status = 'pending'"]
+    params = [username]
+    queued = [str(task_id) for task_id in queued]
+    if queued:
+        where.append('id NOT IN ({})'.format(', '.join('?' for _ in queued)))
+        params.extend(queued)
+    con = connect()
+    try:
+        with con:
+            return con.execute('UPDATE tasks SET goal_match_version = 0 WHERE {}'.format(
+                ' AND '.join(where)), params).rowcount
+    finally:
+        con.close()
+
+
+def stale_goal_task_count(username, version):
+    """How many of this account's tasks are due a goal match. One indexed count."""
+    con = connect()
+    try:
+        return con.execute(
+            'SELECT COUNT(*) FROM tasks WHERE user_id = ? '
+            'AND (goal_match_version IS NULL OR goal_match_version < ?)',
+            (username, version)).fetchone()[0]
+    finally:
+        con.close()
+
+
+def goal_mappings_for(username, task_ids):
+    """{task_id: (status, version, [(goal_id, score, source)])} for these tasks.
+
+    Only tasks that have been through the matcher at all appear; one that
+    never has is absent, which is different from 'unmatched'. Rows naming a
+    goal that no longer exists are left out by the join — `write_table` can
+    remove a goal with foreign keys off, and a stale id must read as nothing
+    rather than as a goal.
+    """
+    ids = list(dict.fromkeys(str(task_id) for task_id in task_ids if task_id))
+    out = {}
+    if not ids:
+        return out
+    con = connect()
+    try:
+        for at in range(0, len(ids), _IN_CHUNK):
+            chunk = ids[at:at + _IN_CHUNK]
+            marks = ', '.join('?' for _ in chunk)
+            for row in con.execute(
+                    'SELECT id, goal_match_status, goal_match_version FROM tasks '
+                    'WHERE user_id = ? AND goal_match_status IS NOT NULL '
+                    'AND id IN ({})'.format(marks), [username] + chunk):
+                out[row['id']] = (row['goal_match_status'], row['goal_match_version'] or 0, [])
+            for row in con.execute(
+                    'SELECT m.task_id, m.goal_id, m.score, m.source '
+                    'FROM task_goal_matches m '
+                    'JOIN goals g ON g.id = m.goal_id AND g.user_id = m.user_id '
+                    'WHERE m.user_id = ? AND m.task_id IN ({})'.format(marks),
+                    [username] + chunk):
+                held = out.get(row['task_id'])
+                if held is not None:
+                    held[2].append((row['goal_id'], row['score'], row['source']))
+        return out
+    finally:
+        con.close()
+
+
 def xp_events():
     return read_table('xp_events')
 
@@ -1316,6 +2666,89 @@ def save_metric_snapshots(rows):
     write_table('metric_snapshots', rows)
 
 
+def metric_snapshots_for(username, metric=None):
+    """One account's dated grades, oldest first, optionally for one metric.
+
+    The filter `history` in backend/tracking/analytics.py was doing in Python
+    after reading the whole table. The table is shared and it only grows —
+    every reader files six rows a day for ever — so the Python version's cost
+    was every account's whole history on every call. `metric_snapshots_user_
+    metric_idx` leads on user_id, so this reads only the rows it returns.
+    """
+    con = connect()
+    try:
+        if not _schema(con, 'metric_snapshots'):
+            return []
+        clause = 'WHERE user_id = ?'
+        params = [username]
+        if metric:
+            clause += ' AND metric = ?'
+            params.append(metric)
+        return _decode_records(con, 'metric_snapshots', con.execute(
+            'SELECT * FROM metric_snapshots {} ORDER BY date, metric'.format(clause),
+            params))
+    finally:
+        con.close()
+
+
+def record_metric_snapshots(username, day, rows):
+    """Write one account's grades for one day, replacing that day's if present.
+
+    Six rows — five metrics and the overall — by their own primary key,
+    `(user_id, date, metric)`.
+
+    ## Why this is not `save_metric_snapshots`
+
+    It was. Reading the report card files the day's grades, so `/api/
+    get_growth_ratings` is a read that leaves six rows behind; filing them
+    through `write_table` meant reading every snapshot ever taken, dropping the
+    six being replaced, and writing all of them back. On this database that was
+    2,316 INSERTs and a DELETE of the table to store six rows, on a page anyone
+    can refresh: 84ms of work to write six rows, growing by six rows a day per
+    account for ever, so the *only* direction it could go was worse. This is
+    1ms and does not grow.
+
+    Two things were wrong with it besides the cost, and they are the two the
+    note on `write_table` warns about. Two accounts opening their report cards
+    at the same moment each read the table and each wrote all of it back, and
+    the second lost the first's day. And clearing the table for the rewrite
+    needs foreign keys off, which is a lot of machinery to have running on a
+    page view.
+
+    ON CONFLICT rather than a delete and an insert, so a second look at the
+    card on the same day replaces that day's six rows rather than briefly
+    removing them.
+    """
+    con = connect()
+    try:
+        schema = _schema(con, 'metric_snapshots')
+        if not schema:
+            return
+        known = {name for name, _, _ in schema}
+        fields = [name for name in ('user_id', 'date', 'metric', 'score', 'grade', 'detail')
+                  if name in known]
+        statement = (
+            'INSERT INTO metric_snapshots ({names}) VALUES ({marks}) '
+            'ON CONFLICT (user_id, date, metric) DO UPDATE SET {sets}'.format(
+                names=', '.join('"{}"'.format(n) for n in fields),
+                marks=', '.join('?' for _ in fields),
+                sets=', '.join('"{n}" = excluded."{n}"'.format(n=n) for n in fields
+                               if n not in ('user_id', 'date', 'metric'))))
+        # The owner and the day are this call's, not the caller's: they are
+        # the two thirds of the primary key that say which rows are being
+        # replaced, and a row that disagreed with them would quietly file
+        # somebody else's grade.
+        def values(row):
+            full = dict(row, user_id=username, date=day)
+            return [_encode('metric_snapshots', name, full.get(name))
+                    for name in fields]
+
+        with con:
+            con.executemany(statement, [values(row) for row in rows])
+    finally:
+        con.close()
+
+
 def user_subjects():
     """What each account has changed about the subject catalogue.
 
@@ -1380,26 +2813,61 @@ def user_setting(username, key):
     usually a dict. None means the account has never set this key, which is a
     real answer and is not the same as an empty one: the analytics page shows a
     new reader the baseline setup screen precisely because the key is absent.
+
+    Found by its own primary key rather than by reading the table and scanning
+    it in Python. The table is shared, so the scan read every account's
+    preferences to answer a question about one.
     """
-    for row in read_table('user_settings'):
-        if row.get('user_id') == username and row.get('key') == key:
-            return row.get('value')
-    return None
+    con = connect()
+    try:
+        if not _schema(con, 'user_settings'):
+            return None
+        row = con.execute(
+            'SELECT value FROM user_settings WHERE user_id = ? AND key = ?',
+            (username, key)).fetchone()
+        if row is None or row['value'] is None:
+            return None
+        return _decode('user_settings', 'value', row['value'], 'TEXT')
+    finally:
+        con.close()
 
 
 def set_user_setting(username, key, value):
     """Write one account's value for one key, replacing any previous one.
 
-    The whole table is rewritten because that is what `write_table` does and
-    what every other saver here relies on — see the note on it. The table holds
-    one short row per preference per account, so the cost of the rewrite is not
-    a consideration at this size.
+    One row, by its own primary key. This used to read the whole table, drop
+    the row being replaced, and write every remaining row back — the
+    delete-everything-and-reinsert pattern the note on `write_table` warns
+    about, on a table every account shares. Ninety-three preferences across
+    sixteen accounts meant 93 INSERTs to store one string, and the achievements
+    page did it on every view.
+
+    Three things were wrong with it and only the first is speed. It scaled with
+    everybody's preferences rather than with this account's. It lost writes:
+    two requests storing different keys each read the table and each wrote all
+    of it back, and the second overwrote the first. And it reset `updated_at`
+    on every row in the table every time, so the column recorded when somebody
+    last saved anything rather than when this preference last changed.
+
+    ON CONFLICT rather than a read followed by a write, so "is it already
+    there" and "put it there" are one statement and two requests cannot both
+    decide it is missing.
     """
-    rows = [row for row in read_table('user_settings')
-            if not (row.get('user_id') == username and row.get('key') == key)]
-    rows.append({'user_id': username, 'key': key, 'value': value})
-    write_table('user_settings', rows, columns=['user_id', 'key', 'value'])
-    return value
+    con = connect()
+    try:
+        known = {name for name, _, _ in _schema(con, 'user_settings')}
+        if not known:
+            return value
+        stamp = ", updated_at = datetime('now')" if 'updated_at' in known else ''
+        with con:
+            con.execute(
+                'INSERT INTO user_settings (user_id, key, value) VALUES (?, ?, ?) '
+                'ON CONFLICT (user_id, key) DO UPDATE SET value = excluded.value'
+                + stamp,
+                (username, key, _encode('user_settings', 'value', value)))
+        return value
+    finally:
+        con.close()
 
 
 # --------------------------------------------------------------------------
@@ -1461,6 +2929,59 @@ def notifications_for(username, channels=None):
         con.close()
 
 
+def badge_signature(username):
+    """A cheap reading of everything a badge could be earned off.
+
+    Seven scalar aggregates in one round trip. It is not a figure anybody sees
+    and it is not compared for size — only for *change*, against the value
+    stored from the last time the badges were actually worked out. See
+    `_signature` in backend/api/achievements.py, which is the only caller and
+    holds the argument for why the guard exists.
+
+    The point is the asymmetry: working the badges out costs a pass over every
+    task the account owns plus a reading of the analytics report card, which is
+    ~400ms on the largest account in this database. This is four milliseconds
+    on the same account, and on an account where nothing has happened since the
+    last sweep it is the entire cost of deciding so.
+
+    Counts rather than sums where a count will do, and no ORDER BY anywhere:
+    every clause here is an index scan or a table count.
+    """
+    con = connect()
+    try:
+        parts = []
+        for table, clause, params in (
+            ('tasks', "status = 'done'", ()),
+            ('notes', 'TRUE', ()),
+            ('records', 'TRUE', ()),
+            ('goals', "status = 'completed'", ()),
+            ('calendar_events', 'completed', ()),
+            ('xp_events', 'TRUE', ()),
+        ):
+            if not _schema(con, table):
+                parts.append('-')
+                continue
+            row = con.execute(
+                'SELECT COUNT(*) AS n FROM "{}" WHERE user_id = ? AND {}'.format(
+                    table, clause),
+                (username,) + params).fetchone()
+            parts.append(str(row['n'] if row else 0))
+
+        # Focus is the one that has to be a sum: a session lengthening a day
+        # already on the ledger moves every focus badge and changes no count.
+        if _schema(con, 'focus_days'):
+            row = con.execute(
+                'SELECT CAST(COALESCE(SUM(seconds), 0) AS INTEGER) AS s '
+                'FROM focus_days WHERE user_id = ?', (username,)).fetchone()
+            parts.append(str(row['s'] if row else 0))
+        else:
+            parts.append('-')
+
+        return ':'.join(parts)
+    finally:
+        con.close()
+
+
 def live_fingerprints(username):
     """Every fingerprint this account already holds, deleted ones included.
 
@@ -1515,7 +3036,7 @@ def add_notifications(username, rows):
                 }
                 names = [n for n in NOTIFICATION_COLUMNS if n in record]
                 cursor = con.execute(
-                    'INSERT OR IGNORE INTO notifications ({}) VALUES ({})'.format(
+                    'INSERT INTO notifications ({}) VALUES ({}) ON CONFLICT DO NOTHING'.format(
                         ', '.join('"{}"'.format(n) for n in names),
                         ', '.join('?' for _ in names)),
                     [record[n] for n in names])
@@ -1661,7 +3182,7 @@ def prune_notifications(username, before_day):
         con.close()
 
 
-def notification_facts(username, day, tomorrow, week_ago, fortnight_ago):
+def notification_facts(username, day, tomorrow, week_ago, two_weeks_ago):
     """Everything the notification sweep needs, in one round trip.
 
     Same argument as `task_alert_counts` above, one size up: the sweep asks
@@ -1713,7 +3234,7 @@ def notification_facts(username, day, tomorrow, week_ago, fortnight_ago):
                 (username, 'done', day)).fetchone()['n'] or 0
 
             for key, since, until in (('done_this_week', week_ago, day),
-                                      ('done_last_week', fortnight_ago, week_ago)):
+                                      ('done_last_week', two_weeks_ago, week_ago)):
                 facts[key] = con.execute(
                     'SELECT COUNT(*) AS n FROM tasks WHERE user_id = ? '
                     'AND status = ? AND substr(completed_at, 1, 10) > ? '
@@ -1726,7 +3247,7 @@ def notification_facts(username, day, tomorrow, week_ago, fortnight_ago):
                 'WHERE user_id = ? AND date = ?',
                 (username, day)).fetchone()['n'] or 0
             for key, since, until in (('xp_this_week', week_ago, day),
-                                      ('xp_last_week', fortnight_ago, week_ago)):
+                                      ('xp_last_week', two_weeks_ago, week_ago)):
                 facts[key] = con.execute(
                     'SELECT COALESCE(SUM(amount), 0) AS n FROM xp_events '
                     'WHERE user_id = ? AND date > ? AND date <= ?',
@@ -1737,7 +3258,7 @@ def notification_facts(username, day, tomorrow, week_ago, fortnight_ago):
             facts['xp_best_day'] = con.execute(
                 'SELECT COALESCE(MAX(total), 0) AS n FROM ('
                 '  SELECT SUM(amount) AS total FROM xp_events '
-                '  WHERE user_id = ? AND date != ? GROUP BY date)',
+                '  WHERE user_id = ? AND date != ? GROUP BY date) AS days',
                 (username, day)).fetchone()['n'] or 0
             last = con.execute(
                 'SELECT MAX(date) AS d FROM xp_events WHERE user_id = ?',
@@ -1746,7 +3267,7 @@ def notification_facts(username, day, tomorrow, week_ago, fortnight_ago):
 
         if _schema(con, 'focus_days'):
             for key, since, until in (('focus_this_week', week_ago, day),
-                                      ('focus_last_week', fortnight_ago, week_ago)):
+                                      ('focus_last_week', two_weeks_ago, week_ago)):
                 facts[key] = con.execute(
                     'SELECT COALESCE(SUM(seconds), 0) AS n FROM focus_days '
                     'WHERE user_id = ? AND date > ? AND date <= ?',
@@ -1780,5 +3301,533 @@ def notification_facts(username, day, tomorrow, week_ago, fortnight_ago):
                 (username, week_ago))]
 
         return facts
+    finally:
+        con.close()
+
+
+# --------------------------------------------------------------------------
+# First-week quests
+# --------------------------------------------------------------------------
+def first_week_facts(username):
+    """Has this account done each first thing yet, plus what it has claimed.
+
+    One connection and a handful of `EXISTS` / `COUNT(DISTINCT)` queries, for
+    the reason `notification_facts` gives: the dashboard asks this on every
+    load, and reading five whole tables to answer six yes-or-no questions would
+    cost an old account its whole history each time. The rules that turn these
+    into quests are backend/tracking/quests.py.
+
+    `xp_days` is how many distinct days the ledger has XP on. It is a cheap
+    lower bound on active days (utils/activeDay counts XP days and more), which
+    is what lets the server retire the quest line for a seasoned account
+    without the browser fetching its growth series at all.
+    """
+    facts = {
+        'task': False, 'focus': False, 'practice': False,
+        'log': False, 'goal': False,
+        'xp_days': 0, 'claims': {},
+    }
+
+    def _any(con, table, where, params):
+        if not _schema(con, table):
+            return False
+        return con.execute(
+            'SELECT 1 FROM "{}" WHERE user_id = ? AND {} LIMIT 1'.format(table, where),
+            (username,) + params).fetchone() is not None
+
+    con = connect()
+    try:
+        facts['task'] = _any(con, 'tasks', 'status = ?', ('done',))
+        # A focus timer leaves a sitting, and its seconds land in focus_days
+        # too. Either is enough: sittings are sent up in batches, so the day's
+        # total can arrive first.
+        facts['focus'] = (_any(con, 'focus_sittings', 'minutes >= 1', ())
+                          or _any(con, 'focus_days', 'seconds >= 60', ()))
+        facts['practice'] = _any(con, 'skill_attempts', '1 = 1', ())
+        facts['log'] = _any(con, 'log_entries', 'mood IS NOT NULL', ())
+        facts['goal'] = _any(con, 'goals', '1 = 1', ())
+        if _schema(con, 'xp_events'):
+            facts['xp_days'] = con.execute(
+                'SELECT COUNT(DISTINCT date) AS n FROM xp_events '
+                'WHERE user_id = ? AND amount > 0',
+                (username,)).fetchone()['n'] or 0
+        if _schema(con, 'quest_claims'):
+            facts['claims'] = {
+                row['quest_id']: {'xp': row['xp'], 'claimed_at': row['claimed_at']}
+                for row in con.execute(
+                    'SELECT quest_id, xp, claimed_at FROM quest_claims WHERE user_id = ?',
+                    (username,))}
+        return facts
+    finally:
+        con.close()
+
+
+def claim_quest(username, quest_id, xp, stamp):
+    """Write the claim row. True if this call made it, False if it was there.
+
+    The primary key does the deciding, so two requests racing for the same
+    quest get one True between them. The caller pays only on True.
+    """
+    con = connect()
+    try:
+        with con:
+            con.execute(
+                'INSERT INTO quest_claims (user_id, quest_id, xp, claimed_at) '
+                'VALUES (?, ?, ?, ?)',
+                (username, quest_id, int(xp), stamp))
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        con.close()
+
+
+def daily_quest_facts(username, since, until):
+    """What the account did on each day from `since` to `until`, both ISO.
+
+    The rows today's quest is ticked by, counted per day, so the same numbers
+    answer "is today's done" and "was this done lately" (backend/tracking/quests.py
+    picks a quest the account hasn't done in the days before). Grouped
+    aggregates over a week, for the reason `first_week_facts` gives.
+
+    {iso_day: {'tasks', 'subject_tasks', 'focus_seconds', 'focus_minutes',
+    'practice', 'log', 'planned'}}, with a day missing when nothing happened.
+    `planned` counts tasks made that day and due the next, which is worked out
+    here because it compares two stamps on one row.
+    """
+    days = {}
+
+    def _day(iso):
+        return days.setdefault(iso, {
+            'tasks': 0, 'subject_tasks': 0, 'focus_seconds': 0, 'focus_minutes': 0,
+            'practice': 0, 'log': 0, 'planned': 0,
+        })
+
+    con = connect()
+    try:
+        if _schema(con, 'tasks'):
+            for row in con.execute(
+                    'SELECT substr(completed_at, 1, 10) AS day, COUNT(*) AS n, '
+                    "SUM(CASE WHEN COALESCE(subject, '') != '' THEN 1 ELSE 0 END) AS s "
+                    'FROM tasks WHERE user_id = ? AND status = ? '
+                    'AND substr(completed_at, 1, 10) >= ? AND substr(completed_at, 1, 10) <= ? '
+                    'GROUP BY substr(completed_at, 1, 10)',
+                    (username, 'done', since, until)):
+                _day(row['day'])['tasks'] = int(row['n'] or 0)
+                _day(row['day'])['subject_tasks'] = int(row['s'] or 0)
+            for row in con.execute(
+                    'SELECT substr(created_at, 1, 10) AS made, substr(due_date, 1, 10) AS due '
+                    'FROM tasks WHERE user_id = ? AND due_date IS NOT NULL '
+                    'AND substr(created_at, 1, 10) >= ? AND substr(created_at, 1, 10) <= ?',
+                    (username, since, until)):
+                try:
+                    ahead = (date.fromisoformat(row['due'])
+                             - date.fromisoformat(row['made'])).days
+                except (TypeError, ValueError):
+                    continue
+                if ahead == 1:
+                    _day(row['made'])['planned'] += 1
+        if _schema(con, 'focus_days'):
+            for row in con.execute(
+                    'SELECT date, seconds FROM focus_days '
+                    'WHERE user_id = ? AND date >= ? AND date <= ?',
+                    (username, since, until)):
+                _day(row['date'])['focus_seconds'] = float(row['seconds'] or 0)
+        if _schema(con, 'focus_sittings'):
+            for row in con.execute(
+                    'SELECT day, SUM(minutes) AS m FROM focus_sittings '
+                    'WHERE user_id = ? AND day >= ? AND day <= ? GROUP BY day',
+                    (username, since, until)):
+                _day(row['day'])['focus_minutes'] = int(row['m'] or 0)
+        if _schema(con, 'skill_attempts'):
+            for row in con.execute(
+                    'SELECT substr(at, 1, 10) AS day, SUM(attempted) AS n FROM skill_attempts '
+                    'WHERE user_id = ? AND substr(at, 1, 10) >= ? AND substr(at, 1, 10) <= ? '
+                    'GROUP BY substr(at, 1, 10)',
+                    (username, since, until)):
+                _day(row['day'])['practice'] = int(row['n'] or 0)
+        if _schema(con, 'log_entries'):
+            for row in con.execute(
+                    'SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS n FROM log_entries '
+                    'WHERE user_id = ? AND substr(created_at, 1, 10) >= ? '
+                    'AND substr(created_at, 1, 10) <= ? GROUP BY substr(created_at, 1, 10)',
+                    (username, since, until)):
+                _day(row['day'])['log'] = int(row['n'] or 0)
+        return days
+    finally:
+        con.close()
+
+
+# --------------------------------------------------------------------------
+# Skill steps
+# --------------------------------------------------------------------------
+# The written practice programme for the skill library — see
+# data/sql/skillsteps.sql. The only tables here that belong to nobody: this is
+# the curriculum, the same on every account, so none of these take a username.
+#
+# They are hand-written SQL rather than `read_table` because the table is
+# roughly ten thousand rows and every caller wants a handful of them. Reading
+# all of it to serve one node would be the one query in the app whose cost
+# grows with the size of the library rather than with the size of the answer.
+
+#: Columns a step is served with. Provenance is included on purpose: the panel
+#: does not draw it, but `verified_at` is the evidence for the claim the whole
+#: table makes, and an endpoint that cannot show its working is asking to be
+#: trusted. See backend/api/skillsteps.py.
+SKILL_STEP_COLUMNS = (
+    'node_id', 'ordinal', 'title', 'mastery', 'practice', 'detail',
+    'proof', 'pitfall', 'minutes', 'tree_id', 'tier', 'model',
+    'generated_at', 'attempts', 'verified_at', 'verifier', 'checks',
+)
+
+
+def _step_row(record):
+    """One row as a dict, with `checks` decoded from its JSON text."""
+    row = dict(record)
+    raw = row.get('checks') or '[]'
+    try:
+        decoded = json.loads(raw)
+    except (TypeError, ValueError):
+        # A row whose evidence is unreadable is still a verified row — the
+        # CHECK constraint would not have let it in otherwise — so the step
+        # stands and only the audit trail is lost. Same reasoning as the
+        # JSON_COLUMNS fallback above: degrade the metadata, not the content.
+        decoded = []
+    row['checks'] = decoded if isinstance(decoded, list) else []
+    return row
+
+
+def skill_steps_for(node_ids):
+    """Node id → its steps in order, for the ids asked for.
+
+    A node with nothing written for it is absent from the result rather than
+    present with an empty list. The caller has to tell the two apart: the panel
+    falls back to derived advice for the first, and an empty list would be a
+    node whose programme is legitimately nothing at all, which is not a thing.
+    """
+    ids = [str(one) for one in node_ids if one]
+    if not ids:
+        return {}
+    con = connect()
+    try:
+        if not _schema(con, 'skill_steps'):
+            return {}
+        out = {}
+        columns = ', '.join('"{}"'.format(name) for name in SKILL_STEP_COLUMNS)
+        # Chunked because SQLite's default parameter ceiling is 999 and the
+        # page prefetches a whole tree, which on Mathematics is over forty.
+        # The ceiling is nowhere near, and the chunking is what keeps that
+        # true when a tree gets big rather than when someone notices.
+        for start in range(0, len(ids), 400):
+            batch = ids[start:start + 400]
+            marks = ', '.join('?' for _ in batch)
+            query = (
+                'SELECT {} FROM skill_steps WHERE node_id IN ({}) '
+                'ORDER BY node_id, ordinal'.format(columns, marks))
+            for record in con.execute(query, batch):
+                row = _step_row(record)
+                out.setdefault(row['node_id'], []).append(row)
+        return out
+    finally:
+        con.close()
+
+
+FREE_RESOURCE_COLUMNS = ('id', 'subject', 'name', 'url', 'kind', 'signup',
+                         'good_for', 'keywords', 'ordinal')
+
+
+def free_resources():
+    """Every catalog row, by subject and then ordinal. Keywords decoded."""
+    con = connect()
+    try:
+        if not _schema(con, 'free_resources'):
+            return []
+        columns = ', '.join('"{}"'.format(name) for name in FREE_RESOURCE_COLUMNS)
+        out = []
+        for record in con.execute(
+                'SELECT {} FROM free_resources ORDER BY subject, ordinal'.format(columns)):
+            row = dict(zip(FREE_RESOURCE_COLUMNS, record))
+            try:
+                row['keywords'] = json.loads(row.get('keywords') or '[]')
+            except ValueError:
+                row['keywords'] = []
+            out.append(row)
+        return out
+    finally:
+        con.close()
+
+
+def save_free_resources(rows):
+    """Replace the whole catalog in one transaction, so no reader sees half."""
+    con = connect()
+    try:
+        with con:
+            con.execute('DELETE FROM free_resources')
+            columns = ', '.join('"{}"'.format(name) for name in FREE_RESOURCE_COLUMNS)
+            marks = ', '.join('?' for _ in FREE_RESOURCE_COLUMNS)
+            con.executemany(
+                'INSERT INTO free_resources ({}) VALUES ({})'.format(columns, marks),
+                [[json.dumps(row[name]) if name == 'keywords' else row[name]
+                  for name in FREE_RESOURCE_COLUMNS] for row in rows])
+        return len(rows)
+    finally:
+        con.close()
+
+
+def subject_resources_for(user_id, subject):
+    """One account's sorted resources for one subject: resource id, place,
+    matched count and sample titles, best first. Empty when never sorted."""
+    con = connect()
+    try:
+        if not _schema(con, 'subject_resources'):
+            return []
+        out = []
+        for record in con.execute(
+                'SELECT resource_id, place, matched, titles FROM subject_resources '
+                'WHERE user_id = ? AND subject = ? ORDER BY place', (user_id, subject)):
+            try:
+                titles = json.loads(record[3] or '[]')
+            except ValueError:
+                titles = []
+            out.append({'resource_id': record[0], 'place': record[1],
+                        'matched': record[2], 'titles': titles})
+        return out
+    finally:
+        con.close()
+
+
+def save_subject_resources(user_id, subject, rows, stamp):
+    """Replace one account's sorted list for one subject. `rows` are in order,
+    each with `id`, `matched` and `titles`."""
+    con = connect()
+    try:
+        with con:
+            con.execute('DELETE FROM subject_resources WHERE user_id = ? AND subject = ?',
+                        (user_id, subject))
+            con.executemany(
+                'INSERT INTO subject_resources (user_id, subject, resource_id, place, '
+                'matched, titles, sorted_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                [(user_id, subject, row['id'], place, int(row.get('matched') or 0),
+                  json.dumps(list(row.get('titles') or [])[:3]), stamp)
+                 for place, row in enumerate(rows, start=1)])
+        return len(rows)
+    finally:
+        con.close()
+
+
+def skill_step_coverage():
+    """How much of the library is written, per tree.
+
+    Tree id → (nodes with steps, total steps). The denominator is not here and
+    cannot be: how many nodes a tree *has* lives in TypeScript. The caller
+    joins the two — see backend/api/skillsteps.py.
+    """
+    con = connect()
+    try:
+        if not _schema(con, 'skill_steps'):
+            return {}
+        return {
+            row[0]: (row[1], row[2])
+            for row in con.execute(
+                'SELECT tree_id, COUNT(DISTINCT node_id), COUNT(*) '
+                'FROM skill_steps GROUP BY tree_id')
+        }
+    finally:
+        con.close()
+
+
+def save_node_steps(node_id, rows):
+    """Replace one node's programme, all or nothing.
+
+    A node is the unit because a programme is ordered and its steps refer to
+    each other — half of a rewritten list interleaved with half of the old one
+    is a programme that has a step four twice and no step five. The delete and
+    the insert share a transaction so no reader can see between them.
+
+    Passing an empty list deletes the node's programme, which is how the
+    generator retracts content that stopped passing review.
+    """
+    con = connect()
+    try:
+        with con:
+            con.execute('DELETE FROM skill_steps WHERE node_id = ?', (node_id,))
+            for row in rows:
+                values = dict(row)
+                values['node_id'] = node_id
+                checks = values.get('checks') or []
+                if not isinstance(checks, str):
+                    values['checks'] = json.dumps(list(checks))
+                columns = ', '.join('"{}"'.format(name) for name in SKILL_STEP_COLUMNS)
+                marks = ', '.join('?' for _ in SKILL_STEP_COLUMNS)
+                con.execute(
+                    'INSERT INTO skill_steps ({}) VALUES ({})'.format(columns, marks),
+                    [values.get(name) for name in SKILL_STEP_COLUMNS])
+        return len(rows)
+    finally:
+        con.close()
+
+
+def log_step_audit(rows):
+    """Append to the quality-control trail. Never updates; see the SQL note."""
+    if not rows:
+        return 0
+    con = connect()
+    try:
+        with con:
+            con.executemany(
+                'INSERT INTO skill_step_audit '
+                '(run_id, node_id, ordinal, stage, outcome, reason, at) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?)',
+                [(
+                    row.get('run_id', ''),
+                    row.get('node_id', ''),
+                    row.get('ordinal'),
+                    row.get('stage', 'store'),
+                    row.get('outcome', 'pass'),
+                    (row.get('reason') or '')[:400],
+                    row.get('at') or datetime.now().isoformat(timespec='seconds'),
+                ) for row in rows])
+        return len(rows)
+    finally:
+        con.close()
+
+
+def step_audit_summary(run_id=None):
+    """Stage and outcome counts for a run, or for every run there has been."""
+    con = connect()
+    try:
+        if not _schema(con, 'skill_step_audit'):
+            return []
+        if run_id:
+            query = ('SELECT stage, outcome, COUNT(*) FROM skill_step_audit '
+                     'WHERE run_id = ? GROUP BY stage, outcome ORDER BY stage, outcome')
+            rows = con.execute(query, (run_id,))
+        else:
+            query = ('SELECT stage, outcome, COUNT(*) FROM skill_step_audit '
+                     'GROUP BY stage, outcome ORDER BY stage, outcome')
+            rows = con.execute(query)
+        return [{'stage': row[0], 'outcome': row[1], 'count': row[2]} for row in rows]
+    finally:
+        con.close()
+
+
+#: Columns a problem is served with.
+SKILL_PROBLEM_COLUMNS = (
+    'node_id', 'ordinal', 'slot', 'weight', 'prompt', 'answer', 'hint',
+    'tree_id', 'model', 'generated_at', 'verified_at', 'verifier', 'checks',
+)
+
+
+def skill_problems_for(node_ids):
+    """Node id → its problems, ordered by step then slot.
+
+    One query for a whole node rather than one per step: the problems screen is
+    opened from a list that already holds every step, and a request per step
+    would be nine round trips to draw one page.
+    """
+    ids = [str(one) for one in node_ids if one]
+    if not ids:
+        return {}
+    con = connect()
+    try:
+        if not _schema(con, 'skill_problems'):
+            return {}
+        out = {}
+        columns = ', '.join('"{}"'.format(name) for name in SKILL_PROBLEM_COLUMNS)
+        for start in range(0, len(ids), 400):
+            batch = ids[start:start + 400]
+            marks = ', '.join('?' for _ in batch)
+            query = (
+                'SELECT {} FROM skill_problems WHERE node_id IN ({}) '
+                'ORDER BY node_id, ordinal, slot'.format(columns, marks))
+            for record in con.execute(query, batch):
+                row = _step_row(record)
+                out.setdefault(row['node_id'], []).append(row)
+        return out
+    finally:
+        con.close()
+
+
+def save_step_problems(node_id, ordinal, rows):
+    """Replace one step's problem set, all or nothing.
+
+    The step is the unit for the same reason the node is the unit in
+    `save_node_steps`: a set is graded from light to heavy, and half a new set
+    interleaved with half an old one is a slope with a step missing out of the
+    middle of it.
+    """
+    con = connect()
+    try:
+        with con:
+            con.execute(
+                'DELETE FROM skill_problems WHERE node_id = ? AND ordinal = ?',
+                (node_id, ordinal))
+            for row in rows:
+                values = dict(row)
+                values['node_id'] = node_id
+                values['ordinal'] = ordinal
+                checks = values.get('checks') or []
+                if not isinstance(checks, str):
+                    values['checks'] = json.dumps(list(checks))
+                columns = ', '.join('"{}"'.format(n) for n in SKILL_PROBLEM_COLUMNS)
+                marks = ', '.join('?' for _ in SKILL_PROBLEM_COLUMNS)
+                con.execute(
+                    'INSERT INTO skill_problems ({}) VALUES ({})'.format(columns, marks),
+                    [values.get(n) for n in SKILL_PROBLEM_COLUMNS])
+        return len(rows)
+    finally:
+        con.close()
+
+
+def skill_problem_coverage():
+    """Tree id → (steps with problems, total problems)."""
+    con = connect()
+    try:
+        if not _schema(con, 'skill_problems'):
+            return {}
+        return {
+            row[0]: (row[1], row[2])
+            for row in con.execute(
+                'SELECT tree_id, COUNT(DISTINCT node_id || \':\' || ordinal), COUNT(*) '
+                'FROM skill_problems GROUP BY tree_id')
+        }
+    finally:
+        con.close()
+
+
+def subject_work_by_tree(subject_tree):
+    """How much finished work each skill tree has behind it, across all accounts.
+
+    `subject_tree` is the catalogue's subject → tree map from
+    backend/config/skill_trees. It is passed in rather than imported so this
+    module keeps depending only on the database, which is the layering rule in
+    backend/api/__init__.py.
+
+    This is what decides where writing effort goes. The library is twelve
+    hundred nodes and no run has ever finished it, so "which trees do the
+    people using this app actually work in" is the difference between content
+    somebody reads and content nobody opens. Returns tree id →
+    (xp, accounts, tasks), heaviest first.
+    """
+    con = connect()
+    try:
+        if not _schema(con, 'tasks'):
+            return []
+        totals = {}
+        query = ("SELECT subject, user_id, COUNT(*), SUM(xp_value) FROM tasks "
+                 "WHERE status = 'done' AND subject IS NOT NULL AND subject != '' "
+                 "GROUP BY subject, user_id")
+        for subject, user, count, xp in con.execute(query):
+            tree = subject_tree.get(subject)
+            if not tree:
+                continue
+            entry = totals.setdefault(tree, {'xp': 0, 'accounts': set(), 'tasks': 0})
+            entry['xp'] += xp or 0
+            entry['tasks'] += count
+            entry['accounts'].add(user)
+        return sorted(
+            ((tree, entry['xp'], len(entry['accounts']), entry['tasks'])
+             for tree, entry in totals.items()),
+            key=lambda row: (-row[1], row[0]))
     finally:
         con.close()

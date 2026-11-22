@@ -14,7 +14,7 @@
  * clause. Every test below about `read` is really a test about that.
  */
 import { describe, expect, it } from 'vitest';
-import { bottleneckFrom, evidenceFrom, objectiveFrom } from './objective';
+import { bottleneckFrom, objectiveFrom } from './objective';
 import type { Performance } from './performance';
 import type { SubjectGoal } from './model';
 import type { SubjectState } from './state';
@@ -140,7 +140,7 @@ describe('objectiveFrom', () => {
       [], null, TODAY,
     );
 
-    expect(band.focus).toBe('Turn what you can already do into work that lands.');
+    expect(band.focus).toBe('Turn what you know into work you get right.');
   });
 
   it('says nothing rather than something generic when there is no evidence', () => {
@@ -187,7 +187,7 @@ describe('objectiveFrom', () => {
     );
 
     expect(band.objective).toBe('Qualify for AIME');
-    expect(band.focus).toBe('Turn what you can already do into work that lands.');
+    expect(band.focus).toBe('Turn what you know into work you get right.');
     expect(band.kind).toBe('competition');
   });
 
@@ -198,7 +198,7 @@ describe('objectiveFrom', () => {
     );
 
     const marks = Object.fromEntries(band.marks.map((mark) => [mark.label, mark]));
-    expect(marks['Work pointed here']?.value).toBe('4 of 46');
+    expect(marks['Tasks linked here']?.value).toBe('4 of 46');
     expect(marks['At this rate']?.value).toBe('9 days late');
     expect(marks['At this rate']?.tone).toBe('bad');
     expect(marks.Left?.value).toBe('49 days');
@@ -212,84 +212,6 @@ describe('objectiveFrom', () => {
     const left = band.marks.find((mark) => mark.label === 'Overdue');
     expect(left?.value).toBe('12 days');
     expect(left?.tone).toBe('bad');
-  });
-});
-
-// ---------------------------------------------------------------------------
-describe('evidenceFrom', () => {
-  it('draws counted cards when there is no reading', () => {
-    const cards = evidenceFrom(
-      stateWith({
-        momentum: { known: true, change: 8, earlier: 62, later: 70, direction: 'climbing' },
-      }),
-      perfWith(), [],
-    );
-
-    const [card] = cards;
-    expect(cards).toHaveLength(1);
-    expect(card?.source).toBe('counted');
-    expect(card?.direction).toBe('helps');
-    // The claim leads and the figure follows — the whole shift this section is.
-    expect(card?.claim).toBe('Execution is improving across this window.');
-    expect(card?.evidence).toContain('62 to 70 on execution');
-  });
-
-  it('caps at three however much is wrong', () => {
-    const cards = evidenceFrom(
-      stateWith({
-        momentum: { known: true, change: -9, earlier: 70, later: 61, direction: 'slipping' },
-        curve: cliffCurve(),
-      }),
-      perfWith({
-        families: {
-          known: true, answered: 12, shares: [],
-          leading: { key: 'execution', label: 'The sitting', share: 58 },
-          notConceptual: 83,
-        },
-        calibration: { known: true, outgrown: [], overestimated: [], rushed: 5 },
-      }),
-      [goalWith({ drift: 9, sinceWork: 20, recentDays: 0 })],
-    );
-
-    expect(cards).toHaveLength(3);
-  });
-
-  it('leads with the cliff, because that is the one that names a level', () => {
-    const cards = evidenceFrom(
-      stateWith({
-        momentum: { known: true, change: 8, earlier: 62, later: 70, direction: 'climbing' },
-        curve: cliffCurve(),
-      }),
-      perfWith(), [],
-    );
-
-    expect(cards[0]?.claim).toBe('Work stops landing at Hard.');
-    expect(cards[0]?.relevance).toBe('The level to work is Fair, not the one above.');
-  });
-
-  it("uses the model's cards instead of its own, not as well as", () => {
-    // Interleaving would put two readings of one record side by side with
-    // nothing saying which was which.
-    const cards = evidenceFrom(
-      stateWith({
-        momentum: { known: true, change: 8, earlier: 62, later: 70, direction: 'climbing' },
-      }),
-      perfWith(), [],
-      [{
-        claim: 'Your contest execution is improving.',
-        direction: 'helps',
-        evidence: ['62 to 70 on execution'],
-        relevance: 'Timed work is what the goal is scored on.',
-      }],
-    );
-
-    expect(cards).toHaveLength(1);
-    expect(cards[0]?.source).toBe('read');
-    expect(cards[0]?.claim).toBe('Your contest execution is improving.');
-  });
-
-  it('draws nothing rather than filler when there is no evidence either way', () => {
-    expect(evidenceFrom(stateWith(), perfWith(), [])).toEqual([]);
   });
 });
 
@@ -314,7 +236,7 @@ describe('bottleneckFrom', () => {
       }),
     );
 
-    expect(neck?.name).toBe('Turning capability into work that lands');
+    expect(neck?.name).toBe('Knowing it vs. getting it right');
     // The half a reader cannot get anywhere else: the thing to stop doing.
     expect(neck?.ruled_out).toContain('Harder material');
   });
@@ -329,7 +251,7 @@ describe('bottleneckFrom', () => {
       }),
     );
 
-    expect(neck?.name).toBe('Turning capability into work that lands');
+    expect(neck?.name).toBe('Knowing it vs. getting it right');
     expect(neck?.ruled_out).toBe('');
     expect(neck?.confidence).toBeLessThan(0.6);
   });
@@ -338,9 +260,9 @@ describe('bottleneckFrom', () => {
     const neck = bottleneckFrom(stateWith({ curve: cliffCurve() }), perfWith());
 
     expect(neck?.name).toBe('Work at Hard');
-    expect(neck?.reading).toContain('The level to work is Fair');
+    expect(neck?.reading).toContain('Practice at Fair until it feels easy');
     expect(neck?.ruled_out).toBe('Everything below Hard.');
-    expect(neck?.evidence).toContain('a 24-point step between them');
+    expect(neck?.evidence).toContain('a 24-point drop between them');
   });
 
   it('is less sure of a cliff with less behind it', () => {

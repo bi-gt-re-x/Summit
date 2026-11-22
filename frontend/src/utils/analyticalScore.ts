@@ -1,5 +1,10 @@
 /**
- * The Analytical Score — one number for the whole account, and its letter.
+ * The Growth Score — one number for the whole account, and its letter.
+ *
+ * Kept here out of a hundred, because the letter bands are, and shown
+ * everywhere out of ten. It used to be shown out of a hundred under its own
+ * name, the "Analytical Score", beside the Growth Score tile printing the same
+ * mean divided by ten: one calculation under two names on two scales.
  *
  * ## It is the report card, not a second opinion
  *
@@ -37,6 +42,8 @@
  */
 import type { Grade, Ratings } from '@/types';
 import type { MetricName } from '@/types';
+import { RULES } from '@/utils/sharedRules';
+import { productivityRaw } from '@/utils/activity';
 
 /**
  * The bands, high to low, as [floor, letter].
@@ -46,15 +53,8 @@ import type { MetricName } from '@/types';
  * below is the check that they still agree, and this table is the one line to
  * change on either side.
  */
-export const GRADE_BANDS: ReadonlyArray<readonly [number, Grade]> = [
-  [100, 'S'],
-  [96, 'A+'],
-  [90, 'A'],
-  [80, 'B'],
-  [70, 'C'],
-  [60, 'D'],
-  [0, 'F'],
-];
+export const GRADE_BANDS: ReadonlyArray<readonly [number, Grade]> =
+  RULES.grade_bands as unknown as ReadonlyArray<readonly [number, Grade]>;
 
 /**
  * What each letter means, in one phrase, for the places that explain it.
@@ -69,13 +69,13 @@ export const GRADE_BANDS: ReadonlyArray<readonly [number, Grade]> = [
  * "not enough yet" belongs and it is already said there.
  */
 export const GRADE_MEANING: Record<Grade, string> = {
-  S: 'every one of the five at full marks',
-  'A+': 'the band below perfect',
+  S: 'all five parts maxed out',
+  'A+': 'just below perfect',
   A: 'strong across the board',
   B: 'solid, with one or two soft spots',
-  C: 'working, with real room in it',
+  C: 'okay, with lots of room to grow',
   D: 'two or three of the five are low',
-  F: 'every measure is coming in low',
+  F: 'every part is low',
 };
 
 export function gradeFor(score: number): Grade {
@@ -99,7 +99,7 @@ export function bandLabel(grade: Grade): string {
   const floor = Math.max(1, GRADE_BANDS[at]![0]);
   const above = at === 0 ? null : GRADE_BANDS[at - 1]![0];
   if (above === null) return String(floor);
-  return above - 1 === floor ? String(floor) : `${floor}–${above - 1}`;
+  return above - 1 === floor ? String(floor) : `${floor}-${above - 1}`;
 }
 
 export interface ScorePart {
@@ -150,7 +150,7 @@ export function analyticalScore(ratings: Ratings | null): AnalyticalScore {
       name: 'productivity',
       label: LABELS.productivity,
       score: m.productivity.score,
-      raw: `${Math.round(m.productivity.avg_daily_xp).toLocaleString()} XP a day`,
+      raw: productivityRaw(m.productivity),
     },
     {
       name: 'quality',
@@ -162,7 +162,7 @@ export function analyticalScore(ratings: Ratings | null): AnalyticalScore {
       raw:
         m.quality.basis === 'ratings'
           ? `${m.quality.avg_quality.toFixed(1)} of ${m.quality.max_quality} across ${m.quality.rated_tasks} rated tasks`
-          : 'nothing rated yet — scored on XP per task',
+          : 'nothing rated yet, so this uses the levels you picked',
     },
     {
       name: 'consistency',
@@ -224,11 +224,11 @@ export function agreesWithBackend(ratings: Ratings | null): boolean {
  * the five parts themselves, which every surface that shows this also shows.
  */
 export function howItIsCalculated(score: AnalyticalScore): string {
-  if (score.value === null) return 'Not enough of a record yet to score.';
+  if (score.value === null) return 'Not enough work to score yet.';
   const { weakest, strongest } = score;
   const base =
-    'The average of five measures — productivity, quality, consistency, efficiency ' +
-    'and focus — each scored out of 100, over the last 90 days.';
+    'The average of five parts over the last 90 days: productivity, quality, consistency, '
+        + 'efficiency and focus. Each is out of 100.';
   if (!weakest || !strongest || weakest.name === strongest.name) return base;
   /* Naming a best and a worst only says something when they differ. Five
      metrics all at 100 would otherwise produce "Focus is carrying it at 100;
@@ -241,7 +241,7 @@ export function howItIsCalculated(score: AnalyticalScore): string {
     // how "within 1 points" happens: a gap of 0.4 floors to 1 for the figure
     // and rounds to 0 for the word.
     const spread = Math.max(1, Math.round(gap));
-    return `${base} All five are within ${spread} ${spread === 1 ? 'point' : 'points'} of each other, so nothing is holding it back on its own.`;
+    return `${base} All five are within ${spread} ${spread === 1 ? 'point' : 'points'} of each other, so nothing's dragging it down.`;
   }
-  return `${base} ${strongest.label} is carrying it at ${Math.round(strongest.score)}; ${weakest.label} is holding it back at ${Math.round(weakest.score)}.`;
+  return `${base} ${strongest.label} is your best at ${Math.round(strongest.score)}. ${weakest.label} is holding it back at ${Math.round(weakest.score)}.`;
 }

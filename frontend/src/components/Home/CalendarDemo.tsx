@@ -36,6 +36,7 @@ import {
   type Effects,
   type Timeline,
 } from '@/utils/homePlay';
+import { Icon } from '@/components/Icon';
 
 const STREAK_FROM = 27;
 const STREAK_TO = 28;
@@ -53,9 +54,9 @@ const STREAK_TO = 28;
  * time with it, or the card is showing two different answers.
  */
 const DROP_TOP = 50;
-const DROP_TIME = '11:00–12:00';
+const DROP_TIME = '11:00-12:00';
 const HOME_TOP = '4%';
-const HOME_TIME = '9:00–10:00';
+const HOME_TIME = '9:00-10:00';
 
 const POINTER = (
   <svg viewBox="0 0 24 24">
@@ -348,7 +349,7 @@ export function CalendarDemo() {
     <div className="lp-card lp-calendar cal-armed" id="calDemo" ref={card} aria-hidden="true">
       <div className="lp-cal-topbar">
         <div className="lp-cal-title">
-          <span className="lp-cal-ico">📅</span> This Week · July 2026
+          <span className="lp-cal-ico"><Icon name="calendar" /></span> This week · July 2026
         </div>
         <div className="lp-cal-legend">
           <span>
@@ -361,7 +362,7 @@ export function CalendarDemo() {
             <i className="lp-lg lp-lg-c" /> Goals
           </span>
           <span className="cal-streak" id="calStreak" ref={streak}>
-            <i>🔥</i>{' '}
+            <i><Icon name="flame" /></i>{' '}
             <b id="calStreakNum" ref={streakNum as React.RefObject<HTMLElement>}>
               {STREAK_FROM}
             </b>{' '}
@@ -408,7 +409,7 @@ export function CalendarDemo() {
               Tue <b>8</b>
             </div>
             <div className="lp-cal-body" id="calTo" ref={to}>
-              <Event tone="c" top="14%" height="30%" title="Goal review" when="10:00–11:30" />
+              <Event tone="c" top="14%" height="30%" title="Goal review" when="10:00-11:30" />
             </div>
           </div>
 
@@ -418,7 +419,7 @@ export function CalendarDemo() {
             </div>
             <div className="lp-cal-body" id="calNewHost" ref={newHost}>
               <Event tone="b" top="6%" height="18%" title="CS lab" when="9:00" />
-              <Event tone="a" top="52%" height="26%" title="Deep work" when="1:00–2:00" />
+              <Event tone="a" top="52%" height="26%" title="Deep work" when="1:00-2:00" />
             </div>
           </div>
 
@@ -427,7 +428,7 @@ export function CalendarDemo() {
               Thu <b>10</b>
             </div>
             <div className="lp-cal-body">
-              <Event tone="a" top="20%" height="26%" title="Reading" when="10:30–12:00" />
+              <Event tone="a" top="20%" height="26%" title="Reading" when="10:30-12:00" />
             </div>
           </div>
 
@@ -437,7 +438,7 @@ export function CalendarDemo() {
             </div>
             <div className="lp-cal-body">
               <Event tone="c" top="8%" height="20%" title="Weekly goals" when="9:00" />
-              <Event tone="b" top="48%" height="30%" title="Practice set" when="12:30–2:00" />
+              <Event tone="b" top="48%" height="30%" title="Practice set" when="12:30-2:00" />
             </div>
           </div>
         </div>

@@ -234,7 +234,7 @@ export default function Month() {
   const previousName =
     compared >= previousLength || compared === 0
       ? previousMonthName
-      : `${previousMonthName} 1${compared === 1 ? '' : `–${compared}`}`;
+      : `${previousMonthName} 1${compared === 1 ? '' : `-${compared}`}`;
 
   const insight = useMemo(() => {
     const first = new Date(year, month, 1);
@@ -441,7 +441,7 @@ export default function Month() {
   useCalendarKeys({ onStep: stepMonth, onToday: goToday, enabled: !actions.dialog });
 
   if (loading) return <Loading label="Loading your month" />;
-  if (!hasData) return <ErrorState message={error ?? 'No data came back.'} onRetry={refresh} />;
+  if (!hasData) return <ErrorState message={error ?? "Couldn't load your month. Try refreshing."} onRetry={refresh} />;
 
   return (
     <CalendarShell paneId="monthView" ownSwitcher>
@@ -585,6 +585,7 @@ export default function Month() {
       {rating && (
         <RatePrompt
           taskName={rating.name}
+          level={rating.level}
           depth={ratingDepth}
           onSubmit={saveRating}
           onClose={closeRating}

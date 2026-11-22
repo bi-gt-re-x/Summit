@@ -53,41 +53,26 @@ export interface PatternsProps {
 export function Patterns({ items, window: days }: PatternsProps) {
   return (
     <Panel
-      title="What your record has noticed"
+      title="Patterns"
       note={
         items.length > 0
-          ? `Differences between two groups of your own tasks over the last ${days} days, stated only where both groups were big enough to mean something.`
+          ? `Differences in your tasks over the last ${days} days.`
           : undefined
       }
       className="ax-pat"
       footer={
-        <PanelNote label="Why so few, and why the strength labels">
-          <p>
-            Each of these splits your finished tasks in two by some condition — before or after
-            5pm, weekday or weekend, this subject or the rest — and compares one measure across
-            the split. A difference is only stated when both sides carry at least six tasks and
-            the gap is at least 10%.
-          </p>
-          <p>
-            Those floors are why this panel is often nearly empty. Run enough comparisons at a
-            loose threshold and you will always find something: twenty splits produce one
-            convincing-looking finding from noise alone. A page that printed it would be
-            confidently wrong about your own life, which is the one mistake an app built on your
-            record cannot afford.
-          </p>
-          <p>
-            None of these is a cause. Rating your work better before 5pm does not mean the hour is
-            doing it — you may put the easy revision in the evening. Treat the "worth trying" line
-            as an experiment, not an instruction.
-          </p>
+        <PanelNote label="How patterns are found">
+          <ul className="ax-tips">
+            <li><b>Two groups:</b> Each one compares two sets of your tasks, like before and after 5pm.</li>
+            <li><b>High bar:</b> Both sets need 6+ tasks and a 10% gap, so luck can't fake it.</li>
+            <li><b>Just a hint:</b> A pattern doesn't prove a cause. Treat "Worth trying" as a test.</li>
+          </ul>
         </PanelNote>
       }
     >
       {items.length === 0 ? (
         <p className="ax-empty">
-          Nothing yet that clears the bar. A pattern needs at least six tasks on both sides of a
-          split and a gap of 10% or more, and until then the honest answer is that your work looks
-          the same whenever you do it.
+          No patterns yet. Keep logging tasks and they'll show up here.
         </p>
       ) : (
         <ul className="ax-pat-list">

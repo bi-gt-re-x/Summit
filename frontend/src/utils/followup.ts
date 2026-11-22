@@ -74,7 +74,7 @@ export interface Adopted {
 /**
  * Days on the after side before a verdict is offered.
  *
- * A fortnight, which is the same floor `recommendations` applies before it will
+ * Two weeks, which is the same floor `recommendations` applies before it will
  * generate a rule at all. Anything shorter is one good week or one bad one, and
  * a page that called that a result would be doing the thing this whole file
  * exists to avoid.
@@ -87,7 +87,7 @@ export const SETTLE = 14;
  * Without a cap, a change adopted a year ago would be measured against the
  * whole year before it — a comparison that is technically equal-length and
  * practically meaningless, because it is asking whether last spring resembled
- * the spring before. Sixty days is long enough to see through a bad fortnight
+ * the spring before. Sixty days is long enough to see through a bad two weeks
  * and short enough to still be about the change.
  */
 export const MAX_SPAN = 60;
@@ -179,7 +179,7 @@ export interface Measure {
  * `rebalance` explicitly declines to say which way is better. Its whole point
  * is that concentration on one subject may be exactly right — "if it is
  * deliberate, protect it" — so a page that then scored the reader on having
- * reduced it would be contradicting its own advice a fortnight later. There is
+ * reduced it would be contradicting its own advice two weeks later. There is
  * no direction to measure because the rule refused to name one.
  *
  * Everything else here is measurable and is measured, including the two that
@@ -192,11 +192,11 @@ export interface Measure {
  */
 const UNMEASURED: Record<string, string> = {
   rebalance:
-    'No measure — this one asks whether the shape of your week is deliberate. Either answer can be right.',
+    'No score for this one. It just asks if your week looks the way you want.',
   'stretch-harder':
-    'No measure — difficulty is your own rating, and scoring you on it would be asking for the rating rather than the work.',
+    'No score for this one, since difficulty is your own rating.',
   'difficulty-is-the-half':
-    'No measure — difficulty is your own rating, and scoring you on it would be asking for the rating rather than the work.',
+    'No score for this one, since difficulty is your own rating.',
 };
 
 /** The bottom quarter of working days, averaged. What `raise-the-floor` is about. */
@@ -344,7 +344,7 @@ export function measureFor(id: string): Measure | null {
 
     case 'weekend':
       return {
-        label: 'Weekend against weekday',
+        label: 'Weekend vs. weekday',
         unit: '%',
         better: 'higher',
         noise: 8,
@@ -354,7 +354,7 @@ export function measureFor(id: string): Measure | null {
 
     case 'longer-sittings':
       return {
-        label: 'Typical sitting',
+        label: 'Usual session',
         unit: ' min',
         better: 'higher',
         noise: 5,
@@ -397,7 +397,7 @@ export function measureFor(id: string): Measure | null {
 
     case 'plan-a-light-day':
       return {
-        label: 'Longest run with no let-up',
+        label: 'Longest run with no break',
         unit: ' days',
         better: 'lower',
         noise: 2,
@@ -421,7 +421,7 @@ export function measureFor(id: string): Measure | null {
     case 'execution-slipping':
     case 'execution-is-the-half':
       return {
-        label: 'Execution you rated',
+        label: 'How well it went',
         unit: ' / 5',
         better: 'higher',
         noise: 0.3,
@@ -456,7 +456,7 @@ export function measureFor(id: string): Measure | null {
 
 /** The sentence shown for a rule that promised no number. */
 export function unmeasuredNote(id: string): string {
-  return UNMEASURED[id] ?? 'No measure — this one is not a claim about a number.';
+  return UNMEASURED[id] ?? "No score for this one. It isn't about a number.";
 }
 
 // --------------------------------------------------------------------------
@@ -595,7 +595,7 @@ export function reviewAdopted(input: ReviewInput): Review[] {
           outcome: 'early',
           label: measure.label,
           daysLeft,
-          note: `${daysLeft} more ${daysLeft === 1 ? 'day' : 'days'} before ${measure.label.toLowerCase()} is worth comparing.`,
+          note: `Check back in ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'}.`,
         };
       }
 
@@ -607,7 +607,7 @@ export function reviewAdopted(input: ReviewInput): Review[] {
             ...base,
             outcome: 'thin',
             label: measure.label,
-            note: 'No report-card reading from before this change to compare against.',
+            note: 'No earlier score to compare with.',
           };
         }
         return verdict(base, measure, reading.before, reading.after, {
@@ -636,7 +636,7 @@ export function reviewAdopted(input: ReviewInput): Review[] {
           ...base,
           outcome: 'thin',
           label: measure.label,
-          note: 'Your record does not go back far enough before this change to compare against.',
+          note: 'Not enough work from before this change.',
         };
       }
 
@@ -654,7 +654,7 @@ export function reviewAdopted(input: ReviewInput): Review[] {
           ...base,
           outcome: 'thin',
           label: measure.label,
-          note: `Not enough logged on both sides to read ${measure.label.toLowerCase()}.`,
+          note: 'Not enough data yet.',
         };
       }
 
@@ -705,10 +705,10 @@ function verdict(
 
   const note =
     outcome === 'held'
-      ? `${measure.label} has not moved enough to call it a change.`
+      ? `${measure.label} hasn't changed much.`
       : outcome === 'improved'
-        ? `${measure.label} went ${direction} ${size} — the direction this change was for.`
-        : `${measure.label} went ${direction} ${size}, against what this change was for.`;
+        ? `${measure.label} went ${direction} ${size}. It worked.`
+        : `${measure.label} went ${direction} ${size}, the wrong way.`;
 
   return { ...base, outcome, label: measure.label, unit: measure.unit, before, after, delta, pct, note, ...window };
 }
@@ -750,10 +750,10 @@ export function summarise(reviews: Review[]): ReviewSummary {
     headline = 'Nothing adopted yet.';
   } else if (judged === 0) {
     headline = waiting > 0
-      ? `${waiting} change${waiting === 1 ? '' : 's'} still too new to judge.`
-      : 'Nothing here can be measured yet.';
+      ? `${waiting} change${waiting === 1 ? '' : 's'} too new to judge.`
+      : 'Nothing here to check yet.';
   } else {
-    headline = `${improved} of ${judged} moved the way they were meant to.`;
+    headline = `${improved} of ${judged} worked.`;
   }
 
   return { total: reviews.length, judged, improved, worsened, held, waiting, headline };

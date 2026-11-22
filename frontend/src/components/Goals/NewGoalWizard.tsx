@@ -49,11 +49,12 @@
  * outcome, no subject and no checkpoints; see SystemGoalWizard.
  */
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { CATEGORIES } from './Outcome';
+import { categoryForSubject } from './Outcome';
 import { AskModel } from './AskModel';
 import { SubjectPicker } from '@/components/SubjectPicker';
 import type { Subject } from '@/services/subjects';
 import type { DraftedGoal, NewGoal } from '@/services/goals';
+import { CHART_CHOICES } from '@/utils/goalVisuals';
 import type { GoalCategory, GoalMeasure } from '@/types';
 
 const STEPS = [
@@ -62,7 +63,65 @@ const STEPS = [
   'When do you want it?',
   'How will you know?',
   'Break it into checkpoints',
+  'How should it look?',
 ] as const;
+
+/**
+ * The chart step's options, each with a thumbnail of the shape it draws.
+ *
+ * Automatic comes first and is the default: most people have no opinion yet,
+ * and the page picks well from the data. The rest mirror the ⋯ menu on the
+ * card (`CHART_CHOICES`), so a choice made here can be changed there later.
+ */
+const CHART_BLURBS: Record<string, string> = {
+  '': 'We pick the best chart for the data you log.',
+  progress: 'Progress over time, as a line.',
+  step: 'One step up for each checkpoint reached.',
+  heatmap: 'Which days you worked, over twelve weeks.',
+  basic: 'One bar: how far along you are.',
+  roadmap: 'Your checkpoints, in order.',
+  volume: 'How much you do on each day of the week.',
+  difficulty: 'How well it went at each difficulty.',
+};
+
+function ChartThumb({ id }: { id: string }) {
+  const bars = (heights: number[]) =>
+    heights.map((h, i) => <rect key={i} x={4 + i * 10} y={30 - h} width={6} height={h} rx={1} />);
+  return (
+    <svg className="gx-chart-thumb" viewBox="0 0 80 34" aria-hidden="true">
+      {id === '' && <path className="is-line" d="M40 6 L42.5 14 L50 17 L42.5 20 L40 28 L37.5 20 L30 17 L37.5 14 Z" />}
+      {id === 'progress' && <path className="is-line" d="M4 28 L20 22 L36 24 L52 12 L76 6" />}
+      {id === 'step' && <path className="is-line" d="M4 28 H22 V20 H44 V12 H62 V6 H76" />}
+      {id === 'heatmap' &&
+        Array.from({ length: 24 }, (_, i) => (
+          <rect
+            key={i}
+            x={4 + (i % 8) * 9.5}
+            y={4 + Math.floor(i / 8) * 9.5}
+            width={7}
+            height={7}
+            rx={1.5}
+            opacity={[0.2, 0.9, 0.5, 0.2, 0.7, 1, 0.35, 0.6][(i * 5) % 8]}
+          />
+        ))}
+      {id === 'basic' && (
+        <>
+          <rect className="is-track" x={4} y={14} width={72} height={6} rx={3} />
+          <rect x={4} y={14} width={44} height={6} rx={3} />
+        </>
+      )}
+      {id === 'roadmap' &&
+        [0, 1, 2].map((i) => (
+          <g key={i}>
+            <rect className="is-track" x={4} y={6 + i * 10} width={72} height={4} rx={2} />
+            <rect x={4} y={6 + i * 10} width={[72, 32, 6][i]} height={4} rx={2} />
+          </g>
+        ))}
+      {id === 'volume' && bars([10, 18, 8, 22, 14, 6, 12])}
+      {id === 'difficulty' && bars([24, 20, 15, 9, 5])}
+    </svg>
+  );
+}
 
 /**
  * One line of advice per step, at the top of the panel.
@@ -75,14 +134,15 @@ const STEPS = [
  * to scroll past.
  */
 const TIPS: Record<number, string> = {
-  0: 'Name the finish line, not the effort — "Reach USACO Gold", not "practise more".',
+  0: 'Name the finish line. Like "Reach USACO Gold" instead of "practice more".',
   // Not a tip so much as the reason the field is not optional. Somebody who
   // knows what the subject buys them picks the right one rather than the
   // nearest one.
-  1: 'The reason you would still want this in three months. You will read it back on a bad week.',
-  2: 'A date you half-believe beats no date. With one, the app can say whether you are on pace.',
-  3: 'Milestones when finishing is a state you arrive at, a number when it accumulates.',
-  4: 'Three to six works. Each should be a state the goal reaches, not a task you do.',
+  1: 'Why this matters to you.',
+  2: "Add a date so we can tell you if you're on track.",
+  3: 'Use checkpoints for a finish line, or a number for something you count up.',
+  4: 'Three to six works. Each one should be a stage you reach, like "Solve Silver problems".',
+  5: 'Not sure? Leave it on Automatic. You can change it from the card any time.',
 };
 
 /** How far out a goal's date starts, when the reader has not moved it. */
@@ -113,6 +173,8 @@ export interface MilestoneDraftRequest {
   description: string;
   category: GoalCategory;
   deadline: string;
+  /** Where the reader says they're starting from, in their own words. */
+  starting: string;
 }
 
 /** The model's checkpoints, or the reason there are none — worded to show. */
@@ -140,7 +202,7 @@ export interface NewGoalWizardProps {
    * Draft the whole goal from one sentence. Absent, and the first step offers
    * no box — the wizard is then exactly the form it has always been.
    */
-  onDraft?: (idea: string) => Promise<WholeGoalDraft>;
+  onDraft?: (idea: string, starting: string) => Promise<WholeGoalDraft>;
   /**
    * Opened from "Draft a goal" rather than from "+ New Goal", so the cursor
    * starts in the sentence box instead of in the title field.
@@ -172,7 +234,9 @@ export function NewGoalWizard({
   const [step, setStep] = useState(0);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState<GoalCategory>('other');
+  /* What the model guessed the goal is about, used only until a subject is
+     picked. After that the subject decides (`categoryForSubject`). */
+  const [draftedCategory, setDraftedCategory] = useState<GoalCategory>('other');
   const [subjectId, setSubjectId] = useState<string | null>(startSubject ?? null);
   const [why, setWhy] = useState('');
   const [deadline, setDeadline] = useState(defaultDeadline);
@@ -181,12 +245,16 @@ export function NewGoalWizard({
   const [unit, setUnit] = useState('');
   const [current, setCurrent] = useState('');
   const [target, setTarget] = useState('');
+  /** Which chart the card draws. '' lets the page pick. */
+  const [chart, setChart] = useState('');
   const [milestones, setMilestones] = useState<string[]>([]);
   const [draft, setDraft] = useState('');
   const [suggesting, setSuggesting] = useState(false);
   const [suggestProblem, setSuggestProblem] = useState<string | null>(null);
-  /** The sentence the whole-goal draft is written from. Never saved. */
+  /** How the reader wants the goal drafted. Never saved. */
   const [idea, setIdea] = useState('');
+  /** Where they say they're starting from, for both AI drafts. Never saved. */
+  const [starting, setStarting] = useState('');
   const [drafting, setDrafting] = useState(false);
   /* Which request is current. A model call takes seconds, and closing the
      wizard in the middle of one must not let its answer land in the next
@@ -200,7 +268,7 @@ export function NewGoalWizard({
     setStep(0);
     setTitle('');
     setDescription('');
-    setCategory('other');
+    setDraftedCategory('other');
     setSubjectId(null);
     setWhy('');
     setDeadline(defaultDeadline());
@@ -209,11 +277,19 @@ export function NewGoalWizard({
     setUnit('');
     setCurrent('');
     setTarget('');
+    setChart('');
     setMilestones([]);
     setDraft('');
     setIdea('');
+    setStarting('');
     setDrafting(false);
   }, []);
+
+  const subject = useMemo(
+    () => subjects.find((entry) => entry.id === subjectId) ?? null,
+    [subjectId, subjects],
+  );
+  const category: GoalCategory = subject ? categoryForSubject(subject) : draftedCategory;
 
   const close = useCallback(() => {
     reset();
@@ -260,16 +336,16 @@ export function NewGoalWizard({
     setDrafting(true);
     setSuggestProblem(null);
     try {
-      const result = await onDraft(idea.trim());
+      const result = await onDraft(idea.trim(), starting.trim());
       if (mine !== asking.current) return;
       if (!result.goal) {
-        setSuggestProblem(result.problem ?? 'That could not be drafted. Try again.');
+        setSuggestProblem(result.problem ?? "That couldn't be drafted. Try again.");
         return;
       }
       const goal = result.goal;
       setTitle(goal.title);
       if (goal.why) setWhy(goal.why);
-      if (goal.category) setCategory(goal.category);
+      if (goal.category) setDraftedCategory(goal.category);
       if (goal.deadline) setDeadline(goal.deadline);
       if (goal.milestones.length) setMilestones(goal.milestones);
       // Checkpoints mean this is an outcome goal, whatever the measure was
@@ -278,7 +354,7 @@ export function NewGoalWizard({
     } finally {
       if (mine === asking.current) setDrafting(false);
     }
-  }, [idea, onDraft]);
+  }, [idea, onDraft, starting]);
 
   /** Five checkpoints from the model, into the editable list. Replaces it. */
   const suggest = useCallback(async () => {
@@ -293,6 +369,7 @@ export function NewGoalWizard({
         description: description.trim(),
         category,
         deadline,
+        starting: starting.trim(),
       });
       if (mine !== asking.current) return;
       if (result.milestones?.length) setMilestones(result.milestones);
@@ -300,7 +377,7 @@ export function NewGoalWizard({
     } finally {
       if (mine === asking.current) setSuggesting(false);
     }
-  }, [category, deadline, description, onSuggest, title, why]);
+  }, [category, deadline, description, onSuggest, starting, title, why]);
 
   const save = useCallback(() => {
     onSave({
@@ -321,11 +398,12 @@ export function NewGoalWizard({
       unit: unit.trim(),
       current_value: Number(current) || 0,
       target_number: Number(target) || 0,
+      chart,
       milestones,
     });
     reset();
   }, [
-    category, current, deadline, description, measure, milestones, onSave,
+    category, chart, current, deadline, description, measure, milestones, onSave,
     priority, reset, subjectId, target, title, unit, why,
   ]);
 
@@ -337,6 +415,9 @@ export function NewGoalWizard({
         className="gx-wizard"
         role="dialog"
         aria-label="New goal"
+        /* Which page is showing, for the Goals guide: each of its wizard steps
+           moves on when the next page appears (`until` in Tutorial/steps). */
+        data-stage={step}
         onClick={(event) => event.stopPropagation()}
       >
         <header className="gx-wizard-head">
@@ -380,31 +461,42 @@ export function NewGoalWizard({
                   stays blocked until they do. */}
               {onDraft && (
                 <div className="gx-idea">
-                  <label htmlFor="gx-idea">Not sure how to phrase it?</label>
+                  <p className="gx-idea-head">Draft it with AI</p>
+                  {/* Two boxes, because they are two different things to
+                      know: what the goal should look like, and how far along
+                      the reader already is. The second is what keeps the first
+                      checkpoint from being something they can already do.
+                      Textareas, so Enter makes a new line instead of reaching
+                      the wizard's own submit. */}
+                  <label htmlFor="gx-idea">How do you want the goal drafted?</label>
+                  <textarea
+                    id="gx-idea"
+                    rows={3}
+                    value={idea}
+                    autoFocus={focusIdea}
+                    maxLength={1000}
+                    placeholder="Get to USACO Gold by next fall. Push hard, about 6 hours a week, and lean on past contest problems."
+                    disabled={drafting}
+                    onChange={(event) => setIdea(event.target.value)}
+                  />
+                  <label htmlFor="gx-starting">Where are you starting from?</label>
+                  <textarea
+                    id="gx-starting"
+                    rows={2}
+                    value={starting}
+                    maxLength={1000}
+                    placeholder="I passed Bronze last month and can solve about half of the Silver problems I try."
+                    disabled={drafting}
+                    onChange={(event) => setStarting(event.target.value)}
+                  />
                   <div className="gx-idea-row">
-                    <input
-                      id="gx-idea"
-                      value={idea}
-                      autoFocus={focusIdea}
-                      maxLength={200}
-                      placeholder="get good at competition maths this year"
-                      disabled={drafting}
-                      onChange={(event) => setIdea(event.target.value)}
-                      onKeyDown={(event) => {
-                        // The wizard's footer has its own submit, and Enter in
-                        // a bare input inside a dialog would reach it.
-                        if (event.key !== 'Enter') return;
-                        event.preventDefault();
-                        void draftWhole();
-                      }}
-                    />
                     <AskModel
                       label="Draft it all"
                       busy={drafting}
                       disabled={!idea.trim()}
                       onAsk={() => void draftWhole()}
                       primary
-                      title="Fills in the title, the reason, the field, a target date and five checkpoints — all of it editable"
+                      title="Fills in a title, reason, date and five checkpoints. You can edit all of it."
                     />
                   </div>
                   {/* The two model calls share `suggestProblem`, and only
@@ -416,14 +508,12 @@ export function NewGoalWizard({
                     </p>
                   )}
                   <p className="gx-hint">
-                    Say roughly what you want and the rest of this wizard fills
-                    itself in. You still pick the subject, and you can change
-                    every word of it.
+                    Say what you're after and how you want it, and where you are now. We'll fill in the rest, and you can edit everything.
                   </p>
                 </div>
               )}
 
-              <label htmlFor="gx-title">The outcome, not the activity</label>
+              <label htmlFor="gx-title">The result you want</label>
               <input
                 id="gx-title"
                 value={title}
@@ -432,7 +522,7 @@ export function NewGoalWizard({
                 onChange={(event) => setTitle(event.target.value)}
               />
               <p className="gx-hint">
-                Something you either reached or did not.
+                Something you either hit or didn't.
               </p>
 
               <label htmlFor="gx-desc">Anything worth remembering about it</label>
@@ -443,25 +533,10 @@ export function NewGoalWizard({
                 onChange={(event) => setDescription(event.target.value)}
               />
 
-              <label>What is it about?</label>
-              <div className="gx-chips">
-                {CATEGORIES.map((entry) => (
-                  <button
-                    key={entry.id}
-                    type="button"
-                    className={`gx-chip tone-${entry.tone}${entry.id === category ? ' is-on' : ''}`}
-                    onClick={() => setCategory(entry.id)}
-                  >
-                    {entry.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* The category above is a colour and an icon. This is the link
-                  to the record — see the note at the top of this file — and
-                  the two sit together because to a reader they are the same
-                  question asked twice, and separating them across steps would
-                  make the second one look like a duplicate to skip. */}
+              {/* No fixed list of fields here any more (Math, Coding,
+                  AI / ML…). The goal's color and icon come from the subject
+                  picked below, which offers every subject in the catalog. See
+                  `categoryForSubject` in ./Outcome. */}
               <label>Which subject is the work for?</label>
               <div className="gx-subject">
                 <SubjectPicker
@@ -474,8 +549,7 @@ export function NewGoalWizard({
                 />
               </div>
               <p className="gx-hint">
-                Required. It is what lets that subject's page read your record against this
-                goal — without it the goal is a bar on this page and nothing anywhere else.
+                Required. It links this goal to that subject's page. Without it, the goal only shows up here.
               </p>
             </>
           )}
@@ -488,11 +562,11 @@ export function NewGoalWizard({
                 rows={4}
                 autoFocus
                 value={why}
-                placeholder="What changes for you if this happens?"
+                placeholder="What changes for you if you get there?"
                 onChange={(event) => setWhy(event.target.value)}
               />
               <p className="gx-hint">
-                For you, not the app. Nothing is computed from it.
+                Just for you. Summit doesn't use it for anything.
               </p>
             </>
           )}
@@ -507,7 +581,7 @@ export function NewGoalWizard({
                 onChange={(event) => setDeadline(event.target.value)}
               />
               <p className="gx-hint">
-                Optional. With a date, the app can tell you whether you are on pace.
+                Optional. With a date, Summit can tell you if you're on pace.
               </p>
 
               <label htmlFor="gx-priority">How much does it matter? ({priority} / 10)</label>
@@ -520,7 +594,7 @@ export function NewGoalWizard({
                 onChange={(event) => setPriority(Number(event.target.value))}
               />
               <p className="gx-hint">
-                Weights it in the overall figure at the top of the page.
+                Counts more toward the total at the top of the page.
               </p>
             </>
           )}
@@ -536,8 +610,7 @@ export function NewGoalWizard({
                 >
                   <strong>By checkpoints</strong>
                   <span>
-                    There is no number. You get there by passing a handful of states — the next
-                    step is where you list them.
+                    There's no number. You get there by hitting a few checkpoints. You'll list them next.
                   </span>
                 </button>
                 <button
@@ -547,8 +620,7 @@ export function NewGoalWizard({
                 >
                   <strong>By a number</strong>
                   <span>
-                    A rating, a score, a count — something you will read off somewhere else and
-                    type in here.
+                    A rating, a score or a count. Something you'll check somewhere else and type in here.
                   </span>
                 </button>
               </div>
@@ -585,14 +657,30 @@ export function NewGoalWizard({
                 </div>
               )}
               <p className="gx-hint">
-                You update the figure; the app does the pace arithmetic.
+                You update the number. Summit works out your pace.
               </p>
             </>
           )}
 
           {step === 4 && (
             <>
-              <label>The checkpoints, in the order you will hit them</label>
+              <label>Your checkpoints, in the order you'll hit them</label>
+              {onSuggest && (
+                <>
+                  <label htmlFor="gx-starting-ms" className="gx-sub-label">
+                    Where are you starting from? <span className="gx-quiet">(helps the AI)</span>
+                  </label>
+                  <textarea
+                    id="gx-starting-ms"
+                    rows={2}
+                    value={starting}
+                    maxLength={1000}
+                    placeholder="I passed Bronze last month and can solve about half of the Silver problems I try."
+                    disabled={suggesting}
+                    onChange={(event) => setStarting(event.target.value)}
+                  />
+                </>
+              )}
               {onSuggest && (
                 <div className="gx-ms-suggest">
                   <button
@@ -610,7 +698,7 @@ export function NewGoalWizard({
                   <span className="gx-quiet">
                     {milestones.length
                       ? 'Replaces the list below.'
-                      : 'Five, from your title, your reason and your date.'}{' '}
+                      : 'Five, from your title, your reason, your date and where you are now.'}{' '}
                     Edit or remove any of them after.
                   </span>
                 </div>
@@ -624,7 +712,7 @@ export function NewGoalWizard({
                 <p className="gx-hint">
                   {deadline
                     ? `Spread evenly between today and ${deadline}. Move any from the goal's timeline.`
-                    : 'A fortnight apart from today. Move any from the goal\u2019s timeline.'}
+                    : "Two weeks apart from today. Move any from the goal's timeline."}
                 </p>
               )}
               <ol className="gx-draft-list">
@@ -662,10 +750,36 @@ export function NewGoalWizard({
                 </button>
               </form>
               <p className="gx-hint">
-                A state the goal reaches, not a thing you do on a Tuesday. Leave it empty and the
-                model drafts them once the goal is made. Either way, each checkpoint then gets its
-                steps drafted.
+                A stage you reach, like "Solve Silver problems". Leave it empty and AI drafts them after the goal is made. Either way, each checkpoint gets its own steps.
               </p>
+            </>
+          )}
+
+          {step === 5 && (
+            <>
+              <label id="gx-chart-label">The chart on this goal's card</label>
+              <div className="gx-choices gx-chart-choices" role="radiogroup" aria-labelledby="gx-chart-label">
+                {[{ id: '', label: 'Automatic' }, ...CHART_CHOICES].map((choice) => (
+                  <button
+                    key={choice.id || 'auto'}
+                    type="button"
+                    role="radio"
+                    aria-checked={chart === choice.id}
+                    className={`gx-choice${chart === choice.id ? ' is-on' : ''}`}
+                    onClick={() => setChart(choice.id)}
+                  >
+                    <ChartThumb id={choice.id} />
+                    <strong>{choice.label}</strong>
+                    <span>{CHART_BLURBS[choice.id]}</span>
+                  </button>
+                ))}
+              </div>
+              {(chart === 'progress' || chart === 'step') && (
+                <p className="gx-hint">It fills in as you reach checkpoints.</p>
+              )}
+              {(chart === 'heatmap' || chart === 'volume' || chart === 'difficulty') && (
+                <p className="gx-hint">It fills in as you finish tasks linked to this goal.</p>
+              )}
             </>
           )}
         </div>

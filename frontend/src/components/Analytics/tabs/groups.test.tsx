@@ -20,14 +20,9 @@
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
-import { GoalsTab } from './GoalsTab';
-import { HabitsTab } from './HabitsTab';
 import { OverviewTab } from './OverviewTab';
-import { draw, fakeData, fakeModel, nameOf, subjects } from './fixtures';
+import { draw, fakeData, fakeModel, matureOverview } from './fixtures';
 import { NEED_DAYS } from '../useAnalyticsModel';
-import { buildHabits, habitSummary } from '@/utils/habits';
-import { summaryFigures } from '@/utils/growthSummary';
-import { task } from '@/test/factories';
 
 /**
  * The group heads, and only those.
@@ -55,49 +50,6 @@ function bodyOf(head: HTMLElement): HTMLElement {
   return body;
 }
 
-/**
- * A mature account: past every gate, with quality, tallies and extras on.
- *
- * `maturity.stage` is 'full' so OverviewTab takes its long branch rather than
- * the Collecting one, which is the branch the groups live on.
- */
-function matureOverview() {
-  return fakeModel({
-    historyDays: 400,
-    maturity: {
-      stage: 'full',
-      activeDays: 120,
-      spanDays: 400,
-      next: null,
-      toNext: null,
-      progress: 1,
-      lastActive: '2026-08-01',
-    },
-    detail: { quality: true, tallies: true, extras: true, rows: 12 },
-    logStyle: 'tasks',
-    showStanding: true,
-    /* From the real builder over an empty slice, for the reason ./fixtures
-       gives: `Tiles` reads eight fields off this and a hand-written three
-       fails on the fourth. */
-    figures: summaryFigures({ current: [], previous: [] }),
-    rhythmRate: { rate: 0.5, previousRate: 0.4, bestMonth: null },
-    card: { value: 8, factors: [] },
-    score: 8,
-    scoreLine: [],
-    scoreMarks: [],
-    heatRows: [],
-    sparks: { xp: [], tasks: [], focusHours: [], consistency: [], quality: [] },
-    ratingRows: [],
-    ratingBands: [],
-    ratingGrid: [],
-    compareLabel: 'the 90 days before',
-    previousSpanText: 'the 90 days before',
-    grain: 'weekly',
-    metric: 'tasks',
-    fromIso: '2026-05-01',
-  });
-}
-
 describe('Overview', () => {
   it('folds its follow-up into groups and leaves the answer above them open', () => {
     draw(
@@ -105,8 +57,9 @@ describe('Overview', () => {
     );
     // The rows that used to run flat under the trajectory.
     expect(groupNamed(/Quality/)).toBeInTheDocument();
-    expect(groupNamed(/Consistency and standing/)).toBeInTheDocument();
-    expect(groupNamed(/Subjects and findings/)).toBeInTheDocument();
+    expect(groupNamed(/^Consistency/)).toBeInTheDocument();
+    // "Findings" went: every line in it was a figure another tab prints.
+    expect(screen.queryByRole('button', { name: /^Findings/ })).not.toBeInTheDocument();
 
     // All shut on arrival: the tab's answer is the screen above them.
     groups().forEach((head) => {
@@ -119,7 +72,7 @@ describe('Overview', () => {
     draw(
       <OverviewTab model={matureOverview()} data={fakeData()} onEditBaseline={() => {}} />,
     );
-    const head = groupNamed(/Consistency and standing/);
+    const head = groupNamed(/^Consistency/);
 
     await userEvent.click(head);
     expect(head).toHaveAttribute('aria-expanded', 'true');
@@ -130,10 +83,10 @@ describe('Overview', () => {
     expect(bodyOf(head)).toHaveAttribute('inert');
   });
 
-  it('folds the stand-in tallies too, while Habits is still locked', () => {
-    // `When you work` is on the Overview only until the Habits tab can answer
-    // the same question properly — so it needs an account short of that gate,
-    // not the mature one the other cases use.
+  it('leaves the stand-in tallies to the Insights tab', () => {
+    // "When you work" sat here until habits could answer it. The Insights tab
+    // draws the same two tallies under "What is already true" while it waits,
+    // so the Overview no longer does.
     draw(
       <OverviewTab
         model={fakeModel({
@@ -145,9 +98,7 @@ describe('Overview', () => {
         onEditBaseline={() => {}}
       />,
     );
-    const head = groupNamed(/When you work/);
-    expect(head).toHaveAttribute('aria-expanded', 'false');
-    expect(bodyOf(head)).toHaveAttribute('inert');
+    expect(screen.queryByRole('button', { name: /When you work/ })).not.toBeInTheDocument();
   });
 
   it('leaves the trajectory out of every group, because Summary links to it', () => {
@@ -162,82 +113,3 @@ describe('Overview', () => {
   });
 });
 
-describe('Habits', () => {
-  function withHabits() {
-    const repeating = Array.from({ length: 8 }, (_, week) =>
-      task({
-        title: 'Revision',
-        status: 'done',
-        completed_at: `2026-0${week < 4 ? 6 : 7}-${String(1 + (week % 4) * 7).padStart(2, '0')}T18:00:00`,
-      }),
-    );
-    const habits = buildHabits(repeating, nameOf, '2026-06-01', '2026-07-31');
-    return fakeModel({
-      historyDays: NEED_DAYS.habits,
-      habits,
-      summary: habitSummary(habits, []),
-    });
-  }
-
-  it('opens on the habits themselves and folds the three layers under them', () => {
-    draw(<HabitsTab model={withHabits()} subjects={subjects} />);
-
-    const yours = groupNamed(/Your habits/);
-    expect(yours).toHaveAttribute('aria-expanded', 'true');
-    expect(bodyOf(yours)).not.toHaveAttribute('inert');
-
-    // The three that answer a question the reader only has once they have read
-    // the first one.
-    [/Every day you worked/, /Holding or slipping/, /Can you execute it reliably/].forEach(
-      (name) => {
-        const head = groupNamed(name);
-        expect(head).toHaveAttribute('aria-expanded', 'false');
-        expect(bodyOf(head)).toHaveAttribute('inert');
-      },
-    );
-  });
-
-  it('opens the embedded focus chapter on request', async () => {
-    draw(<HabitsTab model={withHabits()} subjects={subjects} />);
-    const head = groupNamed(/Can you execute it reliably/);
-    await userEvent.click(head);
-    expect(head).toHaveAttribute('aria-expanded', 'true');
-    expect(bodyOf(head)).not.toHaveAttribute('inert');
-  });
-
-  it('keeps the two group titles that used to be section headings', () => {
-    // "Your habits" and "Can you execute it reliably" were <h2 class="ax-band">
-    // before. A reader scanning for either should still find it.
-    draw(<HabitsTab model={withHabits()} subjects={subjects} />);
-    expect(screen.getByRole('heading', { name: /Your habits/ })).toBeInTheDocument();
-    expect(
-      screen.getByRole('heading', { name: /Can you execute it reliably/ }),
-    ).toBeInTheDocument();
-  });
-});
-
-describe('Goals', () => {
-  it('folds the three rows under the pace map, all shut', () => {
-    draw(<GoalsTab model={fakeModel()} />);
-    [/What you have reached/, /Pace and notes/, /What to aim at next/].forEach((name) => {
-      const head = groupNamed(name);
-      expect(head).toHaveAttribute('aria-expanded', 'false');
-      expect(bodyOf(head)).toHaveAttribute('inert');
-    });
-  });
-
-  it('opens and shuts each of them independently', async () => {
-    draw(<GoalsTab model={fakeModel()} />);
-    const reached = groupNamed(/What you have reached/);
-    const pace = groupNamed(/Pace and notes/);
-
-    await userEvent.click(reached);
-    expect(reached).toHaveAttribute('aria-expanded', 'true');
-    // Opening one does not touch the others — these are not an accordion.
-    expect(pace).toHaveAttribute('aria-expanded', 'false');
-
-    await userEvent.click(pace);
-    expect(reached).toHaveAttribute('aria-expanded', 'true');
-    expect(pace).toHaveAttribute('aria-expanded', 'true');
-  });
-});

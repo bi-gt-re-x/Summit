@@ -58,7 +58,7 @@ export const METRIC_META: Record<
     label: 'Productivity',
     tone: 'blue',
     glyph: 'sparkle',
-    asks: 'XP a working day, against your daily goal',
+    asks: 'tasks and focus time a working day, with XP as one part',
   },
   quality: {
     label: 'Quality',
@@ -70,19 +70,19 @@ export const METRIC_META: Record<
     label: 'Consistency',
     tone: 'green',
     glyph: 'check',
-    asks: 'the share of days you showed up at all',
+    asks: 'how many days you worked',
   },
   efficiency: {
     label: 'Efficiency',
     tone: 'violet',
     glyph: 'clock',
-    asks: 'the share of tasks finished by their deadline',
+    asks: 'how many tasks you finished on time',
   },
   focus: {
     label: 'Focus',
     tone: 'pink',
     glyph: 'sparkle',
-    asks: 'tracked focus time against your focus goal',
+    asks: 'your focus time against your goal',
   },
 };
 
@@ -107,7 +107,7 @@ export const HELD = 3;
 
 /** A signed percentage, or a dash where there was nothing to move from. */
 export function pct(value: number | null | undefined): string {
-  if (value === null || value === undefined) return '—';
+  if (value === null || value === undefined) return '-';
   const rounded = Math.round(value * 10) / 10;
   return `${rounded > 0 ? '+' : rounded < 0 ? '−' : ''}${Math.abs(rounded).toFixed(1)}%`;
 }
@@ -134,7 +134,7 @@ export function growthLabel(
   to: number,
 ): string {
   if (change !== null && change !== undefined) return pct(change);
-  if (from === null || from === undefined) return '—';
+  if (from === null || from === undefined) return '-';
   const moved = Math.round(to - from);
   return `${moved > 0 ? '+' : moved < 0 ? '−' : ''}${Math.abs(moved)} pts`;
 }
@@ -155,18 +155,22 @@ export function direction(from: number, to: number): 'up' | 'down' | 'held' {
  * moved because they worked more or because the goal moved.
  */
 export function measuredAs(metric: PeriodMetric, side: PeriodSide | null): string {
-  if (!side) return '—';
+  if (!side) return '-';
   const figures = (side.figures?.[metric] ?? {}) as Record<string, number | string | boolean>;
   switch (metric) {
     case 'productivity':
-      return `${fmtNumber(Number(figures.avg_daily_xp) || 0)} XP a working day`;
+      if (figures.tasks_per_day === undefined) {
+        return `${fmtNumber(Number(figures.avg_daily_xp) || 0)} XP a working day`;
+      }
+      return `${Number(figures.tasks_per_day).toFixed(1)} tasks a working day`
+        + (Number(figures.focus_per_day) > 0 ? `, ${fmtNumber(Number(figures.focus_per_day))} min focused` : '');
     case 'quality':
       // The basis is printed, never assumed — an account that has rated
       // nothing is graded on an XP proxy and has to be told so.
       return figures.basis === 'ratings'
         ? `${Number(figures.avg_quality).toFixed(1)} of ${figures.max_quality}, `
           + `over ${fmtNumber(Number(figures.rated_tasks) || 0)} rated`
-        : 'no ratings yet — scored on task XP';
+        : 'no ratings yet, so this uses the levels you picked';
     case 'consistency':
       return `${fmtNumber(Number(figures.active_days) || 0)} of `
         + `${fmtNumber(Number(figures.total_days) || 0)} days worked`;
@@ -178,7 +182,7 @@ export function measuredAs(metric: PeriodMetric, side: PeriodSide | null): strin
       return `${(Number(figures.focused_minutes) / 60 || 0).toFixed(1)} hrs of a `
         + `${(Number(figures.goal_minutes) / 60 || 0).toFixed(1)} hr goal`;
     default:
-      return '—';
+      return '-';
   }
 }
 
@@ -190,8 +194,8 @@ const SHORT: Record<PeriodKey, string> = {
   '7d': 'Week',
   '30d': 'Month',
   '90d': '3 Months',
-  '180d': '6 Months',
   '365d': 'Year',
+  '730d': '2 Years',
   all: 'All time',
 };
 
@@ -278,7 +282,7 @@ export function PeriodCards({
             </strong>
             <span className="ax-gp-card-note">
               {card.previous === null
-                ? 'nothing before it to compare against'
+                ? 'nothing earlier to compare with'
                 : `against the ${card.days} days before · ${card.previous} → ${card.overall}`}
             </span>
             <Spark values={card.spark} way={way} />
@@ -496,8 +500,7 @@ export function MetricStrip({ data }: { data: GrowthPeriods }) {
             </>
           ) : (
             <>
-              Graded <strong>{now.grade}</strong> at {now.overall} out of 100. This period
-              reaches back to your first day, so there is nothing before it.
+              Graded <strong>{now.grade}</strong> at a growth score of {(now.overall / 10).toFixed(1)} out of 10. This period starts on your first day, so there's nothing to compare with.
             </>
           )}
         </p>
@@ -619,16 +622,18 @@ function partsOf(metric: PeriodMetric, now: PeriodSide, then: PeriodSide): Part[
   switch (metric) {
     case 'productivity': {
       const [wasXp, isXp] = pair('avg_daily_xp');
-      const [wasTotal, isTotal] = pair('total_xp');
-      const [wasDays, isDays] = pair('earning_days');
+      const [wasPer, isPer] = pair('tasks_per_day');
+      const [wasFocus, isFocus] = pair('focus_per_day');
       const [wasTasks, isTasks] = pair('tasks');
       const goal = num(now, 'daily_goal') || 100;
+      const target = num(now, 'task_target') || 3;
+      const focusTarget = num(now, 'focus_target') || 60;
+      // In the order the score weighs them: tasks, then focus, then XP. Each
+      // bar is full at the target the score reads it against.
       return [
-        // Against the goal the account set itself, which is what the score
-        // actually divides by — so a full bar here is a full mark there.
+        { label: 'Tasks a working day', from: wasPer, to: isPer, max: Math.max(target, wasPer, isPer), show: asIs },
+        { label: 'Focus minutes a working day', from: wasFocus, to: isFocus, max: Math.max(focusTarget, wasFocus, isFocus), show: asIs },
         { label: 'XP a working day', from: wasXp, to: isXp, max: Math.max(goal, wasXp, isXp), show: asIs },
-        { label: 'XP earned in total', from: wasTotal, to: isTotal, max: headroom(wasTotal, isTotal), show: asIs },
-        { label: 'Days that earned any', from: wasDays, to: isDays, max: headroom(wasDays, isDays), show: asIs },
         { label: 'Tasks finished', from: wasTasks, to: isTasks, max: headroom(wasTasks, isTasks), show: asIs },
       ];
     }
@@ -640,7 +645,7 @@ function partsOf(metric: PeriodMetric, now: PeriodSide, then: PeriodSide): Part[
       return [
         { label: 'Difficulty you took on', from: wasD, to: isD, max: 5, show: asRating },
         { label: 'How well it went', from: wasE, to: isE, max: 5, show: asRating },
-        { label: 'The two multiplied', from: wasQ, to: isQ, max: 25, show: asRating },
+        { label: 'Both multiplied', from: wasQ, to: isQ, max: 25, show: asRating },
         { label: 'Tasks you rated', from: wasN, to: isN, max: headroom(wasN, isN), show: asIs },
       ];
     }
@@ -650,7 +655,7 @@ function partsOf(metric: PeriodMetric, now: PeriodSide, then: PeriodSide): Part[
       const [wasRate, isRate] = pair('rate');
       return [
         { label: 'Days worked', from: wasDays, to: isDays, max: Math.max(isAll, wasAll, isDays, 1), show: asIs },
-        { label: 'Share of the window', from: wasRate, to: isRate, max: 100, show: asPct },
+        { label: 'Share of days', from: wasRate, to: isRate, max: 100, show: asPct },
       ];
     }
     case 'efficiency': {
@@ -659,8 +664,8 @@ function partsOf(metric: PeriodMetric, now: PeriodSide, then: PeriodSide): Part[
       const [wasSeen, isSeen] = pair('deadline_tracked');
       return [
         { label: 'Finished by the deadline', from: wasPct, to: isPct, max: 100, show: asPct },
-        { label: 'Tasks that made it', from: wasMet, to: isMet, max: headroom(wasMet, isMet), show: asIs },
-        { label: 'Tasks that had one', from: wasSeen, to: isSeen, max: headroom(wasSeen, isSeen), show: asIs },
+        { label: 'Tasks on time', from: wasMet, to: isMet, max: headroom(wasMet, isMet), show: asIs },
+        { label: 'Tasks with a deadline', from: wasSeen, to: isSeen, max: headroom(wasSeen, isSeen), show: asIs },
       ];
     }
     case 'focus': {
@@ -676,7 +681,7 @@ function partsOf(metric: PeriodMetric, now: PeriodSide, then: PeriodSide): Part[
           show: (value) => `${value.toFixed(1)} hrs`,
         },
         { label: 'Share of your focus goal', from: wasG, to: isG, max: 100, show: asPct },
-        { label: 'Days you tracked it', from: wasN, to: isN, max: headroom(wasN, isN), show: asIs },
+        { label: 'Days tracked', from: wasN, to: isN, max: headroom(wasN, isN), show: asIs },
       ];
     }
     default:
@@ -734,11 +739,15 @@ export function MoverPanel({
   })();
 
   const meta = METRIC_META[shown.metric];
+  /* The share of days worked is printed once on the analytics page — the
+     Overview's Consistency tile — so when consistency is the mover this names
+     it and says how it moved, without the figure. */
+  const quiet = shown.metric === 'consistency';
 
   return (
     <Panel
       title={heading}
-      note={kind === 'best' ? 'Where you gained the most ground' : 'Where you lost ground'}
+      note={kind === 'best' ? 'Your biggest gain' : 'Your biggest drop'}
     >
       <div className={`ax-gp-mover ax-tone-${meta.tone}`}>
         <span
@@ -748,25 +757,33 @@ export function MoverPanel({
         />
         <p className="ax-gp-mover-name">{meta.label}</p>
         <span className={`ax-gp-mover-pill is-${fell ? kind : 'held'}`}>
-          {fell ? growthLabel(shown.change, shown.from, shown.to) : `${shown.to} / 100`}
+          {fell
+            ? growthLabel(shown.change, shown.from, shown.to)
+            : quiet
+              ? data.current.grades[shown.metric]
+              : `${shown.to} / 100`}
         </span>
       </div>
 
       <p className="ax-gp-mover-asks">
         {fell
-          ? `${kind === 'best' ? 'Up' : 'Down'} from ${shown.from} to ${shown.to} out of 100`
+          ? quiet
+            ? `${kind === 'best' ? 'Up' : 'Down'} ${Math.abs(shown.to - shown.from)} points`
+            : `${kind === 'best' ? 'Up' : 'Down'} from ${shown.from} to ${shown.to} out of 100`
           : kind === 'worst'
-            ? `Nothing fell by more than a few points. This is your lowest measure at `
-              + `${shown.to} out of 100, which is where the next point is cheapest`
-            : `Nothing moved up by more than a few points — a steady stretch. This is your `
-              + `strongest measure at ${shown.to} out of 100`}
-        {' '}— {meta.asks}.
+            ? quiet
+              ? 'No big drops. This is your lowest score'
+              : `No big drops. Your lowest score is ${shown.to} out of 100`
+            : quiet
+              ? 'No big gains. This is your best score'
+              : `No big gains. Your best score is ${shown.to} out of 100`}
+        . That&apos;s {meta.asks}.
       </p>
 
       {/* The quantities the score was computed from, so the claim can be
           checked rather than taken. See `partsOf`. */}
       <ul className="ax-gp-parts">
-        {then &&
+        {then && !quiet &&
           partsOf(shown.metric, now, then).map((part) => {
             const way = part.to > part.from ? 'up' : part.to < part.from ? 'down' : 'held';
             return (
@@ -797,11 +814,10 @@ export function MoverPanel({
         <span>
           <strong>What this is:</strong> {meta.asks}.{' '}
           {fell
-            ? `It is the measure that ${kind === 'best' ? 'gained' : 'lost'} the most ground `
-              + 'this period, ranked on points moved rather than on percentage — a score '
-              + 'climbing from 4 to 12 is a bigger percentage and a much smaller change.'
-            : 'Nothing moved far enough this period to name a mover, so this is ranked on '
-              + 'the score itself instead. It is not a claim that anything got worse.'}
+            ? `It's the score that ${kind === 'best' ? 'rose' : 'fell'} the most this period, `
+              + 'in points. Going from 4 to 12 is a big percent but a small change, so points are fairer.'
+            : 'Nothing moved much this period, so this just shows the score. '
+              + "It doesn't mean anything got worse."}
         </span>
       </p>
     </Panel>
@@ -815,7 +831,7 @@ export function MoverPanel({
 function span(from: string, to: string): string {
   const at = (iso: string) =>
     new Date(`${iso}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  return `${at(from)} – ${at(to)}`;
+  return `${at(from)} to ${at(to)}`;
 }
 
 /**
@@ -835,7 +851,7 @@ export function ThenNow({ data }: { data: GrowthPeriods }) {
       <p className="ax-gp-when">
         <span className="is-then">
           <b>{then ? 'Before' : 'No earlier period'}</b>
-          <em>{then && then.start && then.end ? span(then.start, then.end) : '—'}</em>
+          <em>{then && then.start && then.end ? span(then.start, then.end) : '-'}</em>
         </span>
         <span className="is-now">
           <b>Now</b>
@@ -849,6 +865,10 @@ export function ThenNow({ data }: { data: GrowthPeriods }) {
         const from = then ? then.parts[metric] : null;
         const way = from === null ? 'held' : direction(from, to);
         const meta = METRIC_META[metric];
+        /* Consistency keeps its letter, its change and its bar here, but not
+           its figure or its days-worked count: those are the Overview's
+           Consistency tile, printed once on the page. */
+        const quiet = metric === 'consistency';
 
         return (
           <li key={metric} className={`ax-gp-metric is-${way}`}>
@@ -859,13 +879,13 @@ export function ThenNow({ data }: { data: GrowthPeriods }) {
             </div>
 
             <p className="ax-gp-metric-scores">
-              {from !== null && (
+              {from !== null && !quiet && (
                 <>
                   <span className="ax-gp-was">{from}</span>
                   <span className="ax-gp-arrow" aria-hidden="true">→</span>
                 </>
               )}
-              <strong>{to}</strong>
+              {!quiet && <strong>{to}</strong>}
               {/* The letter, beside the number it is a band of rather than
                   instead of it. A grade alone hides a metric that climbed
                   eight points inside one band, which is most of what a month
@@ -898,6 +918,7 @@ export function ThenNow({ data }: { data: GrowthPeriods }) {
               />
             </span>
 
+            {!quiet && (
             <p className="ax-gp-metric-raw">
               {then ? (
                 <>
@@ -908,6 +929,7 @@ export function ThenNow({ data }: { data: GrowthPeriods }) {
                 measuredAs(metric, data.current)
               )}
             </p>
+            )}
           </li>
         );
       })}
@@ -972,7 +994,7 @@ export function milestones(data: GrowthPeriods, limit = 6): Milestone[] {
           date: point.date,
           kind: 'grade',
           headline: `Reached ${nextLetter}`,
-          detail: `Your overall score crossed into ${nextLetter} at ${point.overall} out of 100.`,
+          detail: `Your overall score reached ${nextLetter} (${point.overall}/100).`,
         });
       }
       letter = nextLetter;
@@ -988,7 +1010,7 @@ export function milestones(data: GrowthPeriods, limit = 6): Milestone[] {
       date: best.date,
       kind: 'best',
       headline: 'Best of the period',
-      detail: `Your overall score peaked at ${best.overall} out of 100.`,
+      detail: `Your growth score peaked at ${(best.overall / 10).toFixed(1)} out of 10.`,
     });
   }
 
@@ -1005,8 +1027,7 @@ export function MilestoneFeed({ entries, format }: {
   if (entries.length === 0) {
     return (
       <p className="ax-empty">
-        Nothing crossed a grade boundary in this period. A longer one usually has something
-        in it.
+        No grade changes this period. Try a longer one.
       </p>
     );
   }
@@ -1040,8 +1061,8 @@ export function MilestoneFeed({ entries, format }: {
  * that would still render if the figures said the opposite.
  *
  * Each line names a *quantity*, not a score. "Productivity rose" is the score
- * moving and the reader already has it in three other places; "you earned 340
- * XP a working day against 210" is the thing that moved it.
+ * moving and the reader already has it in three other places; "you finished
+ * 6.2 tasks a working day against 4.8" is the thing that moved it.
  */
 export function whatChanged(data: GrowthPeriods): ReactNode[] {
   const then = data.previous;
@@ -1051,13 +1072,24 @@ export function whatChanged(data: GrowthPeriods): ReactNode[] {
   const num = (side: PeriodSide, metric: PeriodMetric, field: string) =>
     Number((side.figures?.[metric] as Record<string, unknown>)?.[field]) || 0;
 
-  const xpNow = num(data.current, 'productivity', 'avg_daily_xp');
-  const xpThen = num(then, 'productivity', 'avg_daily_xp');
-  if (Math.abs(xpNow - xpThen) >= 1) {
+  const tasksNow = num(data.current, 'productivity', 'tasks_per_day');
+  const tasksThen = num(then, 'productivity', 'tasks_per_day');
+  if (Math.abs(tasksNow - tasksThen) >= 0.1) {
     lines.push(
       <>
-        You earned <strong>{fmtNumber(Math.round(xpNow))} XP a working day</strong>, against{' '}
-        {fmtNumber(Math.round(xpThen))} over the period before.
+        You finished <strong>{tasksNow.toFixed(1)} tasks a working day</strong>, against{' '}
+        {tasksThen.toFixed(1)} the period before.
+      </>,
+    );
+  }
+
+  const focusNow = num(data.current, 'productivity', 'focus_per_day');
+  const focusThen = num(then, 'productivity', 'focus_per_day');
+  if (Math.abs(focusNow - focusThen) >= 1) {
+    lines.push(
+      <>
+        You focused <strong>{fmtNumber(Math.round(focusNow))} min a working day</strong>, against{' '}
+        {fmtNumber(Math.round(focusThen))} before.
       </>,
     );
   }

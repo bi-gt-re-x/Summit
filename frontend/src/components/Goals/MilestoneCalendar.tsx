@@ -32,6 +32,7 @@
 import { useMemo, useState } from 'react';
 import { categoryOf } from './Outcome';
 import type { Goal, Milestone } from '@/types';
+import { Icon } from '@/components/Icon';
 
 /** Six rows of seven, always, so a month does not change height by starting on a Saturday. */
 const CELLS = 42;
@@ -167,7 +168,7 @@ export function MilestoneCalendar({
   if (days.size === 0) {
     return (
       <p className="gx-empty">
-        No dated checkpoints yet. Date one on its rail above and it lands here.
+        No dated checkpoints yet. Give one a date above and it shows up here.
       </p>
     );
   }
@@ -182,11 +183,11 @@ export function MilestoneCalendar({
             aria-label="Earlier months"
             onClick={() => setShift((n) => n - 1)}
           >
-            ❮
+            <Icon name="chevron-left" />
           </button>
           <span className="gx-cal-span">
             {grids[0]!.anchor.toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
-            {' – '}
+            {'-'}
             {grids[grids.length - 1]!.anchor.toLocaleDateString(undefined, {
               month: 'short',
               year: 'numeric',
@@ -198,7 +199,7 @@ export function MilestoneCalendar({
             aria-label="Later months"
             onClick={() => setShift((n) => n + 1)}
           >
-            ❯
+            <Icon name="chevron-right" />
           </button>
           {shift !== 0 && (
             <button type="button" className="gx-cal-today" onClick={() => setShift(0)}>
@@ -243,9 +244,7 @@ export function MilestoneCalendar({
                   .join(' ');
 
                 const label = day
-                  ? `${dayLabel(iso)} — ${day.entries.length} checkpoint${
-                      day.entries.length === 1 ? '' : 's'
-                    }`
+                  ? `${dayLabel(iso)}: ${day.entries.length} checkpoint${day.entries.length === 1 ? '' : 's'}`
                   : dayLabel(iso);
 
                 return (
@@ -286,7 +285,7 @@ export function MilestoneCalendar({
         </div>
       ) : (
         <p className="gx-cal-hint">
-          Pick a marked day to see what lands on it.
+          Pick a marked day to see what's due.
           {undated > 0 && ` ${undated} checkpoint${undated === 1 ? ' has' : 's have'} no date yet and
             ${undated === 1 ? 'is' : 'are'} not drawn here.`}
         </p>

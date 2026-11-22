@@ -26,7 +26,7 @@
  * ## And why "which way is better" is asked here
  *
  * It is the one fact about a record that nothing can work out for you — a mile
- * time wants the smallest number and minutes practised wants the largest, and
+ * time wants the smallest number and minutes practiced wants the largest, and
  * they carry the same unit. So it is a control, sitting beside the figure it
  * describes, and it is asked once: adding to a record you already have takes
  * the answer from the last entry along with the category and the unit, because
@@ -36,6 +36,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatValue, isBetter, personalBests } from '@/utils/records';
 import type { Direction, RecordDraft, RecordKind, RecordRow } from '@/services/records';
+import { Icon } from '@/components/Icon';
 
 /**
  * The units on offer.
@@ -187,11 +188,11 @@ export function RecordModal({
 
   const submit = () => {
     if (!draft.name.trim()) {
-      setError('Give it a name — "AMC 8", "Longest coding session".');
+      setError('Give it a name, like "AMC 8" or "Longest coding session".');
       return;
     }
     if (!isMilestone && (draft.value === undefined || Number.isNaN(Number(draft.value)))) {
-      setError('A record needs a figure. A milestone does not — switch it above.');
+      setError("A record needs a number. A milestone doesn't, so switch it above.");
       return;
     }
     setError(null);
@@ -240,13 +241,13 @@ export function RecordModal({
                 onClick={() => setDraft((current) => ({ ...current, kind: option }))}
               >
                 {option === 'record' ? 'Record' : 'Milestone'}
-                <em>{option === 'record' ? 'A figure you can beat' : 'A thing you did once'}</em>
+                <em>{option === 'record' ? 'A number you can beat' : 'Something you did once'}</em>
               </button>
             ))}
           </div>
 
           <label className="rc-field">
-            <span>What is it?</span>
+            <span>Name</span>
             <input
               list="rc-known-names"
               value={draft.name}
@@ -262,7 +263,7 @@ export function RecordModal({
             </datalist>
             {joining && !isMilestone && (
               <em className="rc-field-hint">
-                {entry ? 'Part of' : 'Adds to'} your “{joining.name}” — best so far{' '}
+                {entry ? 'Part of' : 'Adds to'} your "{joining.name}" is your best so far{' '}
                 {formatValue(joining.value, joining.unit, joining.target)}
                 {joining.direction === 'lower' ? ', and lower is better' : ''}.
               </em>
@@ -299,7 +300,7 @@ export function RecordModal({
               </label>
 
               <label className="rc-field">
-                <span>Measured in</span>
+                <span>Unit</span>
                 <select
                   value={draft.unit ?? 'points'}
                   onChange={(event) => setDraft({ ...draft, unit: event.target.value })}
@@ -362,7 +363,7 @@ export function RecordModal({
                 onChange={(event) => setDraft({ ...draft, achieved_on: event.target.value })}
               />
               {isMilestone && (
-                <em className="rc-field-hint">Leave it empty for one you are still chasing.</em>
+                <em className="rc-field-hint">Leave it empty for one you're still chasing.</em>
               )}
             </label>
           </div>
@@ -380,13 +381,13 @@ export function RecordModal({
 
           {!isMilestone && draft.value !== undefined && !Number.isNaN(typed) && (
             <p className={`rc-modal-preview${beats ? ' is-record' : ''}`}>
-              Will read as{' '}
+              Will show as{' '}
               <strong>{formatValue(typed, draft.unit ?? '', Number(draft.target) || 0)}</strong>
               {/* Said here rather than discovered on the page afterwards. It
                   is also the one place the direction is visibly doing
                   something at the moment it is chosen, which is what makes a
                   wrong answer to it correctable before it is saved. */}
-              {beats && <span className="rc-modal-beats"> — a new personal best 🏆</span>}
+              {beats && <span className="rc-modal-beats"> . A new personal best! <Icon name="trophy" /></span>}
             </p>
           )}
 

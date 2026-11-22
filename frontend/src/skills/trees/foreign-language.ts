@@ -33,7 +33,7 @@ export const FOREIGN_LANGUAGE: SubjectTree = {
     { id: 'fl.tenses', name: 'Tenses & Aspect', icon: 'tense', tier: 'intermediate', requires: ['fl.grammar'], state: lock, percent: 0, xp: 1900,
       desc: 'Talking about what happened, what will, and what was ongoing when something else interrupted. Languages divide time differently, and the divisions rarely map onto the ones you grew up with.' },
     { id: 'fl.cases', name: 'Cases & Agreement', icon: 'agreement', tier: 'intermediate', requires: ['fl.tenses'], state: lock, percent: 0, xp: 2000,
-      desc: 'How a language marks who did what to whom — endings, particles, or strict word order. Whichever system it uses, it is doing a job your first language does some other way.' },
+      desc: 'How a language marks who did what to whom. Endings, particles, or strict word order. Whichever system it uses, it is doing a job your first language does some other way.' },
     { id: 'fl.input', name: 'Comprehensible Input', icon: 'input-stream', tier: 'intermediate', core: true, requires: ['fl.listen', 'fl.read'], state: lock, percent: 0, xp: 2000,
       desc: 'Large amounts of material just above your level, understood mostly from context. This is where most real acquisition happens, and it does not feel like studying, which is why it gets skipped.' },
     { id: 'fl.srs', name: 'Spaced Review', icon: 'flashcards', tier: 'intermediate', requires: ['fl.core'], state: lock, percent: 0, xp: 1600,
@@ -56,5 +56,9 @@ export const FOREIGN_LANGUAGE: SubjectTree = {
       desc: 'Carrying meaning across rather than words, and deciding what to lose. Being fluent in both languages is a prerequisite and nowhere near sufficient.' },
     { id: 'fl.maintain', name: 'Maintenance', icon: 'maintain', tier: 'mastery', requires: ['fl.fluency'], state: lock, percent: 0, xp: 2800,
       desc: 'Keeping a language you stopped studying. Without regular contact it fades faster than anything else you have learned, and reading twenty minutes a week holds most of it.' },
+    { id: 'fl.latin', name: 'Latin', icon: 'monument', tier: 'intermediate', requires: ['fl.grammar'], navTo: 'latin', state: lock,
+      desc: 'Its own tree: cases, declensions and translation, from your first noun to reading Vergil.' },
+    { id: 'fl.asl', name: 'Sign Language', icon: 'hands', tier: 'beginner', requires: ['fl.sounds'], navTo: 'sign-language', state: lock,
+      desc: 'Its own tree: fingerspelling, facial grammar, classifiers and real conversations in ASL.' },
   ],
 };

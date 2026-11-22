@@ -5,7 +5,8 @@ overall and week-over-week momentum for each. No streak / charge / milestone
 dependencies: every number is derived from the XP ledger, the completed tasks
 and the focus history.
 
-    productivity   XP earned per day since the account was made
+    productivity   tasks finished and time focused on a working day, with
+                   XP as one part of three (see PRODUCTIVITY_WEIGHTS)
     quality        how well the work was done, times how hard it was
     consistency    share of days the user showed up at all — a finished task,
                    a logged focus session, or any XP earned
@@ -43,8 +44,11 @@ from datetime import date, timedelta
 
 from backend.database import connection as db
 from backend.tracking import focus as focus_tracking
+from backend.tracking import levels
+from backend.tracking import time_spent
 from backend.tracking import xp as xp_tracking
 from backend.tracking.auth import created_date_for, find_user
+from backend.config.shared import RULES
 
 METRICS = ('productivity', 'quality', 'consistency', 'efficiency', 'focus')
 
@@ -68,15 +72,7 @@ METRICS = ('productivity', 'quality', 'consistency', 'efficiency', 'focus')
 #:
 #: frontend/src/utils/analyticalScore.ts mirrors this table. If a band moves
 #: here it moves there, and `sameBandsAsBackend` is what notices if it does not.
-GRADE_BANDS = (
-    (100, 'S'),
-    (96, 'A+'),
-    (90, 'A'),
-    (80, 'B'),
-    (70, 'C'),
-    (60, 'D'),
-    (0, 'F'),
-)
+GRADE_BANDS = tuple((floor, letter) for floor, letter in RULES['grade_bands'])
 
 
 def grade_for_score(score):
@@ -135,6 +131,28 @@ SCORING_WINDOW_DAYS = 90
 #: a productivity score against one number and a dashboard ring against another
 #: would be two answers to "did I have a good day".
 DEFAULT_DAILY_GOAL = 100
+
+#: What productivity is made of. Tasks finished and time focused lead, and XP
+#: is one part rather than the whole. It used to be XP a day against the daily
+#: goal and nothing else, so a few Grueling tasks outscored a full day of
+#: ordinary ones. Each part is capped at its target, so no one of them can
+#: carry the score alone. An account that tracks no focus time is scored on
+#: tasks and XP only, in the same proportion.
+PRODUCTIVITY_WEIGHTS = {'tasks': 0.45, 'focus': 0.30, 'xp': 0.25}
+
+#: Fewest tasks a working day the productivity target asks for.
+MIN_TASK_TARGET = 3
+
+#: Focus minutes a working day the target asks for when no focus goal is set.
+DEFAULT_FOCUS_MINUTES = 60
+
+#: What a Medium task pays, which turns the daily XP goal into a task count.
+_MEDIUM_XP = next(entry['xp'] for entry in RULES['task_xp']['levels'] if entry['key'] == 'medium')
+
+
+def task_target(daily_goal):
+    """Tasks a working day the account's daily goal comes to, at Medium."""
+    return max(MIN_TASK_TARGET, int(round((daily_goal or DEFAULT_DAILY_GOAL) / _MEDIUM_XP)))
 
 
 def rating_of(task):
@@ -198,10 +216,10 @@ def _message(metric_scores):
     best = max(metric_scores, key=metric_scores.get)
     worst = min(metric_scores, key=metric_scores.get)
     if metric_scores[worst] >= 85:
-        return "Excellent across the board — keep it up."
+        return "Great across the board. Keep it up."
     if best == worst:
         return phrases[best][0].capitalize() + "."
-    return "{} — {}.".format(phrases[best][0].capitalize(), phrases[worst][1])
+    return "{}. {}.".format(phrases[best][0].capitalize(), phrases[worst][1].capitalize())
 
 
 def _trend(current, previous):
@@ -245,6 +263,58 @@ def _trend(current, previous):
 # arithmetic in it is the arithmetic that used to sit inline in `ratings()`,
 # moved rather than rewritten — see test_report_card.py, which pins the
 # figures it produces and did not change when it moved.
+
+#: The task columns the score is made of.
+#:
+#: `_daily_rollup` and the week-over-week trends in `ratings()` read these
+#: seven and nothing else. Stated once and selected explicitly, because the
+#: alternative is `SELECT *`: on the largest account in this database that was
+#: 20,539 rows carrying `title` and `description` — free text, unbounded, and
+#: not part of any score — at 33.5 MB and 152ms per read, on a page that reads
+#: it and a badge wall that reads it again.
+#:
+#: The list is the contract. A metric that needs an eighth column adds it here
+#: and gets a KeyError on the rows it forgot rather than a silent zero.
+SCORED_TASK_FIELDS = ('status', 'completed_at', 'xp_value', 'level',
+                      'difficulty', 'execution',
+                      'completion_seconds', 'met_deadline')
+
+#: The ledger columns the score is made of, on the same footing.
+#:
+#: Four of the nine. The others are the row's id and owner, the reason it was
+#: written and the task it was written for, and a pre-averaged `avg_task_xp`
+#: that nothing here reads — 23,270 rows of them on the largest account in this
+#: database, which was 10.2 MB to total up two numbers a day.
+#:
+#: `date` and `timestamp` are both here and only one is used per row: rows
+#: written before the date column existed carry only a timestamp, and
+#: `event_day` in backend/tracking/xp.py prefers the explicit one. Selecting
+#: one of the two would silently lose the older half of a long account.
+SCORED_LEDGER_FIELDS = ('amount', 'date', 'timestamp', 'tasks_completed')
+
+
+def empty_day():
+    """One day's bucket with nothing in it yet.
+
+    `score_window` reads every key here and no others.
+    """
+    return {
+        # Productivity
+        'xp': 0, 'earned': False,
+        # Consistency — a wider thing than earning; see `worked` in the two
+        # builders below.
+        'worked': False,
+        # Quality
+        'tasks': 0, 'task_xp': 0, 'level_sum': 0,
+        'rated': 0, 'quality_sum': 0, 'difficulty_sum': 0, 'execution_sum': 0,
+        # Efficiency
+        'timed': 0, 'seconds_sum': 0,
+        'deadline_tracked': 0, 'on_time': 0,
+        # Focus
+        'focus_seconds': 0.0, 'focus_goal_seconds': 0.0,
+    }
+
+
 def _daily_rollup(username, tasks=None, events=None, focus_history=None):
     """One bucket per day the account did anything on.
 
@@ -252,8 +322,10 @@ def _daily_rollup(username, tasks=None, events=None, focus_history=None):
     `ratings()` needs the raw task rows for its week-over-week trends — passes
     them in rather than paying for the scan twice.
     """
-    events = xp_tracking.events_for(username) if events is None else events
-    tasks = db.tasks_for(username) if tasks is None else tasks
+    events = (db.columns_for('xp_events', username, SCORED_LEDGER_FIELDS)
+              if events is None else events)
+    tasks = (db.columns_for('tasks', username, SCORED_TASK_FIELDS)
+             if tasks is None else tasks)
     focus_history = (focus_tracking.history_for(username)
                      if focus_history is None else focus_history)
 
@@ -261,20 +333,7 @@ def _daily_rollup(username, tasks=None, events=None, focus_history=None):
 
     def bucket(day_iso):
         if day_iso not in days:
-            days[day_iso] = {
-                # Productivity
-                'xp': 0, 'earned': False,
-                # Consistency — a wider thing than earning; see `worked` below.
-                'worked': False,
-                # Quality
-                'tasks': 0, 'task_xp': 0,
-                'rated': 0, 'quality_sum': 0, 'difficulty_sum': 0, 'execution_sum': 0,
-                # Efficiency
-                'timed': 0, 'seconds_sum': 0,
-                'deadline_tracked': 0, 'on_time': 0,
-                # Focus
-                'focus_seconds': 0.0, 'focus_goal_seconds': 0.0,
-            }
+            days[day_iso] = empty_day()
         return days[day_iso]
 
     for event in events:
@@ -318,6 +377,8 @@ def _daily_rollup(username, tasks=None, events=None, focus_history=None):
         row['worked'] = True
         row['tasks'] += 1
         row['task_xp'] += task.get('xp_value', 0) or 0
+        # The level on the 1-5 scale the ratings use, for the unrated fallback.
+        row['level_sum'] += levels.five_of(levels.level_of(task))
 
         score = rating_of(task)
         if score is not None:
@@ -326,15 +387,35 @@ def _daily_rollup(username, tasks=None, events=None, focus_history=None):
             row['difficulty_sum'] += int(task['difficulty'])
             row['execution_sum'] += int(task['execution'])
 
-        if isinstance(task.get('completion_seconds'), (int, float)):
+        # Time spent, not `completion_seconds` raw: that is how long the task
+        # sat on the list. See backend/tracking/time_spent.py.
+        spent = time_spent.seconds_spent(task)
+        if spent is not None:
             row['timed'] += 1
-            row['seconds_sum'] += task['completion_seconds']
+            row['seconds_sum'] += spent
         if 'met_deadline' in task:
             row['deadline_tracked'] += 1
             if task.get('met_deadline'):
                 row['on_time'] += 1
 
     return days
+
+
+def scoring_window(user, today=None):
+    """The inclusive day range the report card is scored over: `(start, end)`.
+
+    The last ninety days, or the whole account where it is younger than that —
+    a three-day-old account is scored on three days rather than being marked
+    down for eighty-seven days it did not exist for. See SCORING_WINDOW_DAYS.
+
+    A function rather than four lines inside `ratings()` because the standing
+    panel scores every account on the instance and has to score them over the
+    window the card would have used, or its `score` measure is comparing
+    figures the card never printed.
+    """
+    today = today or date.today()
+    lifetime_days = max((today - created_date_for(user)).days + 1, 1)
+    return today - timedelta(days=min(lifetime_days, SCORING_WINDOW_DAYS) - 1), today
 
 
 def score_window(rollup, start, end, daily_goal):
@@ -355,6 +436,7 @@ def score_window(rollup, start, end, daily_goal):
     active_days = 0
     total_tasks = 0
     total_task_xp = 0
+    level_sum = 0
     rated = 0
     quality_sum = 0
     difficulty_sum = 0
@@ -378,6 +460,7 @@ def score_window(rollup, start, end, daily_goal):
         active_days += 1 if row['worked'] else 0
         total_tasks += row['tasks']
         total_task_xp += row['task_xp']
+        level_sum += row.get('level_sum', 0)
         rated += row['rated']
         quality_sum += row['quality_sum']
         difficulty_sum += row['difficulty_sum']
@@ -400,15 +483,35 @@ def score_window(rollup, start, end, daily_goal):
     avg_difficulty = (difficulty_sum / rated) if rated else 0
     avg_execution = (execution_sum / rated) if rated else 0
 
-    # 1. Productivity — a day's work against the day's goal the account set
-    #    itself. The divisor was a flat 3, which is 300 XP a day for full
-    #    marks: a number nobody chose, applied to everybody.
-    productivity_score = round(_clamp(avg_daily_xp / (daily_goal or DEFAULT_DAILY_GOAL) * 100))
+    # 1. Productivity — what a working day gets done: tasks finished, time
+    #    focused, and XP against the daily goal, each capped at its target.
+    #    Per day worked, so a day off isn't counted twice (consistency has it).
+    worked = active_days or 0
+    goal = daily_goal or DEFAULT_DAILY_GOAL
+    tasks_per_day = (total_tasks / worked) if worked else 0
+    focus_per_day = (focused_sec / 60.0 / worked) if worked else 0
+    focus_target = ((focus_goal_sec / 60.0 / focus_days) if focus_days and focus_goal_sec > 0
+                    else DEFAULT_FOCUS_MINUTES)
+    tasks_goal = task_target(goal)
+    shares = {
+        'tasks': min(1.0, tasks_per_day / tasks_goal),
+        'focus': min(1.0, focus_per_day / focus_target) if focus_target else 0.0,
+        'xp': min(1.0, avg_daily_xp / goal),
+    }
+    weights = dict(PRODUCTIVITY_WEIGHTS)
+    if focused_sec <= 0:
+        # No focus time tracked at all: scored on the other two, so a reader
+        # who never uses the timer isn't marked down for a habit they don't have.
+        weights.pop('focus')
+    total_weight = sum(weights.values())
+    productivity_score = round(_clamp(
+        sum(shares[key] * weight for key, weight in weights.items()) / total_weight * 100))
 
     # 2. Quality — how well the work went, times how hard it was, over the
     #    tasks that were rated. Falls back to the XP proxy when none were; see
     #    the module docstring for why an unrated account is not graded zero.
-    quality_basis = 'ratings' if rated else 'xp'
+    avg_level = (level_sum / total_tasks) if total_tasks else 0
+    quality_basis = 'ratings' if rated else 'levels'
     if quality_basis == 'ratings':
         # The geometric mean of the two answers, on their own 1-5 scale, as a
         # percentage of 5. `avg_quality` is the mean of difficulty x execution,
@@ -418,7 +521,9 @@ def score_window(rollup, start, end, daily_goal):
         # made ordinary good work look like a failure.
         quality_score = round(_clamp((avg_quality ** 0.5) / 5 * 100))
     else:
-        quality_score = round(_clamp(avg_task_xp * 1.75))
+        # Nothing rated: how hard the work was, from the level each task was
+        # given, on the same 1-5 scale. It used to be XP per task x 1.75.
+        quality_score = round(_clamp(avg_level / 5 * 100))
 
     # 3. Consistency — share of the window's days the account showed up on, on
     #    any of the three counts: a finished task, a logged focus session, or
@@ -462,14 +567,21 @@ def score_window(rollup, start, end, daily_goal):
             # reports a single number gives a reader nothing to check it
             # against — see `partsOf` in components/Analytics/GrowthPeriod.
             'productivity': {
+                'tasks_per_day': round(tasks_per_day, 1),
+                'task_target': tasks_goal,
+                'focus_per_day': round(focus_per_day),
+                'focus_target': round(focus_target),
                 'avg_daily_xp': round(avg_daily_xp),
                 'total_xp': total_xp,
                 'earning_days': earning_days,
+                'active_days': worked,
                 'tasks': total_tasks,
-                'daily_goal': daily_goal or DEFAULT_DAILY_GOAL,
+                'daily_goal': goal,
+                'weights': {key: round(weight / total_weight, 2) for key, weight in weights.items()},
             },
             'quality': {
                 'avg_task_xp': round(avg_task_xp),
+                'avg_level': round(avg_level, 1),
                 'basis': quality_basis,
                 'rated_tasks': rated,
                 'total_tasks': total_tasks,
@@ -502,14 +614,56 @@ def score_window(rollup, start, end, daily_goal):
     }
 
 
+#: How long a stretch the score badges are judged on.
+#:
+#: The badges used to read the live card, and a one-day-old account is scored
+#: on one day: finish a task and every rate and score reads 100, so the first
+#: afternoon handed out "Show up on 90% of your days" and six more beside it.
+#: Judging whole thirty-day stretches since the account opened means nothing
+#: graded is earned before day thirty, and then at most once a month.
+BLOCK_DAYS = 30
+
+
+def block_scores(user, tasks, events, focus_history, today=None, block_days=BLOCK_DAYS):
+    """Every finished `block_days` stretch since the account opened, scored.
+
+    Oldest first. A stretch is finished when its last day is before today, so
+    the one in progress is never scored: its rate is still moving. Each entry
+    is `score_window`'s own result, so a block is scored exactly the way the
+    card scores its window.
+    """
+    username = user.get('username')
+    today = today or date.today()
+    rollup = _daily_rollup(username, tasks=tasks, events=events,
+                           focus_history=focus_history)
+    daily_goal = user.get('daily_goal') or DEFAULT_DAILY_GOAL
+
+    out = []
+    start = created_date_for(user)
+    while True:
+        end = start + timedelta(days=block_days - 1)
+        if end >= today:
+            return out
+        out.append(score_window(rollup, start, end, daily_goal))
+        start = end + timedelta(days=1)
+
+
 # --------------------------------------------------------------------------
 # The report card
 # --------------------------------------------------------------------------
-def ratings(username, record=True):
+def ratings(username, record=True, tasks=None, events=None, focus_history=None):
     """The five-metric graded report card, or None when there's no account.
 
     Writing the result is the default: every look at the report card leaves a
     dated row per metric behind in analytics.sql.
+
+    The three sources are optional for the same reason `_daily_rollup`'s are,
+    and for one caller in particular: the achievements page reads the task
+    rows, the ledger and the focus days to count its own badges and then asks
+    for this card, which read all three again. That was the account's whole
+    history twice in one request — 152ms and 33.5 MB of task rows each time on
+    the largest account here. A caller that already holds them passes them in;
+    the task rows have to carry at least SCORED_TASK_FIELDS.
     """
     user = find_user(db.users(), username=username)
     if not user:
@@ -517,22 +671,21 @@ def ratings(username, record=True):
 
     today = date.today()
 
-    # The window the card is scored over: the last ninety days, or the whole
-    # account where it is younger than that. A three-day-old account is scored
-    # on three days rather than being marked down for eighty-seven days it did
-    # not exist for. See SCORING_WINDOW_DAYS.
-    lifetime_days = max((today - created_date_for(user)).days + 1, 1)
-    total_days = min(lifetime_days, SCORING_WINDOW_DAYS)
-    window_start = today - timedelta(days=total_days - 1)
+    # The window the card is scored over. `total_days` is reassigned below out
+    # of the figures `score_window` measured; this is the range going in.
+    window_start, today = scoring_window(user, today)
 
     # Read once, folded into one row per day, and scored by the one scorer
     # this module has. Everything from `within` down to the five `_clamp`
     # calls used to sit inline here; it now lives in `score_window` above,
     # because the Growth tab asks the same five questions of six other windows
     # and two copies of this arithmetic is exactly what that would have become.
-    events = xp_tracking.events_for(username)
-    all_tasks = db.tasks_for(username)
-    focus_history = focus_tracking.history_for(username)
+    events = (db.columns_for('xp_events', username, SCORED_LEDGER_FIELDS)
+              if events is None else events)
+    all_tasks = (db.columns_for('tasks', username, SCORED_TASK_FIELDS)
+                 if tasks is None else tasks)
+    focus_history = (focus_tracking.history_for(username)
+                     if focus_history is None else focus_history)
     rollup = _daily_rollup(username, tasks=all_tasks, events=events,
                            focus_history=focus_history)
 
@@ -617,8 +770,9 @@ def ratings(username, record=True):
                 continue
             if not (lo_days <= (today - parsed).days <= hi_days):
                 continue
-            if isinstance(task.get('completion_seconds'), (int, float)):
-                secs.append(task['completion_seconds'])
+            spent = time_spent.seconds_spent(task)
+            if spent is not None:
+                secs.append(spent)
             if 'met_deadline' in task:
                 met.append(bool(task['met_deadline']))
         if not secs and not met:
@@ -650,12 +804,24 @@ def ratings(username, record=True):
         this_quality = (this_w['xp'] / this_w['tasks']) if this_w['tasks'] else 0
         prev_quality = (prev_w['xp'] / prev_w['tasks']) if prev_w['tasks'] else 0
 
-    productivity_trend = _trend(this_w['xp'], prev_w['xp'])
+    # Tasks finished, like the score: XP is a part of productivity, not its trend.
+    productivity_trend = _trend(this_w['tasks'], prev_w['tasks'])
     quality_trend = _trend(this_quality, prev_quality)
     consistency_trend = _trend(this_w['active_days'], prev_w['active_days'])
     efficiency_trend = _trend(window_efficiency(0, 6) or 0, window_efficiency(7, 13) or 0)
-    focus_trend = _trend(focus_tracking.seconds_in_window(username, 0, 6, today),
-                         focus_tracking.seconds_in_window(username, 7, 13, today))
+    # Windowed out of the history already read. This was
+    # `focus_tracking.seconds_in_window`, which read the focus table for each
+    # of the two windows — a third and fourth read of a table this function
+    # has already read in full. The rule is unchanged: a day counts when it
+    # falls in the window, and its seconds are the seconds. That helper had no
+    # other caller and went with the line, rather than staying as a second
+    # copy of the rule for nobody.
+    def focused_seconds(lo_days, hi_days):
+        return sum(record_row['seconds']
+                   for day_iso, record_row in focus_history.items()
+                   if in_window(day_iso, lo_days, hi_days))
+
+    focus_trend = _trend(focused_seconds(0, 6), focused_seconds(7, 13))
 
     card = {
         "overall": {
@@ -669,6 +835,9 @@ def ratings(username, record=True):
                 "score": productivity_score,
                 "grade": grade_for_score(productivity_score),
                 "avg_daily_xp": round(avg_daily_xp),
+                "tasks_per_day": figures['productivity']['tasks_per_day'],
+                "task_target": figures['productivity']['task_target'],
+                "focus_per_day": figures['productivity']['focus_per_day'],
                 "trend": productivity_trend,
             },
             "quality": {
@@ -725,45 +894,54 @@ def ratings(username, record=True):
 # History
 # --------------------------------------------------------------------------
 def save_snapshot(username, card, day=None):
-    """Write today's grades to analytics.sql, replacing today's if present."""
+    """Write today's grades to analytics.sql, replacing today's if present.
+
+    Six rows: the five metrics and the overall. It used to build those six and
+    hand them to `write_table` along with every snapshot ever taken, which
+    rewrote the whole history to append to it — 2,316 INSERTs on this database
+    to store six rows, growing by six a day per account for ever. See
+    `record_metric_snapshots` in backend/database/connection.py, which writes
+    the six by their own primary key.
+
+    `detail` is everything the metric reports that is not the score or the
+    grade — the figures behind it and its trend — kept loose because the five
+    report different ones.
+    """
     day = day or date.today().isoformat()
-    rows = [r for r in db.metric_snapshots()
-            if not (r.get('user_id') == username and r.get('date') == day)]
 
-    for name in METRICS:
-        metric = card['metrics'][name]
-        rows.append({
-            'user_id': username,
-            'date': day,
+    def snapshot(name, block):
+        return {
             'metric': name,
-            'score': metric['score'],
-            'grade': metric['grade'],
-            'detail': {k: v for k, v in metric.items() if k not in ('score', 'grade')},
-        })
-    rows.append({
-        'user_id': username,
-        'date': day,
-        'metric': 'overall',
-        'score': card['overall']['score'],
-        'grade': card['overall']['grade'],
-        'detail': {k: v for k, v in card['overall'].items() if k not in ('score', 'grade')},
-    })
+            'score': block['score'],
+            'grade': block['grade'],
+            'detail': {k: v for k, v in block.items() if k not in ('score', 'grade')},
+        }
 
-    db.save_metric_snapshots(rows)
+    db.record_metric_snapshots(username, day, (
+        [snapshot(name, card['metrics'][name]) for name in METRICS]
+        + [snapshot('overall', card['overall'])]))
 
 
 def history(username, metric=None):
-    """Past grades for an account, oldest first."""
-    rows = [r for r in db.metric_snapshots() if r.get('user_id') == username]
-    if metric:
-        rows = [r for r in rows if r.get('metric') == metric]
-    return sorted(rows, key=lambda r: (r.get('date') or '', r.get('metric') or ''))
+    """Past grades for an account, oldest first.
+
+    Scoped and sorted in SQL rather than read whole and filtered in Python:
+    this table is shared and only ever grows, so the Python version read every
+    account's entire history to return one account's.
+    """
+    return db.metric_snapshots_for(username, metric)
 
 
 # --------------------------------------------------------------------------
 # Periods — the same five metrics, asked of more than one window
 # --------------------------------------------------------------------------
 #: The windows the Growth tab offers, as (key, label, days).
+#:
+#: The same six windows as the analytics page's own picker (WINDOWS in
+#: frontend/src/components/Analytics/data.ts) — 7 days, 30, 90, a year, two
+#: years, everything — because that picker drives this tab. There used to be a
+#: six-month window here and no two-year one, so the page's 2Y chip had no
+#: Growth equivalent and the tab simply ignored the picker.
 #:
 #: `None` days means "since the account was created". The rest are trailing
 #: windows ending today, and they are the row of buttons at the top of the tab
@@ -775,8 +953,8 @@ PERIODS = (
     ('7d', 'Last 7 days', 7),
     ('30d', 'Last 30 days', 30),
     ('90d', 'Last 3 months', 90),
-    ('180d', 'Last 6 months', 180),
     ('365d', 'Last year', 365),
+    ('730d', 'Last 2 years', 730),
     ('all', 'Since you started', None),
 )
 
@@ -841,6 +1019,39 @@ def _growth_pct(current, previous):
     return round((current - previous) / previous * 100, 1)
 
 
+#: The rollup `period_scores` last built, per account, with the signature of
+#: the record it was built from. See `_cached_rollup`.
+_ROLLUP_CACHE = {}
+_ROLLUP_CACHE_MAX = 64
+
+
+def _cached_rollup(username):
+    """The daily rollup, rebuilt only when the record under it has changed.
+
+    The Growth tab asks for a period every time the reader presses one, and
+    every request rebuilt the whole rollup — every task, ledger row and focus
+    day the account has, decoded and folded — to score a window of it. On a
+    five-year account that was most of 140 ms and 16 MB, for a rollup that is
+    identical between two clicks a second apart.
+
+    Guarded by `rollup_signature`, a handful of SQL aggregates over exactly the
+    columns the rollup reads, so an edit anywhere in them is a rebuild rather
+    than a stale score. Per process and in memory, for the reasons `series` in
+    backend/tracking/growth.py gives for the same pattern. Nothing that is
+    handed the rollup writes to it — `score_window` only reads — which is what
+    makes handing out the same one safe.
+    """
+    stamp = db.rollup_signature(username)
+    cached = _ROLLUP_CACHE.get(username)
+    if cached and cached[0] == stamp:
+        return cached[1]
+    rollup = _daily_rollup(username)
+    _ROLLUP_CACHE[username] = (stamp, rollup)
+    while len(_ROLLUP_CACHE) > _ROLLUP_CACHE_MAX:
+        _ROLLUP_CACHE.pop(next(iter(_ROLLUP_CACHE)))
+    return rollup
+
+
 def period_scores(username, period='30d', rollup=None, user=None, today=None):
     """The five metrics over one period, the one before it, and a line.
 
@@ -857,7 +1068,7 @@ def period_scores(username, period='30d', rollup=None, user=None, today=None):
     today = today or date.today()
     created = created_date_for(user)
     daily_goal = user.get('daily_goal') or DEFAULT_DAILY_GOAL
-    rollup = _daily_rollup(username) if rollup is None else rollup
+    rollup = _cached_rollup(username) if rollup is None else rollup
 
     start, end, length = _period_bounds(period, today, created)
 

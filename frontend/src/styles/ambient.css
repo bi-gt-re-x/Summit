@@ -22,10 +22,24 @@
     --hm-ease-soft: cubic-bezier(0.45, 0.05, 0.25, 1);
 }
 
+/* `-1`, and that is the whole of what makes this a *background*.
+   
+   It was `0` — a positioned element, which paints in step 8 of the painting
+   order, after every in-flow box on the page. The layer was therefore drawn
+   *over* the content on each of the ten app pages that rendered it: a grid at
+   4% and a field of dots at 10-30% laid across the text, faint enough that it
+   read as a slightly hazy page rather than as a bug. The landing page was the
+   exception, and only because of the rule below it, which lifts its three
+   bands to `z-index: 1` to climb back over the thing that should never have
+   been above them.
+   
+   At `-1` the layer paints between `body`'s background and the content, which
+   is what every rule in this file assumes. `html` sets no background of its
+   own, so `body`'s is propagated to the canvas and stays below this. */
 .hm-ambient {
     position: fixed;
     inset: 0;
-    z-index: 0;
+    z-index: -1;
     pointer-events: none;
     overflow: hidden;
     /* No `size` containment: the canvas inside measures itself against this
@@ -33,9 +47,13 @@
     contain: layout paint style;
 }
 
-/* Everything the page actually shows sits above the ambient layer. */
+/* The landing page's three bands.
+   
+   The `z-index` no longer has anything to climb over. The rule stays for the
+   `position`, which is the containing block a handful of absolutely-positioned
+   pieces inside these three are measured against — removing it would move
+   them, and that is a different change from this one. */
 .site-nav,
-.account-row,
 .home-main,
 .footer { position: relative; z-index: 1; }
 
@@ -57,6 +75,29 @@
 .hm-ready .hm-grid { opacity: 1; }
 .hm-ambient.hm-animate .hm-grid { animation: hmGridDrift 40s linear infinite; }
 html[data-theme="dark"] .hm-grid { color: rgba(255, 255, 255, 0.045); }
+
+/* --- no paper behind a page that is already ruled ----------------------- */
+/* The calendar draws a grid of its own: seven day separators and a hundred and
+   sixty hour rules, at a pitch of 86px (`HOUR_H` in utils/calendarGrid.ts).
+   This one is 80px squares that creep a square every forty seconds, so behind
+   a calendar there were two grids, at two pitches, in two greys, one of them
+   moving.
+
+   Matching the pitch does not fix that, and was tried: the calendar's hours
+   scroll inside their own pane and a fixed layer cannot follow them, so the
+   two would line up at one scroll position and nowhere else. Holding them
+   together means writing the pane's scroll offset onto this layer every frame,
+   which is a rAF loop for a background nobody looks at straight on.
+
+   So the paper comes off on a calendar view. The rest of the layer stays — the
+   slow wash and the field of drifting dots, which have nothing to line up with
+   and read as depth rather than as a second ruler.
+
+   `display: none` rather than `opacity: 0`: it is two repeating gradients over
+   the whole viewport, and there is no reason to composite them on every frame
+   of a page that will never show them. `on-calendar` is set by App.tsx while
+   one of the three views is open, and this is the whole of what it does. */
+body.on-calendar .hm-grid { display: none; }
 
 @keyframes hmGridDrift {
     from { transform: translate3d(0, 0, 0); }

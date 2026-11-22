@@ -36,6 +36,19 @@
 export type Phase = 'focus' | 'break' | 'long';
 
 /**
+ * What each phase is called on screen.
+ *
+ * Here rather than on a page because two of them show it now — the Timer page
+ * and the dashboard's Focus panel — and a cycle whose phases are named one way
+ * in one place and another way in the other is one cycle described twice.
+ */
+export const PHASE_LABEL: Record<Phase, string> = {
+  focus: 'Focus',
+  break: 'Break',
+  long: 'Long break',
+};
+
+/**
  * The ten card colours.
  *
  * One per style rather than one per family: the grid is the only place all ten
@@ -90,7 +103,7 @@ export const STYLES: Style[] = [
   },
   {
     id: 'short-burst',
-    name: 'Short Burst',
+    name: 'Short burst',
     focus: 15,
     rest: 3,
     long: 10,
@@ -145,7 +158,7 @@ export const STYLES: Style[] = [
   },
   {
     id: 'study-hall',
-    name: 'Study Hall',
+    name: 'Study hall',
     focus: 45,
     rest: 15,
     long: 30,
@@ -156,7 +169,7 @@ export const STYLES: Style[] = [
   },
   {
     id: 'deep-work',
-    name: 'Deep Work',
+    name: 'Deep work',
     focus: 50,
     rest: 10,
     long: 30,
@@ -172,7 +185,7 @@ export const STYLES: Style[] = [
     rest: 17,
     long: 17,
     rounds: 1,
-    who: 'The 52/17 ratio, from the study.',
+    who: '52 on, 17 off. A popular split.',
     tone: 'cyan',
     icon: 'clock',
   },
@@ -183,7 +196,7 @@ export const STYLES: Style[] = [
     rest: 20,
     long: 20,
     rounds: 1,
-    who: 'One full attention cycle.',
+    who: 'As long as most people stay sharp.',
     tone: 'slate',
     icon: 'wave',
   },
@@ -285,9 +298,9 @@ export function clock(seconds: number): string {
 export type Sitting = 'short' | 'medium' | 'long';
 
 export const SITTINGS: { id: Sitting; label: string; hint: string }[] = [
-  { id: 'short', label: 'Not long', hint: '10–20 minutes.' },
+  { id: 'short', label: 'Not long', hint: '10-20 minutes.' },
   { id: 'medium', label: 'Half an hour', hint: 'Enough to finish something.' },
-  { id: 'long', label: 'A long stretch', hint: 'I lose an hour without noticing.' },
+  { id: 'long', label: 'A long stretch', hint: 'An hour flies by.' },
 ];
 
 /** What the setup lands on for each answer. */
@@ -340,11 +353,11 @@ export interface Level {
 }
 
 export const LEVELS: Level[] = [
-  { id: 1, name: 'Level 1 · Easy', target: 2, hint: 'A short sitting to get going.' },
+  { id: 1, name: 'Level 1 · Easy', target: 2, hint: 'A short session to get going.' },
   { id: 2, name: 'Level 2 · Steady', target: 4, hint: 'A normal working evening.' },
   { id: 3, name: 'Level 3 · Focused', target: 6, hint: 'A full afternoon of it.' },
-  { id: 4, name: 'Level 4 · Hard', target: 8, hint: 'Longer focus. Bigger rewards.' },
-  { id: 5, name: 'Level 5 · Relentless', target: 10, hint: 'A day given over to the work.' },
+  { id: 4, name: 'Level 4 · Hard', target: 8, hint: 'Long focus blocks.' },
+  { id: 5, name: 'Level 5 · All in', target: 10, hint: 'A full day of focus.' },
 ];
 
 export const DEFAULT_LEVEL = 4;

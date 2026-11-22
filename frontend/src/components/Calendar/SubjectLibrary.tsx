@@ -33,6 +33,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { iconUrl, type Subject } from '@/services/subjects';
 import { create, remove, setColor } from '@/services/subjects';
 import { refreshSubjects } from '@/hooks/useSubjects';
+import { useConfirm } from '@/components/ui';
 import {
   FAMILIES,
   FAMILY_MEANING,
@@ -75,7 +76,7 @@ function FamilyPicker({
   onClear: () => void;
 }) {
   return (
-    <div className="sl-picker" role="group" aria-label="Colour">
+    <div className="sl-picker" role="group" aria-label="Color">
       <div className="sl-swatches">
         {FAMILIES.map((family) => (
           <button
@@ -83,7 +84,7 @@ function FamilyPicker({
             type="button"
             className={`sl-swatch${family === current ? ' is-current' : ''}`}
             style={{ ['--sw' as string]: swatchColor(family) }}
-            aria-label={`${family} — ${FAMILY_MEANING[family]}`}
+            aria-label={`${family}: ${FAMILY_MEANING[family]}`}
             aria-pressed={family === current}
             title={`${family} · ${FAMILY_MEANING[family]}`}
             onClick={() => onPick(family)}
@@ -130,7 +131,7 @@ function SubjectRow({
           className="sl-dot"
           style={{ ['--sw' as string]: swatchColor(family) }}
           aria-expanded={open}
-          aria-label={`Colour for ${subject.name}`}
+          aria-label={`Color for ${subject.name}`}
           onClick={onToggle}
         />
         <button type="button" className="sl-name" onClick={onToggle} title={subject.name}>
@@ -174,6 +175,7 @@ export function SubjectLibrary({ subjects, username, onClose }: SubjectLibraryPr
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [confirm, confirmDialog] = useConfirm();
   const field = useRef<HTMLInputElement>(null);
 
   const mine = useMemo(() => subjects.filter((s) => s.custom), [subjects]);
@@ -231,16 +233,22 @@ export function SubjectLibrary({ subjects, username, onClose }: SubjectLibraryPr
     async (subject: Subject) => {
       if (!username) return;
       const used = subject.used > 0
-        ? `\n\n${subject.used} task${subject.used === 1 ? '' : 's'} filed under it will keep the work but lose the subject.`
-        : '';
-      if (!window.confirm(`Delete “${subject.name}”?${used}`)) return;
+        ? `${subject.used} task${subject.used === 1 ? '' : 's'} will keep their work but lose this subject.`
+        : undefined;
+      const sure = await confirm({
+        title: `Delete "${subject.name}"?`,
+        body: used,
+        confirmLabel: 'Delete',
+        danger: true,
+      });
+      if (!sure) return;
       setBusyId(subject.id);
       const result = await remove(subject.id);
       if (!result.success) setError(result.message);
       await refreshSubjects(username);
       setBusyId(null);
     },
-    [username],
+    [username, confirm],
   );
 
   const row = (subject: Subject, deletable: boolean) => (
@@ -257,9 +265,9 @@ export function SubjectLibrary({ subjects, username, onClose }: SubjectLibraryPr
   );
 
   return (
-    <aside className="wk-sidebar sl-sidebar" id="wkSidebar" aria-label="Subject library">
+    <aside className="wk-sidebar sl-sidebar" id="wkSidebar" aria-label="Subjects">
       <div className="sl-head">
-        <h3 className="sl-title">Subject Library</h3>
+        <h3 className="sl-title">Subjects</h3>
         <button type="button" className="sl-back" onClick={onClose}>
           Done
         </button>
@@ -299,7 +307,7 @@ export function SubjectLibrary({ subjects, username, onClose }: SubjectLibraryPr
 
         {mine.length === 0 ? (
           <p className="sl-empty">
-            Nothing yet. What you add here leads every subject picker.
+            Nothing yet. Subjects you add here show up first when you pick one.
           </p>
         ) : (
           <ul className="sl-list">{mine.map((subject) => row(subject, true))}</ul>
@@ -307,25 +315,26 @@ export function SubjectLibrary({ subjects, username, onClose }: SubjectLibraryPr
       </section>
 
       <section className="wk-panel sl-panel">
-        <h4 className="sl-section">The catalogue</h4>
+        <h4 className="sl-section">The catalog</h4>
         <input
           className="sl-search"
           type="search"
           value={query}
           placeholder="Find a subject…"
-          aria-label="Search the catalogue"
+          aria-label="Search the catalog"
           onChange={(event) => setQuery(event.target.value)}
         />
         {rest.length === 0 ? (
-          <p className="sl-empty">Nothing matches “{query.trim()}”.</p>
+          <p className="sl-empty">Nothing matches "{query.trim()}".</p>
         ) : (
           <ul className="sl-list">{rest.map((subject) => row(subject, false))}</ul>
         )}
       </section>
 
       <p className="sl-note">
-        A colour set here is what the subject prefers. Busy weeks may shift some apart.
+        Colors may shift a little on busy weeks so subjects stay easy to tell apart.
       </p>
+      {confirmDialog}
     </aside>
   );
 }

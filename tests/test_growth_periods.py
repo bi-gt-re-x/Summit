@@ -59,7 +59,7 @@ def test_the_period_scorer_is_the_report_cards_scorer(client):
     for day in range(0, 40, 3):
         finish(client, xp=40, when=ago(day), difficulty=4, execution=4)
 
-    card = client.get('/api/get_growth_ratings').json()
+    card = client.post('/api/get_growth_ratings').json()
     scored = periods(client, '90d')
 
     assert scored['current']['overall'] == card['overall']['score']
@@ -226,7 +226,7 @@ def test_every_period_is_summarised_so_the_row_costs_no_extra_call(client):
 def test_an_unknown_period_falls_back_rather_than_failing(client):
     """A stale bookmark or a typed URL is not a 500."""
     finish(client, xp=50)
-    assert periods(client, 'fortnight')['period'] == '30d'
+    assert periods(client, 'two weeks')['period'] == '30d'
 
 
 def test_the_periods_need_a_session(anon):

@@ -11,14 +11,14 @@
  * finding here and the advice derived from it can never be computed two
  * different ways.
  */
-export { HeadlineTiles, WeekPanel, ClockPanel } from './Panels';
-export type { HeadlineTilesProps } from './Panels';
+export { WeekPanel, ClockPanel } from './Panels';
+
+export { ChangedPanel } from './Changed';
+export type { ChangedPanelProps } from './Changed';
 
 export {
   FindingCard,
   WhyPanel,
   HowPanel,
-  WorkingPanel,
   RelationshipsPanel,
-  CurrentStatePanel,
 } from './Deep';

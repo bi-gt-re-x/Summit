@@ -56,6 +56,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { agoLabel } from '@/utils/catchUp';
 import type { CatchUpDay } from '@/utils/catchUp';
+import { Button } from '@/components/ui';
 import '@/styles/catch-up.css';
 
 export interface CatchUpEntry {
@@ -157,8 +158,7 @@ export function CatchUp({ days, busy = false, failure = null, onSubmit, onClose 
           {days.length === 1 ? 'this day' : `any of these ${days.length} days`}?
         </h3>
         <p className="cu-lead">
-          Time you did not have the timer running for. It counts exactly the same
-          once it is in — leave a day blank if there was nothing on it.
+          Add time you worked without the timer. It counts the same. Leave a day blank if you didn't work.
         </p>
 
         <ul className="cu-rows">
@@ -221,17 +221,12 @@ export function CatchUp({ days, busy = false, failure = null, onSubmit, onClose 
                 }`
               : ''}
           </p>
-          <button type="button" className="cu-skip" onClick={onClose} disabled={busy}>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
             Not now
-          </button>
-          <button
-            type="button"
-            className="cu-save"
-            disabled={busy || filled === 0}
-            onClick={() => onSubmit(entries)}
-          >
+          </Button>
+          <Button variant="primary" disabled={busy || filled === 0} onClick={() => onSubmit(entries)}>
             {busy ? 'Saving…' : 'Log it'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

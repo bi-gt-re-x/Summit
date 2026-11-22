@@ -1,5 +1,6 @@
 /**
- * Timer — the focus page: pick a session, run it, and see what it added up to.
+ * Timer — the focus page: pick what you are working on, run the clock, and see
+ * where today's sittings went.
  *
  * ## It is the same hours, and the same XP
  *
@@ -10,58 +11,111 @@
  * sittings you are *aiming* at, and the extra XP that follows a harder day is
  * the extra work, counted the ordinary way. See LEVELS in components/Timer.
  *
- * ## Every figure is read, not written
+ * ## Four panels, and only four
  *
- * The tiles, the bars, the line, the ratings, the goals and the tasks are all
- * the account's own record, from the endpoints that already serve them
- * elsewhere. The deltas are a real period against the real one before it, which
- * is why the range control refetches — "vs previous" has to mean the week
- * before the week on screen, and a window twice the size is what makes that
- * comparison exist.
+ * The clock, the task it is for, the method, and today's sittings. That is the
+ * whole page, and each is something no other page has.
  *
- * Where a figure would need something the app does not record, it is not shown
- * rather than estimated. There is no average *session* length here because no
- * session boundary is stored — only the day's total — so that tile is an
- * average per working day, and is labelled as one.
+ * It used to be eleven. Below the clock sat the optional questions (readiness,
+ * kind of work, an intention), the goals the minutes fed, the best sittings,
+ * a progress block with tiles and a week of bars, a catalog of all ten
+ * methods, a focus line chart and an upcoming task list. Streak, level,
+ * focus hours, tasks done and the chart are the Dashboard's and Analytics'
+ * own subjects; the goals are the Goals page's; and the questions asked for
+ * effort before every sitting and paid back weeks later, if ever. The page
+ * read as a second dashboard with a clock buried in it. Anything added from
+ * here needs a reason it belongs on the focus page and nowhere else.
+ *
+ * The hooks still keep readiness, kind and intention on the cycle and the
+ * rows, and a row that carries an answered intention still shows it after the
+ * sitting. Nothing on this page asks for them any more.
+ *
+ * ## A sitting is for something
+ *
+ * The task picker is the reason the page exists. A pick is held on the cycle
+ * (hooks/usePomodoro) and copied onto every row the cycle writes, so the
+ * sittings panel can say "50m on Revise integrals" instead of "50m". It is
+ * carried across breaks and resets, because an afternoon on one task is
+ * several pomodoros, and cleared once that task is finished and no focus
+ * phase is running — clearing it mid-sitting would strip the task off the
+ * very row it was finished in.
+ *
+ * `?task=<id>` picks one on arrival. It is how the task row's "Focus on this"
+ * gets here, and the parameter is dropped once read so a reload does not
+ * re-pick a task somebody has since changed.
+ *
+ * ## The rows are the account's
+ *
+ * The sittings, the task each was for and the recommendation all come from
+ * the interval log — hooks/useIntervals holds it and keeps it in step with
+ * `/api/focus/sittings`, components/Timer/intervals.ts is the arithmetic. So
+ * a second device sees the same sittings. The hours are a separate ledger,
+ * one total per day, in the hero's "Focused today" card.
+ *
+ * ## What the page fills in by itself
+ *
+ * After a sitting the strip at the top says what it was: how long, on what,
+ * how cleanly, with a replay of where the pauses fell, and the tasks finished
+ * inside the sitting's own window with the goals the server had already
+ * linked them to. Nothing is matched or guessed: a task closed four minutes
+ * after the clock ran out was closed in the break, and claiming it would be
+ * the page taking credit for it.
+ *
+ * ## The hero shows the clock and nothing else
+ *
+ * The clock, the primary button, reset and set-up, and three cards beside it
+ * that are about today's focus: the task in hand, the pomodoro count against
+ * the level's target, and the hours against the day's goal.
+ *
+ * ## While a focus phase runs, this page is something else
+ *
+ * Press Start Focus and the page is replaced by components/Timer/FocusView —
+ * the clock, one pause, the task in hand, what today is adding up to, what is
+ * next, and a quote — over a tinted window with the drifting field behind it.
+ * Pausing brings this page back, and so does Escape, which pauses.
+ *
+ * `running && phase === 'focus'` is the whole condition. There is no flag,
+ * because a flag can disagree with the clock, and a page that is "in focus
+ * mode" while nothing is running is a page telling a story about work nobody
+ * is doing. A break brings this page back on its own, which is right: a break
+ * is when the things the sitting hides are worth looking at again.
+ *
+ * Fenced by Timer.sitting.test.tsx, which pins what has to be gone, what has
+ * to stay, and both ways back — none of which a type checker can see.
  */
-import type { ReactElement } from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Range } from '@/components';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Ambient, Range } from '@/components';
 import {
-  timerTitle, useApi, useAuth, useDocumentTitle, usePageEntrance, useSettings, useStats,
-  useUserData,
+  timerTitle, useApi, useAuth, useDocumentTitle, useHandover, usePageEntrance, useSettings,
+  useSubjectIndex, useUserData,
 } from '@/hooks';
 import { fmtHM, useFocusSession } from '@/hooks/useFocusSession';
-import { usePomodoro } from '@/hooks/usePomodoro';
-import { focus as focusService, goals as goalService, growth as growthService } from '@/services';
-import { StyleGrid } from '@/components/Timer/Styles';
-import { QuoteScene } from '@/components/Timer/art';
+import { usePomodoro, type PickedTask } from '@/hooks/usePomodoro';
+import { goals as goalService, notes as noteService, tasks as taskService } from '@/services';
+import { announceStatsChanged } from '@/utils/statsBus';
+import { reduced } from '@/utils/homePlay';
 import {
-  LEVELS, NEARBY, RECOMMENDED, SITTINGS, STYLES, clock, styleFor,
+  LEVELS, NEARBY, PHASE_LABEL, RECOMMENDED, SITTINGS, STYLES, clock, styleFor,
   type Phase, type Sitting,
 } from '@/components/Timer/pomodoro';
-import * as format from '@/utils/format';
+import {
+  MIN_INTERVALS, byTask, execution, focusScore, kindOf, ranFrom, recommend, verdict, wasJustNow,
+  type Interval, type Recommendation, type TaskTime,
+} from '@/components/Timer/intervals';
+import { currentStone } from '@/utils/goalStage';
+import { goalIdsOf } from '@/utils/goalLinks';
+import type { Goal, Milestone, Task } from '@/types';
 import '@/styles/timer.css';
-
-const PHASE_LABEL: Record<Phase, string> = {
-  focus: 'Focus', break: 'Break', long: 'Long break',
-};
+import { Icon } from '@/components/Icon';
+import { FocusSitting } from '@/components/Timer/FocusSitting';
+import { daySummary } from '@/components/Dashboard/summary';
 
 const SETUP_KEY = 'pomodoro:setup';
-const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-/** The four windows the Progress panel offers, and what each one spans. */
-const RANGES = [
-  { id: '7D', days: 7 },
-  { id: '30D', days: 30 },
-  { id: '3M', days: 90 },
-  { id: '1Y', days: 365 },
-] as const;
-type RangeId = (typeof RANGES)[number]['id'];
-
-const GRAINS = ['Daily', 'Weekly', 'Monthly'] as const;
-type Grain = (typeof GRAINS)[number];
+/** How long the page and the sitting take to leave. Equal to `pomSitOut` and
+    `pomPageOut` in styles/timer.css; see the note where it is used. */
+const SWAP_MS = 200;
 
 /**
  * The tones a row of goals or a column of tags rotates through.
@@ -130,19 +184,10 @@ function shift(from: Date, days: number): Date {
   out.setHours(0, 0, 0, 0);
   return out;
 }
-/** Monday of the week `date` falls in. */
-function weekStart(date: Date): Date {
-  return shift(date, -((date.getDay() + 6) % 7));
-}
 function greeting(hour: number): string {
   if (hour < 12) return 'Good morning';
   if (hour < 18) return 'Good afternoon';
   return 'Good evening';
-}
-/** The change against the period before, or null when there is nothing to compare. */
-function change(now: number, before: number): number | null {
-  if (!before) return null;
-  return Math.round(((now - before) / before) * 100);
 }
 
 // --------------------------------------------------------------------------
@@ -156,7 +201,7 @@ function Setup({ onPick, onSkip }: { onPick: (id: string) => void; onSkip: () =>
     return (
       <section className="pom-setup">
         <p className="pom-steps"><span className="is-on" /><span /></p>
-        <h2>How long can you sit?</h2>
+        <h2>How long can you focus?</h2>
         <div className="pom-choices">
           {SITTINGS.map((option) => (
             <button key={option.id} type="button" className="pom-choice"
@@ -225,147 +270,381 @@ function Ring({ percent, phase }: { percent: number; phase: Phase }) {
   );
 }
 
-function Donut({ percent, sub }: { percent: number; sub: string }) {
-  const r = 52;
-  const c = 2 * Math.PI * r;
-  return (
-    <div className="pom-donut">
-      <svg viewBox="0 0 130 130" aria-hidden="true">
-        <defs>
-          <linearGradient id="pom-donut-g" x1="0" y1="1" x2="1" y2="0">
-            <stop offset="0%" stopColor="var(--pom-focus-2)" />
-            <stop offset="100%" stopColor="var(--pom-focus)" />
-          </linearGradient>
-        </defs>
-        <circle className="pom-donut-track" cx="65" cy="65" r={r} />
-        <circle className="pom-donut-run" cx="65" cy="65" r={r}
-          strokeDasharray={c} strokeDashoffset={c * (1 - Math.min(100, percent) / 100)} />
-      </svg>
-      <div className="pom-donut-text">
-        <strong>{percent}%</strong>
-        <span>Daily Goal</span>
-        <em>{sub}</em>
-      </div>
-    </div>
-  );
-}
 
-function Tile({ tone, glyph, label, value, delta }: {
-  tone: string; glyph: string; label: string; value: string; delta: number | null;
+/**
+ * The recommendation, or the reason there is not one yet.
+ *
+ * Both states are on purpose. A picker that silently starts suggesting things
+ * once enough has been recorded is a page that changes shape for reasons the
+ * reader cannot see, so the waiting state says what it is waiting for and how
+ * far along it is — and it counts *sittings*, because that is the unit that
+ * moves the number and "use the app more" is not an instruction anybody can
+ * act on.
+ *
+ * The verdict names its own sample size for the same reason. "50 min, from 8
+ * sittings" is a claim a reader can weigh; "50 min" is one they can only take
+ * or leave.
+ */
+function Recommend({ at, sittings, current, onUse }: {
+  at: Recommendation | null;
+  sittings: number;
+  current: string;
+  onUse: (styleId: string) => void;
 }) {
+  if (!at) {
+    const togo = Math.max(0, MIN_INTERVALS - sittings);
+    return (
+      <p className="pom-rec is-waiting">
+        <span className="pom-rec-icon" aria-hidden="true"><Icon name="sparkles" /></span>
+        {togo > 0
+          ? `Suggested lengths show up after ${MIN_INTERVALS} sessions. ${togo} to go.`
+          : "Try a couple of different lengths and we'll suggest one."}
+      </p>
+    );
+  }
+
+  const style = styleFor(at.styleId);
   return (
-    <div className="pom-tile">
-      <span className={`pom-tile-icon pom-tone-${tone}`} aria-hidden="true">{glyph}</span>
-      <span className="pom-tile-label">{label}</span>
-      <strong className="pom-tile-value">{value}</strong>
-      {delta === null ? (
-        <span className="pom-tile-delta is-flat">no earlier period</span>
+    <div className="pom-rec">
+      <span className="pom-rec-icon" aria-hidden="true"><Icon name="sparkles" /></span>
+      <span className="pom-rec-text">
+        <b>
+          Recommended focus · {at.minutes} min
+          {/* Which question this answers. "50 min for deep work" and "50 min"
+              are different claims, and a reader who tags their sittings should
+              be told which one they have been given. */}
+          {at.kind && <> for {kindOf(at.kind)?.label.toLowerCase()}</>}
+        </b>
+        <i>
+          {at.low === at.high
+            ? `Your ${at.minutes}-minute sessions go best, out of ${at.sample} logged.`
+            : `You work best between ${at.low} and ${at.high} minutes, out of ${at.sample} logged.`}
+        </i>
+      </span>
+      {current === at.styleId ? (
+        // Not "{name} in use" — the method grid's header already says exactly
+        // that further down the page, and one page saying one sentence twice
+        // reads as two facts.
+        <span className="pom-rec-on">Already your pick</span>
       ) : (
-        <span className={`pom-tile-delta${delta < 0 ? ' is-down' : ''}`}>
-          {delta < 0 ? '↓' : '↑'} {Math.abs(delta)}% <i>vs previous</i>
-        </span>
+        <button type="button" className="pom-btn" onClick={() => onUse(at.styleId)}>
+          Use {style.name}
+        </button>
       )}
     </div>
   );
 }
 
+
+// --------------------------------------------------------------------------
+// The goal the sitting's minutes count toward
+// --------------------------------------------------------------------------
 /**
- * The line, smoothed, with its best point marked the way the design does.
+ * A goal whose own target this page's minutes advance.
  *
- * The smoothing is a horizontal-control-point curve rather than a spline: each
- * segment bends toward its own two readings and nothing else, so the line
- * cannot invent a peak between two days that never happened.
+ * Not drawn on this page any more. The sitting's live goal line reads it — see
+ * components/Timer/FocusView — and so does the dashboard's.
  */
-function Line({ points }: { points: { label: string; hours: number }[] }) {
-  const w = 560;
-  const h = 176;
-  const pad = { top: 16, right: 12, bottom: 26, left: 36 };
-  const peak = Math.max(1, ...points.map((p) => p.hours));
-  const stepX = points.length > 1 ? (w - pad.left - pad.right) / (points.length - 1) : 0;
-  const xy = points.map((p, at) => ({
-    x: pad.left + at * stepX,
-    y: pad.top + (1 - p.hours / peak) * (h - pad.top - pad.bottom),
-    ...p,
-  }));
-  if (!xy.length) return null;
+export interface Counting {
+  goal: Goal;
+  /** Minutes recorded against it, and the minutes it asks for. */
+  now: number;
+  target: number;
+  next: Milestone | null;
+  /** Subject names the goal names, resolved. Empty when it names none. */
+  subjects: string[];
+}
 
-  const path = xy.map((p, at) => {
-    if (at === 0) return `M${p.x} ${p.y}`;
-    const prev = xy[at - 1]!;
-    const cx = (prev.x + p.x) / 2;
-    return `C${cx} ${prev.y} ${cx} ${p.y} ${p.x} ${p.y}`;
-  }).join(' ');
-
-  const best = xy.reduce((a, b) => (b.hours > a.hours ? b : a), xy[0]!);
-  const every = Math.max(1, Math.ceil(xy.length / 7));
-
+// --------------------------------------------------------------------------
+// What the sittings are for
+// --------------------------------------------------------------------------
+/**
+ * The open tasks, as things a sitting can be for.
+ *
+ * Pressing a row picks it and pressing the picked row again clears it, the
+ * same toggle the rest of the page's chips use. The picked task is listed
+ * first even when it is not among the next few due — it may have come from
+ * the tasks page by `?task=`, and a pick that is not on screen is a pick
+ * nobody can see or undo.
+ *
+ * Finishing a task is not offered here. That is a different act with XP
+ * behind it, and a row that both picked and ticked would do one when somebody
+ * meant the other. The sitting's own list ticks.
+ */
+function TaskPicker({ tasks, picked, onPick, today }: {
+  tasks: Task[];
+  picked: string | null;
+  onPick: (task: PickedTask | null) => void;
+  today: Date;
+}) {
   return (
-    <svg className="pom-line" viewBox={`0 0 ${w} ${h}`} role="img"
-      aria-label={`Focus time. Best: ${best.label}, ${best.hours.toFixed(1)} hours.`}>
-      <defs>
-        <linearGradient id="pom-line-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--pom-focus)" stopOpacity=".30" />
-          <stop offset="100%" stopColor="var(--pom-focus)" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      {[0, 0.5, 1].map((f) => {
-        const y = pad.top + f * (h - pad.top - pad.bottom);
-        return (
-          <g key={f}>
-            <line className="pom-line-rule" x1={pad.left} x2={w - pad.right} y1={y} y2={y} />
-            <text className="pom-line-tick" x={pad.left - 9} y={y + 3} textAnchor="end">
-              {Math.round(peak * (1 - f))}h
-            </text>
-          </g>
-        );
-      })}
-      <path className="pom-line-area"
-        d={`${path} L${xy[xy.length - 1]!.x} ${h - pad.bottom} L${pad.left} ${h - pad.bottom} Z`} />
-      <path className="pom-line-run" d={path} />
-      <circle className="pom-line-halo" cx={best.x} cy={best.y} r="8" />
-      <circle className="pom-line-dot" cx={best.x} cy={best.y} r="4.5" />
-      {/* The best day, labelled. The dot alone marks the peak without saying
-          what it was worth, and the one figure a reader wants off this chart
-          is the size of their best day — which otherwise has to be estimated
-          against an axis. Nudged inboard at the ends so the box cannot hang
-          off the side of the chart. */}
-      <g className="pom-line-tip"
-        transform={`translate(${Math.min(w - pad.right - 34, Math.max(pad.left + 34, best.x))} ${Math.max(30, best.y - 14)})`}>
-        <rect x="-34" y="-30" width="68" height="34" rx="8" />
-        <text className="pom-line-tip-day" y="-16" textAnchor="middle">{best.label}</text>
-        <text className="pom-line-tip-num" y="-3" textAnchor="middle">{fmtHM(best.hours * 3600)}</text>
-      </g>
-      {xy.map((p, at) => (at % every === 0 ? (
-        <text key={`${p.label}-${at}`} className="pom-line-tick" x={p.x} y={h - 7}
-          textAnchor="middle">{p.label}</text>
-      ) : null))}
-    </svg>
+    <section className="pom-panel pom-picker" aria-labelledby="pom-picker-head">
+      <header className="pom-panel-head">
+        <div className="pom-panel-title">
+          <h2 id="pom-picker-head"><Icon name="clipboard" /> What are you working on?</h2>
+          <p>Pick a task and each session gets logged to it</p>
+        </div>
+        <Link className="pom-link" to="/tasks">All tasks</Link>
+      </header>
+      {tasks.length ? (
+        <ul className="pom-tasks">
+          {tasks.map((task) => {
+            const on = task.id === picked;
+            return (
+              <li key={task.id}>
+                <button type="button" className={`pom-task-pick${on ? ' is-on' : ''}`}
+                  aria-pressed={on}
+                  onClick={() => onPick(on ? null : { id: task.id, title: task.title })}>
+                  <span className="pom-check" aria-hidden="true" />
+                  <span className="pom-tasks-title">{task.title}</span>
+                  {task.subject && (
+                    <span className={`pom-tasks-tag pom-tone-${toneFor(task.subject)}`}>
+                      {task.subject}
+                    </span>
+                  )}
+                  <span className="pom-tasks-when">{due(task.due_date, today)}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="pom-empty">
+          Nothing on your plate. <Link className="pom-link" to="/tasks">Add a task</Link> to
+          focus on.
+        </p>
+      )}
+    </section>
   );
 }
 
-function Rating({ name, grade, score }: { name: string; grade: string; score: number }) {
+/**
+ * Where today's sittings went, by task.
+ *
+ * Read off the interval log — see the note at the top of the page. Minutes
+ * are what the clock actually ran, cut-short
+ * sittings included, because a sitting abandoned at minute nineteen was still
+ * nineteen minutes on that task.
+ */
+function TodaySittings({ rows }: { rows: TaskTime[] }) {
+  const minutes = rows.reduce((sum, row) => sum + row.minutes, 0);
+  const sittings = rows.reduce((sum, row) => sum + row.sittings, 0);
+
   return (
-    <div className={`pom-rating pom-grade-${grade.replace('+', 'plus').toLowerCase()}`}>
-      <span className="pom-rating-disc">{grade}</span>
-      <span className="pom-rating-name">{name}</span>
-      <span className="pom-rating-score">{score}%</span>
+    <section className="pom-panel pom-today" aria-labelledby="pom-today-head">
+      <header className="pom-panel-head">
+        <div className="pom-panel-title">
+          <h2 id="pom-today-head"><Icon name="timer" /> Today&apos;s sessions</h2>
+          <p>
+            {sittings
+              ? `${fmtHM(minutes * 60)} across ${sittings} session${sittings === 1 ? '' : 's'}`
+              : 'Where your focus time went today'}
+          </p>
+        </div>
+      </header>
+      {rows.length ? (
+        <ul className="pom-today-list">
+          {rows.map((row) => (
+            <li key={row.id ?? 'none'} className={row.id ? undefined : 'is-none'}>
+              <span className="pom-today-title">{row.title ?? 'No task picked'}</span>
+              <span className="pom-today-count">
+                {row.sittings} session{row.sittings === 1 ? '' : 's'}
+              </span>
+              <strong className="pom-today-time">{fmtHM(row.minutes * 60)}</strong>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="pom-empty">No sessions yet today. Pick a task and press Start focus.</p>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The sitting, drawn along its own length, with the pauses where they fell.
+ *
+ * ## What a count cannot say
+ *
+ * "Three pauses" describes a sitting interrupted in its first five minutes and
+ * a sitting that fell apart in its last ten equally, and those are not the same
+ * afternoon: the first is someone settling in, the second is someone who
+ * should have stopped. The positions are the only part of this record that can
+ * tell them apart, so they are kept — see `breaks` in
+ * components/Timer/intervals.ts.
+ *
+ * ## Why it is this small
+ *
+ * A strip a couple of hundred pixels wide, with no axis but its own length and
+ * no interaction. Everything a bigger chart would add — a scale, a tooltip, a
+ * click target per mark — would be inviting the reader to study one
+ * twenty-five minute sitting, and there is nothing in one sitting worth that
+ * much attention. The pattern across many of them is what the marks panel and
+ * the next move are for.
+ */
+function Replay({ sitting }: { sitting: Interval }) {
+  const breaks = sitting.breaks ?? [];
+  const span = Math.max(sitting.planned, sitting.minutes, 1);
+
+  return (
+    <div className="pom-replay">
+      <span className="pom-replay-track" aria-hidden="true">
+        <span className="pom-replay-ran" style={{ width: `${Math.min(100, (sitting.minutes / span) * 100)}%` }} />
+        {breaks.map((at, index) => (
+          <span
+            key={`${at}-${index}`}
+            className="pom-replay-mark"
+            style={{ left: `${Math.min(100, (at / span) * 100)}%` }}
+          />
+        ))}
+      </span>
+      <span className="pom-replay-scale" aria-hidden="true">
+        <i>0m</i>
+        <i>{span}m</i>
+      </span>
+      {/* The same thing in words, because the strip above is decoration to a
+          screen reader and this is the only form of it that is not. */}
+      <span className="pom-replay-said">
+        {breaks.length === 0
+          ? `${sitting.minutes} min, no pauses.`
+          : `${sitting.minutes} min, paused at ${breaks.map((at) => `${at}m`).join(', ')}.`}
+      </span>
     </div>
   );
 }
 
-const CHEVRON: ReactElement = (
-  <svg className="pom-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="m9 6 6 6-6 6" />
-  </svg>
-);
+
+/**
+ * The sitting that just ended: how long, on what, and how cleanly.
+ *
+ * ## Why it is a strip and not a dialog
+ *
+ * The sitting ended, which means a break has already started. A modal over the
+ * break would take the break: somebody who stepped away comes back to a box
+ * in front of their own timer. The strip waits, goes once the sitting is no
+ * longer "just now" (see `wasJustNow` in components/Timer/intervals.ts), and
+ * can be hidden sooner.
+ *
+ * An execution bar appears only for a row that carries an answered intention.
+ * The page no longer asks for one, but rows written before that still have
+ * them, and dropping an answer somebody gave would be the cut doing harm.
+ *
+ * ## A line about it, while it is fresh
+ *
+ * The clock can say a sitting was fifty clean minutes and cannot say what
+ * got figured out in them. The box at the bottom takes that sentence and
+ * files it as a note tied to the sitting's task, its subject and its day, so
+ * it turns up on the task's row, the subject page and the Notes page without
+ * anybody filing anything. Optional, and one line by default: a form in front
+ * of the break would be taking the break.
+ */
+function Outcome({ sitting, fed, onHide, onJot }: {
+  sitting: Interval;
+  /** What was closed while it ran, and what that counted toward. */
+  fed: { tasks: Task[]; goals: string[] };
+  onHide: () => void;
+  /** Save a note about the sitting. The new note's id, or null if it failed. */
+  onJot: (text: string) => Promise<string | null>;
+}) {
+  const scored = execution(sitting);
+  const [text, setText] = useState('');
+  const [jotting, setJotting] = useState(false);
+  const [jotted, setJotted] = useState<string | null>(null);
+  const [jotFailed, setJotFailed] = useState(false);
+  const about = sitting.taskTitle ?? sitting.intent;
+  const said = verdict(sitting);
+
+  return (
+    <section className="pom-outcome" aria-label="Your last session">
+      <span className="pom-outcome-head">
+        <b>{sitting.minutes} min {about ? 'on' : 'of focus'}</b>
+        {about && <i>{about}</i>}
+      </span>
+      <dl className="pom-outcome-bars" aria-label="How that session went">
+        {scored !== null && (
+          <div className="pom-outcome-bar">
+            <dt>Execution <b>{scored}%</b></dt>
+            <dd>
+              <span className="pom-outcome-track">
+                <span style={{ width: `${Math.min(100, scored)}%` }} />
+              </span>
+              {/* The numbers behind the bar, because a percentage with no
+                  numerator is a figure nobody can check. */}
+              <em>{sitting.done} of {sitting.target}, your count</em>
+            </dd>
+          </div>
+        )}
+        <div className="pom-outcome-bar">
+          <dt>Focus <b>{focusScore(sitting)}%</b></dt>
+          <dd>
+            <span className="pom-outcome-track">
+              <span style={{ width: `${focusScore(sitting)}%` }} />
+            </span>
+            <em>
+              {sitting.pauses === 0 ? 'unbroken' : `${sitting.pauses} pause${sitting.pauses === 1 ? '' : 's'}`}
+              {sitting.finished ? '' : ', cut short'}
+            </em>
+          </dd>
+        </div>
+      </dl>
+      <div className="pom-outcome-foot">
+        <Replay sitting={sitting} />
+        {/* What the sitting did, without anybody filing it anywhere. The
+            window is the sitting's own — see `ranFrom` — and the goals are the
+            ones the server already linked those tasks to, so nothing here is
+            matched, guessed or asked for. A sitting that closed nothing says
+            nothing rather than printing a zero. */}
+        {fed.tasks.length > 0 && (
+          <p className="pom-outcome-fed">
+            <b>{fed.tasks.length} task{fed.tasks.length === 1 ? '' : 's'}</b> finished while it ran
+            {fed.goals.length > 0 && <> → {fed.goals.join(', ')}</>}
+          </p>
+        )}
+      </div>
+      {said && <p className="pom-outcome-verdict">{said}</p>}
+      {jotted ? (
+        <p className="pom-jot-done" role="status">
+          Saved to your notes. <Link className="pom-link" to={`/notes?note=${encodeURIComponent(jotted)}`}>Open it</Link>
+        </p>
+      ) : (
+        <form
+          className="pom-jot"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!text.trim() || jotting) return;
+            setJotting(true);
+            setJotFailed(false);
+            void onJot(text.trim()).then((id) => {
+              setJotting(false);
+              if (id) setJotted(id);
+              else setJotFailed(true);
+            });
+          }}
+        >
+          <label className="pom-jot-label" htmlFor="pom-jot-text">
+            Jot a note about this session
+          </label>
+          <div className="pom-jot-row">
+            <textarea id="pom-jot-text" className="pom-jot-text" rows={1} maxLength={2000}
+              placeholder={sitting.taskTitle ? `What clicked on ${sitting.taskTitle}?` : 'What clicked?'}
+              value={text} onChange={(event) => setText(event.target.value)} />
+            <button type="submit" className="pom-btn" disabled={!text.trim() || jotting}>
+              {jotting ? 'Saving…' : 'Save note'}
+            </button>
+          </div>
+          {jotFailed && <p className="pom-jot-error" role="alert">That didn&apos;t save. Try again in a moment.</p>}
+        </form>
+      )}
+      <button type="button" className="pom-link pom-outcome-hide" onClick={onHide}>Hide</button>
+    </section>
+  );
+}
 
 // --------------------------------------------------------------------------
 export default function Timer() {
   const { username } = useAuth();
   const user = username || 'Default';
   const account = useUserData();
-  const { stats } = useStats();
   const { displayName, prefs, ready, update: updatePrefs } = useSettings();
   const session = useFocusSession(username);
   const pomodoro = usePomodoro(username, session);
@@ -409,20 +688,7 @@ export default function Timer() {
     setSetup(true);
   }, [prefs.timer_setup_done, ready, updatePrefs, user]);
 
-  const [range, setRange] = useState<RangeId>('7D');
-  const [grain, setGrain] = useState<Grain>('Daily');
-
   const today = useMemo(() => new Date(), []);
-  const span = RANGES.find((r) => r.id === range)!.days;
-
-  // Twice the window, so "vs previous" compares the period on screen with the
-  // one immediately before it rather than with nothing.
-  const historyCall = useCallback(
-    () => focusService.history(iso(shift(today, -span * 2)), iso(today)),
-    [today, span],
-  );
-  const history = useApi(historyCall, [span]);
-  const ratings = useApi(useCallback(() => growthService.ratings(), []), []);
   const goals = useApi(useCallback(() => goalService.getGoals(), []), []);
 
   const entering = usePageEntrance(true);
@@ -433,85 +699,263 @@ export default function Timer() {
     setSetup(false);
   }, [pomodoro, updatePrefs]);
 
-  const { style, phase, running, remaining, percent, level, doneToday } = pomodoro;
-  const days = history.data?.days ?? {};
+  const {
+    style, phase, running, remaining, percent, level, doneToday, intervals, setTask,
+  } = pomodoro;
+  const tasks = account.data?.tasks ?? [];
+  const focusing = running && phase === 'focus';
 
-  const hoursOn = useCallback(
-    (date: Date) => (Number(days[iso(date)]?.seconds) || 0) / 3600,
-    [days],
+  /* Asked about the kind of work in hand first, and about everything only if
+     that has nothing to say. The answers are different claims — "50 min for
+     deep work" against "50 min" — so `Recommendation` carries which one it is
+     and the strip prints it. */
+  const suggestion = useMemo(
+    () => recommend(intervals, pomodoro.kind) ?? recommend(intervals),
+    [intervals, pomodoro.kind],
   );
 
-  /** The window on screen, and the one before it, day by day. */
-  const [current, previous] = useMemo(() => {
-    const read = (offset: number) => Array.from({ length: span }, (_, at) => {
-      const date = shift(today, -offset - (span - 1 - at));
-      return { date, hours: hoursOn(date) };
-    });
-    return [read(0), read(span)];
-  }, [span, today, hoursOn]);
+  // ---- What the sittings are for -------------------------------------------
+  const picked = pomodoro.task;
 
-  const totalNow = current.reduce((sum, d) => sum + d.hours, 0);
-  const totalBefore = previous.reduce((sum, d) => sum + d.hours, 0);
-  const workedNow = current.filter((d) => d.hours > 0).length;
-  const workedBefore = previous.filter((d) => d.hours > 0).length;
+  /* `?task=<id>` picks one on arrival, then leaves the address bar. A task
+     that is finished or not this account's is ignored rather than picked. */
+  const [params, setParams] = useSearchParams();
+  const wanted = params.get('task');
+  useEffect(() => {
+    if (!wanted || !account.data) return;
+    const row = account.data.tasks.find((task) => task.id === wanted);
+    if (row && row.status !== 'done') setTask({ id: row.id, title: row.title });
+    setParams((was) => {
+      const next = new URLSearchParams(was);
+      next.delete('task');
+      return next;
+    }, { replace: true });
+  }, [wanted, account.data, setTask, setParams]);
 
-  const tasks = account.data?.tasks ?? [];
-  const doneIn = useCallback((from: Date, to: Date) => tasks.filter((task) => {
-    const at = (task.completed_at ?? '').slice(0, 10);
-    return task.status === 'done' && at >= iso(from) && at <= iso(to);
-  }).length, [tasks]);
-  const tasksNow = doneIn(shift(today, -(span - 1)), today);
-  const tasksBefore = doneIn(shift(today, -(span * 2 - 1)), shift(today, -span));
-
-  // This week's seven bars, whatever the range control above is set to.
-  const week = useMemo(() => {
-    const monday = weekStart(today);
-    return DAY_NAMES.map((name, at) => ({ name, hours: hoursOn(shift(monday, at)) }));
-  }, [today, hoursOn]);
-  const weekPeak = Math.max(1, ...week.map((d) => d.hours));
-
-  /** The line's points, grouped to the chosen grain. */
-  const line = useMemo(() => {
-    const size = grain === 'Daily' ? 1 : grain === 'Weekly' ? 7 : 30;
-    if (size === 1) {
-      return current.map((d) => ({
-        label: DAY_NAMES[(d.date.getDay() + 6) % 7]!,
-        hours: d.hours,
-      }));
-    }
-    const out: { label: string; hours: number }[] = [];
-    for (let at = 0; at < current.length; at += size) {
-      const chunk = current.slice(at, at + size);
-      out.push({
-        label: chunk[0]!.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-        hours: chunk.reduce((sum, d) => sum + d.hours, 0),
-      });
-    }
-    return out;
-  }, [current, grain]);
+  /* Let go of a pick once its task is finished or gone, but never mid-sitting:
+     the row that sitting writes is the one the task was finished in, and it
+     should say so. Follows a rename too, so the label is the task's own. */
+  useEffect(() => {
+    if (!picked || !account.data || focusing) return;
+    const row = account.data.tasks.find((task) => task.id === picked.id);
+    if (!row || row.status === 'done') setTask(null);
+    else if (row.title !== picked.title) setTask({ id: row.id, title: row.title });
+  }, [picked, account.data, focusing, setTask]);
 
   const upcoming = useMemo(() => tasks
     .filter((task) => task.status !== 'done')
     .sort((a, b) => (a.due_date ?? '9').localeCompare(b.due_date ?? '9'))
     .slice(0, 5), [tasks]);
 
-  const activeGoals = (goals.data?.goals ?? []).filter((g) => g.status === 'active').slice(0, 4);
-  const levelNow = stats ? format.levelForTotalXp(stats.xp) : null;
-  const metrics = ratings.data?.metrics;
+  /** The picked task first, then the next few due. */
+  const choices = useMemo(() => {
+    const row = picked ? tasks.find((task) => task.id === picked.id && task.status !== 'done') : undefined;
+    return row ? [row, ...upcoming.filter((task) => task.id !== row.id)] : upcoming;
+  }, [picked, tasks, upcoming]);
+
+  const sittingsToday = useMemo(() => byTask(intervals, iso(today)), [intervals, today]);
+
+  // ---- The goal the minutes count toward -----------------------------------
+  const subjectIndex = useSubjectIndex(username);
+  const allGoals = goals.data?.goals ?? [];
+
+  /* Goals this page's minutes advance: measured in focus time, still open, and
+     actually asking for some. `subject_ids` is stored comma-separated — split
+     at the call site, as the field's own note says. Drawn by the sitting's
+     live goal line, not on this page. */
+  const counting = useMemo<Counting[]>(() => allGoals
+    .filter((goal) => goal.status === 'active' && goal.measure === 'focus' && goal.target_focus > 0)
+    .map((goal) => ({
+      goal,
+      now: goal.current_focus,
+      target: goal.target_focus,
+      next: currentStone(goal),
+      subjects: (goal.subject_ids || '')
+        .split(',')
+        .map((id) => subjectIndex.get(id.trim())?.name)
+        .filter((name): name is string => Boolean(name)),
+    })), [allGoals, subjectIndex]);
+
+  // ---- The sitting just finished -------------------------------------------
+  const lastSitting: Interval | undefined = intervals[intervals.length - 1];
+  const [hiddenAt, setHiddenAt] = useState<number | null>(null);
+  /* Shown while the sitting is still the one in somebody's head. Hiding it
+     writes nothing; it only stops this sitting's strip coming back. */
+  const outcome = lastSitting
+    && lastSitting.at !== hiddenAt
+    && wasJustNow(lastSitting, Date.now())
+    ? lastSitting
+    : null;
+
+  /* What was finished while that sitting ran, and what it counted toward.
+     Nobody files anything: the window is the sitting's own, and the goals are
+     the ones already linked to those tasks. A task closed in a break falls
+     outside the window and is not claimed. */
+  const fed = useMemo(() => {
+    const span = outcome ? ranFrom(outcome) : null;
+    if (!span) return { tasks: [] as Task[], goals: [] as string[] };
+    const closed = tasks.filter((row) => {
+      if (row.status !== 'done' || !row.completed_at) return false;
+      const at = new Date(row.completed_at).getTime();
+      return Number.isFinite(at) && at >= span.from && at <= span.to;
+    });
+    const titles = new Set<string>();
+    closed.forEach((row) => goalIdsOf(row).forEach((id) => {
+      const found = allGoals.find((goal) => goal.id === id);
+      if (found) titles.add(found.title);
+    }));
+    return { tasks: closed, goals: [...titles] };
+  }, [outcome, tasks, allGoals]);
+
   const goalSeconds = session.goalHours * 3600;
-  const goalPercent = goalSeconds
-    ? Math.min(100, Math.round((session.focused / goalSeconds) * 100)) : 0;
+
+  /* A note about a sitting: tied to its task, the task's subject and its day,
+     so it shows up on the task row, the subject page and in Notes. Titled by
+     the task, since that is what somebody scanning their notes will look for. */
+  const jot = useCallback(async (row: Interval, text: string): Promise<string | null> => {
+    const task = row.taskId ? tasks.find((entry) => entry.id === row.taskId) : undefined;
+    try {
+      const result = await noteService.save({
+        title: row.taskTitle ?? 'Focus session',
+        body: text,
+        note_date: row.day,
+        task_id: task ? task.id : '',
+        subject_ids: task?.subject ?? '',
+      });
+      return result.success ? result.note.id : null;
+    } catch {
+      return null;
+    }
+  }, [tasks]);
+
+  /* ---- The sitting --------------------------------------------------------
+   *
+   * A running focus phase *is* the collapsed view — there is no third piece of
+   * state saying whether to show it, because a mode that could disagree with
+   * the clock is a mode that will. Pausing leaves it and so does Escape, which
+   * pauses; a break brings the page back on its own, which is right, because a
+   * break is when the things this view hides are worth looking at again.
+   *
+   * See components/Timer/FocusView for what it holds and why that is the list.
+   */
+  const sitting = focusing;
+
+  /* The swap between the two, in both directions.
+   *
+   * `sitting` flips the instant the button is pressed, and rendering off it
+   * directly means the page it is replacing gets no exit: the reader sees the
+   * whole screen disappear and then a clock fade up into the gap where it was.
+   * `useHandover` holds the outgoing side on screen for the length of its own
+   * fade and swaps when that is done, so leaving looks like arriving played
+   * backwards instead of like a cut.
+   *
+   * `SWAP_MS` is the length of `pomSitOut` and `pomPageOut` in
+   * styles/timer.css and has to stay equal to them — shorter and the swap
+   * happens mid-fade, longer and the screen sits finished-and-blank waiting
+   * for a timer. Zero under `prefers-reduced-motion`, which is also what takes
+   * both animations off. */
+  const swap = useHandover(sitting, reduced ? 0 : SWAP_MS);
+
+  /* The page cascades back in when the sitting lets go of it, the same arrival
+   * it gets on a fresh load — see styles/page-enter.css. `usePageEntrance`
+   * cannot do this one: it fires once per mount and the page never unmounted,
+   * the sitting was rendered in front of it. */
+  const [returning, setReturning] = useState(false);
+  const sat = useRef(false);
+  useEffect(() => {
+    if (swap.shown) { sat.current = true; return; }
+    if (!sat.current) return;
+    sat.current = false;
+    if (reduced) return;
+    setReturning(true);
+    const settled = window.setTimeout(() => setReturning(false), 900);
+    return () => window.clearTimeout(settled);
+  }, [swap.shown]);
+
+  /* Ticked here, and not yet reloaded.
+   *
+   * `completeTask` returns before the account's task list is refetched, and
+   * the row has to leave the list on the click rather than a round trip later
+   * — a checkbox that waits is a checkbox somebody presses twice. Cleared when
+   * the reload lands and the task is genuinely `done`. */
+  const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set());
+  const [ticking, setTicking] = useState(false);
+
+  const finishTask = useCallback(async (task: Task) => {
+    if (ticking) return;
+    setTicking(true);
+    setTicked((was) => new Set(was).add(task.id));
+    const result = await taskService.completeTask(task.id);
+    setTicking(false);
+    if (!result.success) {
+      // Put it back. The list is the truth and the optimistic row was a guess.
+      setTicked((was) => {
+        const next = new Set(was);
+        next.delete(task.id);
+        return next;
+      });
+      return;
+    }
+    // The rail's level and the bell did not hear about completions made here.
+    // See utils/statsBus, and the same call on pages/Goals.tsx.
+    announceStatsChanged();
+    await account.reload();
+  }, [account, ticking]);
+
+  /** Today's plate, which is what the sitting's first bar counts: the same
+      figures the dashboard's Today's Progress card draws. */
+  const plate = useMemo(() => daySummary(tasks, iso(today)), [tasks, today]);
+
+  /* Drop the optimistic ids the reload has caught up with, so a long sitting
+     does not accumulate a set of every task it ever ticked. */
+  useEffect(() => {
+    setTicked((was) => {
+      if (!was.size) return was;
+      const open = new Set(tasks.filter((t) => t.status !== 'done').map((t) => t.id));
+      const next = new Set([...was].filter((id) => open.has(id)));
+      return next.size === was.size ? was : next;
+    });
+  }, [tasks]);
+
+  if (swap.shown) {
+    return (
+      <FocusSitting
+        leaving={swap.leaving}
+        phase={phase}
+        percent={percent}
+        remaining={remaining}
+        onPause={pomodoro.pause}
+        tasksDone={plate.done}
+        tasksTotal={plate.total}
+        focused={session.focused}
+        focusGoal={goalSeconds}
+        upcoming={choices}
+        onComplete={(task) => void finishTask(task)}
+        busy={ticking}
+        done={ticked}
+        goal={counting[0] ?? null}
+        goalMinutes={Math.round(session.focused / 60)}
+        task={picked}
+      />
+    );
+  }
 
   return (
-    <div className={`pom-page${entering ? ' pg-enter' : ''}`}>
+    <div
+      className={`pom-page${entering || returning ? ' pg-enter' : ''}${swap.leaving ? ' is-going' : ''}`}
+    >
+      {/* This page's own, because the shell stands down for `/timer` — the
+          sitting's field runs the surge cycle and two canvases would be two
+          loops. See the note on <Ambient /> in App.tsx. */}
+      <Ambient />
       <header className="pom-head">
-        <span className="pom-head-sun" aria-hidden="true">☀️</span>
+        <span className="pom-head-sun" aria-hidden="true"><Icon name="sun" /></span>
         <div className="pom-head-text">
           <h1>{greeting(today.getHours())}, {displayName || username || 'there'}</h1>
-          <p>Focus today. Build the future you want.</p>
+          <p>Pick a task and start the clock.</p>
         </div>
         <span className="pom-date">
-          <span aria-hidden="true">📅</span>
+          <Icon name="calendar" />
           {today.toLocaleDateString(undefined, {
             weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
           })}
@@ -522,56 +966,24 @@ export default function Timer() {
         <Setup onPick={(id) => finish(id)} onSkip={() => finish()} />
       ) : (
         <>
-          {/* ---- Hero -------------------------------------------------- */}
+          {/* ---- What just happened ------------------------------------ */}
+          {outcome && (
+            <Outcome
+              key={outcome.id ?? outcome.at}
+              sitting={outcome}
+              fed={fed}
+              onHide={() => setHiddenAt(outcome.at ?? null)}
+              onJot={(text) => jot(outcome, text)}
+            />
+          )}
+
+          {/* ---- The clock --------------------------------------------- */}
           <section className={`pom-hero is-${phase}`}>
             {/* The one hero in the app that does not take a tone: its three
                 colours follow the phase, set on `.pom-hero.is-*` in
                 styles/timer.css, so the range turns green on a break with the
                 ring and the button. See components/Range.tsx. */}
             <Range variant="focus" />
-            <div className="pom-hero-left">
-              <span className="pom-badge"><span aria-hidden="true">◎</span> Focus mode</span>
-              <h2>Pick your focus</h2>
-              <p>Choose how hard you want to work and what type of pomodoro fits your goals.</p>
-
-              <div className="pom-picks">
-                <label className="pom-pick">
-                  <span className="pom-pick-glyph" aria-hidden="true">🔥</span>
-                  <span className="pom-pick-top">
-                    <b>{level.name}</b>
-                    <i>{level.hint}</i>
-                  </span>
-                  <select value={level.id} aria-label="Intensity"
-                    onChange={(e) => pomodoro.setLevel(Number(e.target.value))}>
-                    {LEVELS.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-                  </select>
-                </label>
-                <label className="pom-pick">
-                  <span className="pom-pick-glyph" aria-hidden="true">🎯</span>
-                  <span className="pom-pick-top">
-                    <b>{style.name}</b>
-                    <i>{style.focus} min work · {style.rest} min break</i>
-                  </span>
-                  <select value={style.id} aria-label="Pomodoro style"
-                    onChange={(e) => pomodoro.choose(e.target.value)}>
-                    {STYLES.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-                  </select>
-                </label>
-              </div>
-
-              <button type="button" className="pom-start"
-                onClick={running ? pomodoro.pause : pomodoro.start}>
-                <span aria-hidden="true">{running ? '❚❚' : '▶'}</span>
-                {running ? 'Pause Focus' : 'Start Focus'}
-              </button>
-
-              <ul className="pom-perks">
-                <li><span aria-hidden="true">✦</span> Earns XP</li>
-                <li><span aria-hidden="true">📈</span> Tracks progress</li>
-                <li><span aria-hidden="true">🔥</span> Builds streak</li>
-              </ul>
-            </div>
-
             <div className="pom-hero-mid">
               <div className="pom-ring-wrap">
                 <Ring percent={percent} phase={phase} />
@@ -579,18 +991,23 @@ export default function Timer() {
                   <span className="pom-ring-phase">{PHASE_LABEL[phase]}</span>
                   <span className="pom-ring-time">{clock(remaining)}</span>
                   <span className="pom-ring-sub">
-                    {phase === 'focus' ? 'Work Session' : 'Rest'}
+                    {phase === 'focus' ? 'Work session' : 'Rest'}
                   </span>
                 </div>
               </div>
+
+              <button type="button" className="pom-start"
+                onClick={running ? pomodoro.pause : pomodoro.start}>
+                <Icon name={running ? 'pause' : 'play'} />
+                {running ? 'Pause focus' : 'Start focus'}
+              </button>
+
+              {/* Reset and set-up-again only. The round play button that used
+                  to lead this row was the same action as the button directly
+                  above it, a hundred pixels apart — two primaries for one
+                  decision, which is the cramming this layout was pulled apart
+                  to fix. */}
               <div className="pom-ring-controls">
-                <button type="button" className="pom-round is-primary"
-                  onClick={running ? pomodoro.pause : pomodoro.start}
-                  aria-label={running ? 'Pause' : 'Start'}>
-                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                    {running ? <path d="M8 5h3v14H8zm5 0h3v14h-3z" /> : <path d="M7 4.5v15l13-7.5z" />}
-                  </svg>
-                </button>
                 <button type="button" className="pom-round" onClick={pomodoro.reset} aria-label="Reset">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
                     strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -606,227 +1023,80 @@ export default function Timer() {
                   </svg>
                 </button>
               </div>
+
             </div>
 
             <div className="pom-hero-side">
               <div className="pom-side-card">
-                <span className="pom-side-icon pom-tone-amber" aria-hidden="true">🔥</span>
-                <span className="pom-side-label">Today&apos;s Focus</span>
+                <span className="pom-side-icon pom-tone-violet" aria-hidden="true"><Icon name="clipboard" /></span>
+                <span className="pom-side-label">Working on</span>
+                <strong className="pom-side-task">{picked ? picked.title : 'No task'}</strong>
+                <em>{picked ? 'logged on each session' : 'pick one below'}</em>
+              </div>
+              <div className="pom-side-card">
+                <span className="pom-side-icon pom-tone-amber" aria-hidden="true"><Icon name="flame" /></span>
+                <span className="pom-side-label">Today&apos;s focus</span>
                 <strong>{doneToday} / {level.target}</strong>
                 <em>pomodoros</em>
               </div>
               <div className="pom-side-card">
-                <span className="pom-side-icon pom-tone-rose" aria-hidden="true">🔥</span>
-                <span className="pom-side-label">Current Streak</span>
-                <strong>{stats?.current_streak ?? 0}</strong>
-                <em>days</em>
-              </div>
-              <div className="pom-side-card">
-                <span className="pom-side-icon pom-tone-violet" aria-hidden="true">⭐</span>
-                <span className="pom-side-label">Next Level</span>
-                <strong>Level {(levelNow?.level ?? 1) + 1}</strong>
-                <em>{levelNow
-                  ? `${(levelNow.xpRequired - levelNow.xpInLevel).toLocaleString()} XP to go`
-                  : '—'}</em>
+                <span className="pom-side-icon pom-tone-blue" aria-hidden="true"><Icon name="clock" /></span>
+                <span className="pom-side-label">Focused today</span>
+                <strong>{fmtHM(session.focused)}</strong>
+                <em>of {fmtHM(goalSeconds)} goal</em>
               </div>
             </div>
           </section>
 
-          {/* ---- Progress ---------------------------------------------- */}
-          <section className="pom-panel">
+          {/* ---- What it is for ---------------------------------------- */}
+          <TaskPicker tasks={choices} picked={picked?.id ?? null} onPick={setTask} today={today} />
+
+          {/* ---- Method ------------------------------------------------ */}
+          {/* The two decisions that shape the cycle, on their own. They used
+              to sit in the hero's left column above five more controls, which
+              made one panel answer four unrelated questions. */}
+          <section className="pom-panel pom-method">
             <header className="pom-panel-head">
-              <h2><span aria-hidden="true">📊</span> Your Progress</h2>
-              <div className="pom-toggle" role="group" aria-label="Range">
-                {RANGES.map((option) => (
-                  <button key={option.id} type="button"
-                    className={range === option.id ? 'is-on' : ''}
-                    aria-pressed={range === option.id}
-                    onClick={() => setRange(option.id)}>{option.id}</button>
-                ))}
+              <div className="pom-panel-title">
+                <h2><Icon name="target" /> Pick your focus</h2>
+                <p>How hard you're going and how long each session runs</p>
               </div>
             </header>
 
-            <div className="pom-progress">
-              <Donut percent={goalPercent}
-                sub={`${fmtHM(session.focused)} / ${fmtHM(goalSeconds)}`} />
-              <div className="pom-tiles">
-                <Tile tone="blue" glyph="🕐" label="Total Focus Time"
-                  value={fmtHM(totalNow * 3600)} delta={change(totalNow, totalBefore)} />
-                <Tile tone="rose" glyph="🍅" label="Pomodoros Today"
-                  value={String(doneToday)} delta={null} />
-                <Tile tone="amber" glyph="⚡" label="Avg. Focus / Day"
-                  value={workedNow ? fmtHM((totalNow / workedNow) * 3600) : '0m'}
-                  delta={change(
-                    workedNow ? totalNow / workedNow : 0,
-                    workedBefore ? totalBefore / workedBefore : 0,
-                  )} />
-                <Tile tone="green" glyph="✅" label="Tasks Completed"
-                  value={String(tasksNow)} delta={change(tasksNow, tasksBefore)} />
-              </div>
+            <div className="pom-picks">
+              <label className="pom-pick">
+                <span className="pom-pick-glyph" aria-hidden="true"><Icon name="flame" /></span>
+                <span className="pom-pick-top">
+                  <b>{level.name}</b>
+                  <i>{level.hint}</i>
+                </span>
+                <select value={level.id} aria-label="Intensity"
+                  onChange={(e) => pomodoro.setLevel(Number(e.target.value))}>
+                  {LEVELS.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </select>
+              </label>
+              <label className="pom-pick">
+                <span className="pom-pick-glyph" aria-hidden="true"><Icon name="target" /></span>
+                <span className="pom-pick-top">
+                  <b>{style.name}</b>
+                  <i>{style.focus} min work · {style.rest} min break</i>
+                </span>
+                <select value={style.id} aria-label="Timer style"
+                  onChange={(e) => pomodoro.choose(e.target.value)}>
+                  {STYLES.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </select>
+              </label>
             </div>
 
-            <div className="pom-lower">
-              <div className="pom-week">
-                <h3>Focus Time This Week</h3>
-                <div className="pom-bars">
-                  {week.map((day) => (
-                    <div className="pom-bar" key={day.name}>
-                      <span className="pom-bar-fill"
-                        style={{ height: `${Math.round((day.hours / weekPeak) * 100)}%` }}
-                        title={`${day.name}: ${fmtHM(day.hours * 3600)}`} />
-                      <span className="pom-bar-name">{day.name}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <figure className="pom-quote">
-                <QuoteScene />
-                <blockquote>
-                  “Discipline is the bridge between your goals and your reality.”
-                </blockquote>
-                <figcaption>— Summit</figcaption>
-              </figure>
-            </div>
+            <Recommend at={suggestion} sittings={intervals.length}
+              current={style.id} onUse={pomodoro.choose} />
           </section>
 
-          {/* ---- The ten ----------------------------------------------- */}
-          <section className="pom-panel">
-            <header className="pom-panel-head">
-              <h2><span aria-hidden="true">💡</span> Ten Ways to Divide an Hour</h2>
-              <span className="pom-quiet">{style.name} in use</span>
-            </header>
-            <StyleGrid current={style.id} onPick={pomodoro.choose} />
-          </section>
-
-          {/* ---- Analytics and ratings --------------------------------- */}
-          <div className="pom-split">
-            <section className="pom-panel">
-              <header className="pom-panel-head">
-                <h2><span aria-hidden="true">📈</span> Focus Analytics</h2>
-                <div className="pom-toggle" role="group" aria-label="Grain">
-                  {GRAINS.map((option) => (
-                    <button key={option} type="button"
-                      className={grain === option ? 'is-on' : ''}
-                      aria-pressed={grain === option}
-                      onClick={() => setGrain(option)}>{option}</button>
-                  ))}
-                </div>
-              </header>
-              <Line points={line} />
-            </section>
-
-            <section className="pom-panel">
-              <header className="pom-panel-head">
-                <div className="pom-panel-title">
-                  <h2><span aria-hidden="true">🗓️</span> Growth Ratings</h2>
-                  <p>Your overall growth this week</p>
-                </div>
-                <Link className="pom-link" to="/analytics">View details →</Link>
-              </header>
-              {metrics ? (
-                <>
-                  <div className="pom-ratings">
-                    <Rating name="Consistency" grade={metrics.consistency.grade} score={metrics.consistency.score} />
-                    <Rating name="Quality" grade={metrics.quality.grade} score={metrics.quality.score} />
-                    <Rating name="Productivity" grade={metrics.productivity.grade} score={metrics.productivity.score} />
-                    <Rating name="Efficiency" grade={metrics.efficiency.grade} score={metrics.efficiency.score} />
-                  </div>
-                  <div className="pom-overall">
-                    <span>Overall Score</span>
-                    <strong>{ratings.data?.overall.score}%</strong>
-                    <div className="pom-overall-bar">
-                      <span style={{ width: `${ratings.data?.overall.score ?? 0}%` }} />
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <p className="pom-empty">
-                  {ratings.error ? 'Could not read your ratings.' : 'Reading your ratings…'}
-                </p>
-              )}
-            </section>
-          </div>
-
-          {/* ---- Goals and tasks --------------------------------------- */}
-          <div className="pom-split">
-            <section className="pom-panel">
-              <header className="pom-panel-head">
-                <h2><span aria-hidden="true">🎯</span> Active Goals</h2>
-                <Link className="pom-link" to="/goals">View all</Link>
-              </header>
-              {activeGoals.length ? (
-                <ul className="pom-goals">
-                  {activeGoals.map((goal, at) => (
-                    <li key={goal.id}>
-                      <span className={`pom-goal-icon pom-tone-${TONES[at % TONES.length]}`}
-                        aria-hidden="true">◈</span>
-                      <span className="pom-goal-main">
-                        <span className="pom-goal-title">{goal.title}</span>
-                        <span className="pom-goal-bar">
-                          <span style={{ width: `${Math.min(100, goal.progress)}%` }} />
-                        </span>
-                      </span>
-                      <span className="pom-goal-pct">{Math.round(goal.progress)}%</span>
-                      {CHEVRON}
-                    </li>
-                  ))}
-                </ul>
-              ) : <p className="pom-empty">Nothing you are aiming at yet.</p>}
-            </section>
-
-            <section className="pom-panel">
-              <header className="pom-panel-head">
-                <h2><span aria-hidden="true">📋</span> Upcoming Tasks</h2>
-                <Link className="pom-link" to="/tasks">View all</Link>
-              </header>
-              {upcoming.length ? (
-                <ul className="pom-tasks">
-                  {upcoming.map((task) => (
-                    <li key={task.id}>
-                      <span className="pom-check" aria-hidden="true" />
-                      <span className="pom-tasks-title">{task.title}</span>
-                      {task.subject && (
-                        <span className={`pom-tasks-tag pom-tone-${toneFor(task.subject)}`}>
-                          {task.subject}
-                        </span>
-                      )}
-                      <span className="pom-tasks-when">{due(task.due_date, today)}</span>
-                      {CHEVRON}
-                    </li>
-                  ))}
-                </ul>
-              ) : <p className="pom-empty">Nothing on your plate.</p>}
-            </section>
-          </div>
-
-          {/* ---- Level ------------------------------------------------- */}
-          <div className="pom-split is-level">
-            <section className="pom-level">
-              <span className="pom-level-gem" aria-hidden="true">💎</span>
-              <div className="pom-level-text">
-                <h2>Level Up Your Focus</h2>
-                <p>Complete focus sessions, earn XP, and get closer to your goals.</p>
-              </div>
-              <Link className="pom-level-cta" to="/achievements">View Rewards</Link>
-            </section>
-            <section className="pom-panel pom-levelcard">
-              <span className="pom-level-trophy" aria-hidden="true">🏆</span>
-              <div className="pom-levelcard-body">
-                <div className="pom-levelcard-top">
-                  <strong>Level {levelNow?.level ?? 1}</strong>
-                  <span>
-                    {(levelNow?.xpInLevel ?? 0).toLocaleString()} / {(levelNow?.xpRequired ?? 0).toLocaleString()} XP
-                  </span>
-                </div>
-                <div className="pom-level-bar">
-                  <span style={{ width: `${levelNow?.percent ?? 0}%` }} />
-                </div>
-              </div>
-            </section>
-          </div>
+          {/* ---- Today ------------------------------------------------- */}
+          <TodaySittings rows={sittingsToday} />
         </>
       )}
     </div>
   );
 }
+

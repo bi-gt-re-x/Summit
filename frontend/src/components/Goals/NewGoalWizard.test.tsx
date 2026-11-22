@@ -23,7 +23,7 @@ import type { Subject } from '@/services/subjects';
 type Suggest = NonNullable<NewGoalWizardProps['onSuggest']>;
 
 const SUBJECTS = [
-  { id: 'algebra', name: 'Algebra', label: 'Algebra', icon: 'algebra', group: 'Maths and science', custom: false },
+  { id: 'algebra', name: 'Algebra', label: 'Algebra', icon: 'algebra', group: 'Math and science', custom: false },
   { id: 'violin', name: 'Violin', label: 'Violin', icon: 'violin', group: 'Arts', custom: false },
 ] as unknown as Subject[];
 
@@ -45,7 +45,7 @@ describe('the subject on a new goal', () => {
     const user = userEvent.setup();
     show();
 
-    await user.type(screen.getByLabelText(/the outcome, not the activity/i), 'Get 24 on the AMC 8');
+    await user.type(screen.getByLabelText(/the result you want/i), 'Get 24 on the AMC 8');
     expect(next()).toBeDisabled();
   });
 
@@ -53,7 +53,7 @@ describe('the subject on a new goal', () => {
     const user = userEvent.setup();
     show();
 
-    await user.type(screen.getByLabelText(/the outcome, not the activity/i), 'Get 24 on the AMC 8');
+    await user.type(screen.getByLabelText(/the result you want/i), 'Get 24 on the AMC 8');
     await user.click(screen.getByRole('button', { name: /choose a subject/i }));
     await user.click(screen.getByRole('button', { name: 'Algebra' }));
 
@@ -85,12 +85,12 @@ describe('the subject on a new goal', () => {
     const user = userEvent.setup();
     const onSave = show();
 
-    await user.type(screen.getByLabelText(/the outcome, not the activity/i), 'Violin ARCT');
+    await user.type(screen.getByLabelText(/the result you want/i), 'Violin ARCT');
     await user.click(screen.getByRole('button', { name: /choose a subject/i }));
     await user.click(screen.getByRole('button', { name: 'Violin' }));
 
     // Straight to the end: every other step is skippable and says so.
-    for (let step = 0; step < 4; step += 1) await user.click(next());
+    for (let step = 0; step < 5; step += 1) await user.click(next());
     await user.click(screen.getByRole('button', { name: 'Create goal' }));
 
     expect(onSave).toHaveBeenCalledWith(
@@ -100,7 +100,7 @@ describe('the subject on a new goal', () => {
 });
 
 describe('the model on the checkpoints step', () => {
-  const DRAFT = ['Grade 8 repertoire secure', 'Etudes at tempo', 'Concerto memorised',
+  const DRAFT = ['Grade 8 repertoire secure', 'Etudes at tempo', 'Concerto memorized',
     'Mock exam passed', 'ARCT performance passed'];
 
   async function toCheckpoints(onSuggest: Suggest) {
@@ -116,7 +116,7 @@ describe('the model on the checkpoints step', () => {
         onSuggest={onSuggest}
       />,
     );
-    await user.type(screen.getByLabelText(/the outcome, not the activity/i), 'Violin ARCT');
+    await user.type(screen.getByLabelText(/the result you want/i), 'Violin ARCT');
     await user.click(screen.getByRole('button', { name: /choose a subject/i }));
     await user.click(screen.getByRole('button', { name: 'Violin' }));
     await user.click(next());
@@ -134,8 +134,9 @@ describe('the model on the checkpoints step', () => {
     expect(onSuggest).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Violin ARCT', why: 'Teach one day', deadline: expect.any(String) }),
     );
-    expect(await screen.findByText('Concerto memorised')).toBeInTheDocument();
+    expect(await screen.findByText('Concerto memorized')).toBeInTheDocument();
 
+    await user.click(next());
     await user.click(screen.getByRole('button', { name: 'Create goal' }));
     // The list the reader saw is the list the goal gets.
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ milestones: DRAFT }));
@@ -148,5 +149,26 @@ describe('the model on the checkpoints step', () => {
     await user.click(screen.getByRole('button', { name: 'Suggest with AI' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('need a model key');
+  });
+});
+
+describe('the chart step', () => {
+  it('asks which chart the card should draw, and sends the answer with the goal', async () => {
+    const user = userEvent.setup();
+    const onSave = show();
+
+    await user.type(screen.getByLabelText(/the result you want/i), 'Violin ARCT');
+    await user.click(screen.getByRole('button', { name: /choose a subject/i }));
+    await user.click(screen.getByRole('button', { name: 'Violin' }));
+    for (let step = 0; step < 5; step += 1) await user.click(next());
+
+    expect(screen.getByRole('heading', { name: 'How should it look?' })).toBeInTheDocument();
+    // Automatic is where it starts.
+    expect(screen.getByRole('radio', { name: /Automatic/ })).toHaveAttribute('aria-checked', 'true');
+
+    await user.click(screen.getByRole('radio', { name: /Heatmap/ }));
+    await user.click(screen.getByRole('button', { name: 'Create goal' }));
+
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ chart: 'heatmap' }));
   });
 });

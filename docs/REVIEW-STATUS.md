@@ -83,7 +83,7 @@ worth far more, so it was done first.
    showing the XP from before a completion.
 
 Callers moved off the heavy read: the rail, the top bar, `pages/Settings.tsx`
-and `pages/Achievements.tsx` (both held it to read a `username`; `useAuth` has
+and `components/Achievements/BadgeWall.tsx` (both held it to read a `username`; `useAuth` has
 one).
 
 ### What is left
@@ -95,7 +95,7 @@ totals off individual rows — so it cannot simply stop reading; it needs a
 scoped read. Worth ~40% on that page and on dashboard, tasks, calendar, goals
 and records.
 
-`pages/Records.tsx` is the awkward one: `personalRecords` asks all-time
+`pages/Achievements.tsx` is the awkward one: `personalRecords` asks all-time
 questions ("most tasks in a day, ever"), so a window would break it. That one
 wants server-side aggregation rather than a narrower read.
 

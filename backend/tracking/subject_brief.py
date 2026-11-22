@@ -23,7 +23,7 @@ that its figures are its own.
 
 **The model is given the numbers and may not produce any others.** It writes
 prose over a supplied set of findings: it may quote them, order them, explain
-what they imply and say what to practise — and it may not compute, estimate,
+what they imply and say what to practice — and it may not compute, estimate,
 round differently, or invent a figure that was not handed to it. The system
 prompt says this three ways because it is the one failure that would matter:
 a made-up "you are 68% accurate in geometry" on this page is indistinguishable
@@ -58,6 +58,7 @@ import re
 from typing import Any, Dict, List
 
 from backend.tracking import planner
+from backend.tracking.plainwords import STYLE, plain
 
 #: Opus, and not the Sonnet the goals page uses.
 #:
@@ -84,7 +85,7 @@ You write the read-out for one subject on a study-analytics page.
 
 You are given a set of findings that the app has already computed from the \
 reader's own record. Your job is to turn them into two things: a short reading \
-of what they mean together, and what to practise next.
+of what they mean together, and what to practice next.
 
 THE ONE RULE THAT MATTERS
 
@@ -137,7 +138,7 @@ page. If the record is thin, say that plainly instead of overreading it.
 `practice` — what to work on next, most valuable first. This is where you are \
 allowed to know things the app does not: what a task at that difficulty in \
 that subject usually involves, and what specifically is worth drilling. Be \
-concrete to the subject. "Practise more" says nothing.
+concrete to the subject. "Practice more" says nothing.
 
 Each practice block has:
 - `title`: what to work on, six words or fewer.
@@ -163,8 +164,9 @@ The reader came for a read-out, not a report card comment.
 Write the way somebody who knows the subject would say it out loud. Short \
 sentences. Ordinary words. No em-dash asides, no "X, not Y" flourishes, and \
 no sentence that exists to land a point rather than say a thing. Never open \
-with "Your record shows" or close by summarising what you just said.
+with "Your record shows" or close by summarizing what you just said.
 """
+SYSTEM += STYLE
 
 SCHEMA = {
     'type': 'object',
@@ -306,6 +308,14 @@ def brief_from(findings: Dict[str, Any]) -> str:
                 entry.get('title'), entry.get('progress'),
                 entry.get('deadline') or 'no date set', when))
 
+    # What they've told Summit in the Log page (backend/tracking/journal.py
+    # `brief_lines`), so the write-up fits the person as well as the figures.
+    about = [str(line) for line in (findings.get('about') or []) if str(line).strip()]
+    if about:
+        lines.append('')
+        lines.append(planner.ABOUT_HEADING)
+        lines.extend('- {}'.format(line) for line in about)
+
     return '\n'.join(lines)
 
 
@@ -386,7 +396,7 @@ def _clean(found: Dict[str, Any]) -> Dict[str, Any]:
 # The one thing this module does
 # ---------------------------------------------------------------------------
 def write(findings: Dict[str, Any], model_id: str = '') -> Dict[str, Any]:
-    """A reading of these findings, and what to practise next.
+    """A reading of these findings, and what to practice next.
 
     Raises `BriefUnavailable` for everything the panel should say out loud —
     no key, a refused request, an unreadable answer. The caller turns that
@@ -409,6 +419,7 @@ def write(findings: Dict[str, Any], model_id: str = '') -> Dict[str, Any]:
                 'using only the figures below.'),
             model_id=model_id or MODEL_DEFAULT,
             max_tokens=MAX_TOKENS,
+            topics=(findings.get('subject') or '',),
         )
     except planner.PlannerUnavailable as exc:
         # The client, the workspace header and the refusal check are shared
@@ -417,4 +428,4 @@ def write(findings: Dict[str, Any], model_id: str = '') -> Dict[str, Any]:
         # passed through under this module's own type rather than reworded.
         raise BriefUnavailable(str(exc)) from exc
 
-    return _clean(_object(text))
+    return _clean(plain(_object(text)))

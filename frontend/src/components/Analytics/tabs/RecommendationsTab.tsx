@@ -12,28 +12,27 @@
  * three results waiting, and hiding those behind the same gate would lose the
  * one thing this tab promised to come back and tell you.
  */
-import { Link } from 'react-router-dom';
-import { AdviceCard, CategoryFilter, FollowupPanel, OutlookPanel } from '@/components/Recommendations';
+import { NextSessionsPanel } from '@/components/NextSessions/NextSessions';
+import { FollowupPanel } from '@/components/Recommendations';
 import { DiagnosisCards, DiagnosisEmpty } from '../Diagnosis';
 import { NextActions } from '../NextActions';
-import { PanelGroup } from '../charts';
-import { Locked } from '../Locked';
-import { SETTLE } from '@/utils/followup';
-import { NEED_DAYS } from '../useAnalyticsModel';
+import { GoalForecast } from '../GoalForecast';
+import { ReviewPanel } from '../ReviewPanel';
+import { SkillTreesPanel } from '../SkillTreesPanel';
+import { XpPulse } from '../XpPulse';
+import { LensCard } from '../Lens';
+import { Knows, useKnows } from '../Knows';
 import type { AnalyticsData } from '../useAnalyticsData';
 import type { AnalyticsModel } from '../useAnalyticsModel';
 
 export function RecommendationsTab({ model, data }: { model: AnalyticsModel } & { data: AnalyticsData }) {
   const {
-    adoptedIds, advice, category, goalAdvice, historyDays, plan, projection, recent, reviewSummary,
-    reviews, setBudget, setCategory, setNudge, shown, shownDiagnoses, toneRules, waitFor, weekLeft,
+    all, lens, plan, recent, reviewSummary, reviews, setBudget, setNudge, slice, shownDiagnoses,
     /* The three inputs this tab was not reading. `rhythm` carries the reader's
        typical sitting, drawn from their logged focus time; `reasons` is what
        they type after a task; `detail` is how much supporting evidence they
-       asked to be shown. None of the three changes which recommendations exist
-       or how they are ranked — see the note on `headlines` below, which is the
-       same rule. */
-    detail, reasons, rhythm,
+       asked to be shown. None of the three changes what the plan suggests. */
+    detail, reasons, rhythm, nudge,
   } = model;
 
   /**
@@ -47,42 +46,59 @@ export function RecommendationsTab({ model, data }: { model: AnalyticsModel } & 
     ? { phrase: reasons.struggle[0].phrase, count: reasons.struggle[0].count }
     : null;
 
-  /*
-   * How many problems this tab puts in front of the reader at once.
-   *
-   * Both numbers come from the harshness setting rather than from a constant
-   * here — two cards and two tensions on gentle, five and eight on blunt. What
-   * does *not* change is which recommendations exist or how they are ranked:
-   * every rule the record supports still fires, and the list under the cards
-   * is the same list. This is how much of it leads the tab.
-   *
-   * `shownDiagnoses` is capped in the model rather than here, because the
-   * export writes the uncapped set and both have to come off one decision.
-   * See utils/analyticsPrefs.
-   */
-  const headlines = toneRules?.headlines ?? 3;
+  /* `shownDiagnoses` is capped in the model by the harshness setting, because
+     the export writes the uncapped set and both have to come off one
+     decision. See utils/analyticsPrefs. */
   const diagnoses = shownDiagnoses ?? [];
-  const { adopt, adopting, dropAdopted, dropping, justAdopted, refresh } = data;
+  const { dropAdopted, dropping, refresh } = data;
+  const knows = useKnows(model);
+
+  const refreshPlan = () => {
+    refresh();
+    setNudge((at) => at + 1);
+  };
 
   return (
     <>
+      {/* First, the one forward-looking number: will each dated goal finish in
+          time at this pace, and what gets it there. Draws nothing without a
+          dated goal, section and all. See ../GoalForecast. */}
+      <GoalForecast onBooked={refreshPlan} reload={nudge} />
+
+      {/* Above the plan, because it is the reason the plan is in this order.
+          A reader who meets the ranking first and the explanation second has
+          already decided the ranking is arbitrary. The XP card beside it is
+          the figure the lens is about. */}
+      {(lens || all.length > 0) && (
+        <section className="ax-section">
+          <div className={`ax-panel ax-rec-top${lens ? '' : ' is-solo'}`}>
+            {lens && <LensCard lens={lens} />}
+            <XpPulse all={all} current={slice.current} />
+          </div>
+        </section>
+      )}
+
       <section className="ax-section">
         <NextActions
           plan={plan}
           onBudget={setBudget}
-          weekLeft={weekLeft}
           typicalSession={rhythm.typicalSession}
           /* Both halves: `refresh` re-reads the account so a task finished
              elsewhere leaves the plan, and the nudge re-asks the clock so
              what counts as overdue is worked out again. */
-          onRefresh={() => {
-            refresh();
-            setNudge((at) => at + 1);
-          }}
+          onRefresh={refreshPlan}
         />
       </section>
 
-      {/* Then the diagnosis: what the fortnight means, before what to change
+      {/* Right under the plan, because its "Redo" row scrolls here: what you
+          got wrong, back on 1, 3, 7 and 14 days, done in place. Then each
+          skill tree you've practiced, with what to do next in it. Both draw
+          nothing on an account with no misses or practice. See ../ReviewPanel
+          and ../SkillTreesPanel. */}
+      <ReviewPanel onChanged={refreshPlan} />
+      <SkillTreesPanel />
+
+      {/* Then the diagnosis: what the two weeks means, before what to change
           about it. A reader who understands why the numbers are moving reads
           the recommendations below as reasons rather than as chores. */}
       <section className="ax-section">
@@ -93,31 +109,11 @@ export function RecommendationsTab({ model, data }: { model: AnalyticsModel } & 
         )}
       </section>
 
-      {/* The goals' own advice, kept separate from the ranked list below
-          rather than merged into it. `advice` is ranked by XP a year and
-          these are not comparable to that — a goal drifting past its date
-          is not worth "1,200 XP", it is worth the goal. Two rows at most:
-          this is a pointer to the goals page, not a second copy of it. */}
-      {goalAdvice.length > 0 && (
-        <section className="ax-section">
-          <PanelGroup
-            title="From your goals"
-            note="What each goal's own figures say, where they say anything. A goal that is simply going well produces nothing here."
-          >
-            <ul className="ax-goal-advice">
-              {goalAdvice.map((row) => (
-                <li key={row.id} className={`is-${row.tone}`}>
-                  <strong>{row.title}</strong>
-                  <span className="ax-muted">{row.because}</span>
-                  <Link to="/goals" className="ax-link">
-                    {row.goalTitle}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </PanelGroup>
-        </section>
-      )}
+      {/* The "Changes Worth Making" cards were here: each change ranked by the
+          XP it would add over a year. Cut, because a yearly XP figure is not
+          something a student is trying to learn, and the cards contradicted
+          other tabs ("0% rated" against 88% on Overview). The plan above says
+          what to do next. */}
 
       <section className="ax-section">
         {/* What happened to changes already adopted is evidence, not diagnosis,
@@ -131,57 +127,23 @@ export function RecommendationsTab({ model, data }: { model: AnalyticsModel } & 
         />
       </section>
 
-      {(waitFor('recommendations') > 0 || advice.length === 0) && (
-        <Locked
-          title="Recommendations"
-          remaining={waitFor('recommendations')}
-          need={NEED_DAYS.recommendations}
-          have={historyDays}
-          promise="Each one is priced off your own averages, and an average needs a fortnight."
-          brings={['What to change, ranked by worth', 'The arithmetic behind each', 'How hard it is', 'One tap to your task list']}
-          emptyMessage="No long gaps, no dead weekend, no late shift worth moving. Nothing to fix."
-          action={
-            <Link to="/analytics" className="ax-btn">
-              See totals
-            </Link>
-          }
-        />
-      )}
+      {/* "Five years, both ways", the XP projection, was here. Cut: a
+          five-year XP forecast changes nothing about this week. */}
 
-      {waitFor('recommendations') === 0 && advice.length > 0 && (
-        <>
-          {/* The projection alone, across the width. It used to share the row
-              with an opening panel restating the same figures in prose, which
-              left the chart — the thing the tab opens on — squeezed into half
-              a screen beside a column of text saying what it already showed. */}
-          <section className="ax-section">
-            <OutlookPanel outlook={projection} />
-          </section>
-          {justAdopted && (
-            <p className="ax-adopted" role="status">
-              <strong>{justAdopted}</strong> is on your task list for tomorrow, and this tab will
-              tell you in {SETTLE} days whether it moved. <Link to="/tasks">Open Tasks</Link>
-            </p>
-          )}
-          <section className="ax-section">
-            <CategoryFilter items={advice} chosen={category} onChoose={setCategory} />
-            {shown.length > 0 && (
-              <div className="ax-grid ax-grid-three">
-                {shown.slice(0, headlines).map((item, index) => (
-                  <AdviceCard
-                    key={item.id}
-                    item={item}
-                    rank={index + 1}
-                    onAdopt={adopt}
-                    adopting={adopting}
-                    adopted={adoptedIds.has(item.id)}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-        </>
-      )}
+      {/* Three exact sessions to plan, for every subject or one picked, where
+          the cards above are changes to habits. Drawn whether or not there is
+          advice yet — it is read from finished work, not from the weeks of
+          history the cards wait for. See components/NextSessions. */}
+      <section className="ax-section">
+        <NextSessionsPanel where="analytics" />
+      </section>
+
+      {/* Your coach's read: what Summit makes of the reader, each fact ending
+          in something to do. Each fact carries its own floor, so this is empty
+          on a brand new account. */}
+      <section className="ax-section">
+        <Knows facts={knows} />
+      </section>
     </>
   );
 }

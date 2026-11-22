@@ -41,6 +41,8 @@ sys.path.insert(0, ROOT)
 _TMP = tempfile.mkdtemp(prefix='summit-tests-')
 os.environ['SUMMIT_DB'] = os.path.join(_TMP, 'test.db')
 os.environ['SECRET_KEY'] = 'tests-do-not-need-a-real-one'
+# No test looks anything up on Wikipedia (backend/tracking/sources.py).
+os.environ['SUMMIT_NO_SOURCES'] = '1'
 
 # `create_app` refuses to start without these two unless SUMMIT_DEV says the
 # install is a laptop (see `deployment_problems` in backend/config/settings.py).
@@ -60,6 +62,20 @@ os.environ['APP_BASE_URL'] = 'http://testserver'
 # itself is asserted in tests/test_ratelimit.py, which builds an app without
 # this and reads the Set-Cookie header.
 os.environ['SUMMIT_INSECURE_COOKIES'] = '1'
+
+# SQLite unless asked otherwise. A developer's DATABASE_URL must never point
+# the suite at their real Postgres database; SUMMIT_TEST_DATABASE_URL names a
+# throwaway one to run the whole suite against Postgres instead, and its
+# schema is dropped and rebuilt for every test (see `fresh_db`).
+#
+# Set to '' rather than removed, and that difference is the whole safeguard:
+# `settings.load_dotenv` fills in only names that are *absent*, and importing
+# backend/run.py calls it, so a removed DATABASE_URL came straight back from
+# the developer's .env halfway through a run and every test after that wrote
+# into their real database. An empty one is present, so .env leaves it alone,
+# and `database_url()` reads '' as "use SQLite".
+_TEST_PG = os.environ.get('SUMMIT_TEST_DATABASE_URL', '').strip()
+os.environ['DATABASE_URL'] = _TEST_PG
 
 import pytest                                            # noqa: E402
 from fastapi.testclient import TestClient                # noqa: E402
@@ -117,6 +133,24 @@ def _no_model_keys(monkeypatch):
     monkeypatch.setattr(settings, 'load_dotenv', lambda path=None: None)
 
 
+#: What cannot run against Postgres, because it is *about* SQLite: these open
+#: the database file with sqlite3 to look at raw rows, or read SQLite's query
+#: planner to prove an index is used. Everything else runs on both.
+SQLITE_ONLY_FILES = {'test_goal_matcher_store.py', 'test_plan_backfill.py',
+                     'test_planner_end_to_end.py'}
+SQLITE_ONLY_TESTS = {'test_the_task_read_does_not_sort_every_row',
+                     'test_the_stale_query_uses_its_index'}
+
+
+def pytest_collection_modifyitems(config, items):
+    if not _TEST_PG:
+        return
+    skip = pytest.mark.skip(reason='reads the SQLite file or its query planner directly')
+    for item in items:
+        if item.fspath.basename in SQLITE_ONLY_FILES or item.name in SQLITE_ONLY_TESTS:
+            item.add_marker(skip)
+
+
 PASSWORD = 'not-a-real-password-1'
 
 
@@ -148,8 +182,31 @@ def fresh_db(tmp_path, monkeypatch):
     monkeypatch.setattr('backend.config.settings.DB_PATH', path, raising=False)
     monkeypatch.setattr(db, '_built', False)
     monkeypatch.setattr(db, '_last_id', {})
+    if _TEST_PG:
+        import psycopg
+        with psycopg.connect(_TEST_PG, autocommit=True) as wipe:
+            wipe.execute('DROP SCHEMA IF EXISTS public CASCADE')
+            wipe.execute('CREATE SCHEMA public')
     db._ensure_database()
     yield path
+
+    # The goal matcher's background work, finished while this database is
+    # still the one it was queued against. Creating or editing a goal queues a
+    # catch-up on worker threads (backend/goal_matcher/queue.py); those
+    # threads outlive the test, and the path below is about to be put back, so
+    # a job still running would write into the next test's database.
+    #
+    # Here rather than in an autouse fixture of its own: one depending on
+    # `fresh_db` would build a database for every test in the suite, including
+    # the ones that never touch it.
+    from backend.goal_matcher.queue import work
+    assert work.wait_idle(timeout=30), 'goal matcher jobs still running after the test'
+    work.clear()
+
+    # Log entries waiting to be read (backend/tracking/journal.py) are timers,
+    # not queue jobs. Dropped for the same reason: the database is going.
+    from backend.tracking import journal
+    journal.cancel_all()
 
 
 @pytest.fixture

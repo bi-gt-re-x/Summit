@@ -52,31 +52,35 @@ export interface BenchHero {
   /** The last 30 days against the account's opening stretch, as a percentage.
    *  The opening stretch is scaled to the same length first — see below. */
   fromBaseline: number | null;
-  baselineXp: number;
-  currentXp: number;
-  /** The best 30-day stretch the account has ever had. */
-  bestXp: number;
+  baselineTasks: number;
+  /** Tasks finished in the last 30 days, and focus hours beside them. */
+  currentTasks: number;
+  currentFocusHours: number;
+  /** The best 30-day stretch the account has ever had, in tasks finished. */
+  bestTasks: number;
   bestEndedOn: string | null;
 }
 
 /**
  * Where the present sits in the account's own history.
  *
- * Both figures are 30-day totals, which is the shortest window that survives a
- * bad Tuesday. The percentile counts every 30-day window the account has had,
+ * Both figures are 30-day totals of tasks finished, which is the shortest
+ * window that survives a bad Tuesday. Tasks, not XP: the ranking is about how
+ * much got done, and XP only says what it paid. The percentile counts every 30-day window the account has had,
  * overlapping ones included — a reader who has been going eight months has
  * about two hundred of them, and the question "is this a good month for me" is
  * exactly the question that ranking answers.
  */
 export function benchHero(all: GrowthDay[]): BenchHero {
-  const xp = (day: GrowthDay) => num(day.xp_earned);
+  const xp = (day: GrowthDay) => num(day.tasks_completed);
   const current = sumOver(all.slice(-WINDOW_DAYS), xp);
+  const focusMinutes = sumOver(all.slice(-WINDOW_DAYS), (day) => num(day.focus_minutes));
 
   // The baseline is the account's opening window, and it must not overlap the
   // closing one — a comparison that shares days with itself flatters whichever
   // end the shared days fell in. On an account younger than two months both
   // windows shrink to half its life, so the figure appears from about a
-  // fortnight in rather than waiting for the sixtieth day.
+  // two weeks in rather than waiting for the sixtieth day.
   const baselineDays = Math.min(WINDOW_DAYS, Math.floor(all.length / 2));
   const baseline = sumOver(all.slice(0, baselineDays), xp);
   // Scaled to the same length as the window it is compared against, or a short
@@ -103,9 +107,10 @@ export function benchHero(all: GrowthDay[]): BenchHero {
     windows: totals.length,
     fromBaseline:
       scaled > 0 && all.length >= 14 ? Math.round(((current - scaled) / scaled) * 100) : null,
-    baselineXp: Math.round(scaled),
-    currentXp: Math.round(current),
-    bestXp: Math.round(best?.value ?? 0),
+    baselineTasks: Math.round(scaled),
+    currentTasks: Math.round(current),
+    currentFocusHours: Math.round(focusMinutes / 60),
+    bestTasks: Math.round(best?.value ?? 0),
     bestEndedOn: best?.endsOn ?? null,
   };
 }
@@ -184,7 +189,7 @@ export function benchCategories(all: GrowthDay[], tasks: Task[], streak: number)
       key,
       label,
       current: unit(nowValue),
-      previous: before.length ? unit(beforeValue) : '—',
+      previous: before.length ? unit(beforeValue) : '-',
       best: unit(best.value),
       bestOn: best.endsOn,
       percent: best.value > 0 ? Math.min(100, Math.round((nowValue / best.value) * 100)) : 0,
@@ -219,7 +224,7 @@ export function benchCategories(all: GrowthDay[], tasks: Task[], streak: number)
     {
       key: 'output',
       label: 'Output',
-      note: 'What the last 30 days produced, against your best 30.',
+      note: 'Your last 30 days vs. your best 30.',
       rows: [
         row('xp', 'XP earned', xp, asXp),
         row('tasks', 'Tasks completed', done, asCount),
@@ -228,13 +233,13 @@ export function benchCategories(all: GrowthDay[], tasks: Task[], streak: number)
     {
       key: 'discipline',
       label: 'Discipline',
-      note: 'Whether the work keeps landing, against the best run you have had.',
+      note: "How steady you've been vs. your best run.",
       rows: [
         {
           key: 'active',
           label: 'Days worked',
           current: `${activeDays(now)} of ${now.length}`,
-          previous: before.length ? `${activeDays(before)} of ${before.length}` : '—',
+          previous: before.length ? `${activeDays(before)} of ${before.length}` : '-',
           best: `${bestStreak} in a row`,
           bestOn: null,
           percent: now.length ? Math.round((activeDays(now) / now.length) * 100) : 0,
@@ -249,7 +254,7 @@ export function benchCategories(all: GrowthDay[], tasks: Task[], streak: number)
           key: 'streak',
           label: 'Current streak',
           current: `${streak} days`,
-          previous: '—',
+          previous: '-',
           best: `${bestStreak} days`,
           bestOn: null,
           percent: bestStreak > 0 ? Math.min(100, Math.round((streak / bestStreak) * 100)) : 0,
@@ -260,13 +265,13 @@ export function benchCategories(all: GrowthDay[], tasks: Task[], streak: number)
     {
       key: 'focus',
       label: 'Focus',
-      note: 'Tracked focus time, against your deepest 30 days.',
+      note: 'Your focus time vs. your best 30 days.',
       rows: [row('focus', 'Hours focused', focus, asHours)],
     },
     {
       key: 'quality',
       label: 'Quality',
-      note: 'How heavy the work was, and whether it beat its own deadlines.',
+      note: 'How big your tasks were, and if you beat your deadlines.',
       rows: [
         {
           key: 'pertask',
@@ -275,7 +280,7 @@ export function benchCategories(all: GrowthDay[], tasks: Task[], streak: number)
           previous:
             before.length && sumOver(before, done) > 0
               ? asXp(sumOver(before, xp) / sumOver(before, done))
-              : '—',
+              : '-',
           best: asXp(
             Math.max(0, ...all.map((day) => (done(day) > 0 ? xp(day) / done(day) : 0))),
           ),
@@ -300,7 +305,7 @@ export function benchCategories(all: GrowthDay[], tasks: Task[], streak: number)
             key: 'ontime',
             label: 'Beat the deadline',
             current: timed.length ? `${pct}%` : 'no timed tasks',
-            previous: '—',
+            previous: '-',
             note: timed.length ? `${met} of ${timed.length} timed` : 'nothing timed yet',
             // Every timed task on time. The one row on the page whose bar is
             // against a perfect score rather than against a personal best,
@@ -477,9 +482,9 @@ export function personalRecords(all: GrowthDay[], tasks: Task[], streak: number)
     record('day', 'Best day', bestXpDay.value, 'XP', 0, bestXpDay.on, 'spark'),
     record('week', 'Best week', week.value, 'XP', 0, week.on, 'trend'),
     record('tasks', 'Most tasks in a day', bestTasks.value, '', 0, bestTasks.on, 'check'),
-    record('focus', 'Deepest day', bestFocus.value / 60, 'hrs', 1, bestFocus.on, 'clock'),
+    record('focus', 'Most focus in a day', bestFocus.value / 60, 'hrs', 1, bestFocus.on, 'clock'),
     record('streak', 'Longest streak', best, 'days', 0, null, 'flame'),
-    record('heaviest', 'Heaviest single task', heaviest.value, 'XP', 0, heaviest.on, 'trophy'),
+    record('heaviest', 'Biggest task', heaviest.value, 'XP', 0, heaviest.on, 'trophy'),
     record('now', 'Streak right now', streak, 'days', 0, null, 'target'),
   ];
 }

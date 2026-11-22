@@ -12,7 +12,7 @@ import { open, lock } from './types';
 export const ENDURANCE: SubjectTree = {
   id: 'endurance',
   title: 'Endurance',
-  blurb: 'Building an engine — mostly slowly, occasionally very hard.',
+  blurb: 'Building an engine. Mostly slowly, occasionally very hard.',
   parent: 'fitness',
   nodes: [
     { id: 'en.base', name: 'Aerobic Base', icon: 'aerobic', tier: 'foundation', core: true, state: open, percent: 25, xp: 1500,
@@ -22,7 +22,7 @@ export const ENDURANCE: SubjectTree = {
     { id: 'en.breath', name: 'Breathing', icon: 'breath', tier: 'foundation', requires: ['en.gait'], state: lock, percent: 0, xp: 1300,
       desc: 'Rhythmic, relaxed and matched to effort. It is also the most reliable everyday gauge of how hard a session actually is, long before any device tells you.' },
     { id: 'en.zones', name: 'Effort Zones', icon: 'zones', tier: 'beginner', core: true, requires: ['en.breath'], state: lock, percent: 0, xp: 1700,
-      desc: 'Dividing effort into bands by heart rate, pace or feel. The value is not precision; it is keeping easy days genuinely easy so hard days can be hard.' },
+      desc: 'Dividing effort into bands by heart rate, pace or feel. The value is not precision; it is keeping easy days actually easy so hard days can be hard.' },
     { id: 'en.long', name: 'The Long Session', icon: 'long-run', tier: 'beginner', requires: ['en.zones'], state: lock, percent: 0, xp: 1800,
       desc: 'One session a week that goes further than the others, built up gradually. It teaches the body to use fat for fuel and teaches you what happens after ninety minutes.' },
     { id: 'en.volume', name: 'Weekly Volume', icon: 'volume', tier: 'beginner', requires: ['en.long'], state: lock, percent: 0, xp: 1700,
@@ -36,7 +36,7 @@ export const ENDURANCE: SubjectTree = {
     { id: 'en.strength', name: 'Strength for Endurance', icon: 'barbell', tier: 'intermediate', requires: ['en.gait'], state: lock, percent: 0, xp: 1800,
       desc: 'Two sessions a week of heavy, low-rep lifting, which improves economy and resistance to injury. It does not make endurance athletes bulky, which is the fear that keeps most of them from doing it.' },
     { id: 'en.fuel', name: 'Fuelling', icon: 'fuel', tier: 'intermediate', requires: ['en.long'], state: lock, percent: 0, xp: 1800,
-      desc: 'Carbohydrate before and during anything long, practised in training rather than tried on the day. The gut is trainable, and race day is the worst possible place to discover it is not.' },
+      desc: 'Carbohydrate before and during anything long, practiced in training rather than tried on the day. The gut is trainable, and race day is the worst possible place to discover it is not.' },
     { id: 'en.heat', name: 'Heat, Cold & Altitude', icon: 'climate', tier: 'advanced', requires: ['en.fuel'], state: lock, percent: 0, xp: 1900,
       desc: 'How conditions change achievable pace and required fluid. Adjusting expectations for the weather is a skill; refusing to is how a good session becomes a bad week.' },
     { id: 'en.plan', name: 'Training Plans', icon: 'training-plan', tier: 'advanced', core: true, requires: ['en.threshold', 'en.volume'], state: lock, percent: 0, xp: 2200,
@@ -54,6 +54,8 @@ export const ENDURANCE: SubjectTree = {
     { id: 'en.crosstrain', name: 'Cross-Training', icon: 'cross-train', tier: 'expert', requires: ['en.injury'], state: lock, percent: 0, xp: 2100,
       desc: 'Swimming, cycling or rowing to keep the engine while a joint recovers. It is what turns an injury from a lost season into a lost month.' },
     { id: 'en.season', name: 'Seasons & Longevity', icon: 'longevity', tier: 'mastery', requires: ['en.race', 'en.crosstrain'], state: lock, percent: 0, xp: 2900,
-      desc: 'Building years rather than blocks, with off-seasons that are genuinely off. The athletes who improve for a decade are the ones who allowed themselves to be unfit for a few weeks each year.' },
+      desc: 'Building years rather than blocks, with off-seasons that are really off. The athletes who improve for a decade are the ones who allowed themselves to be unfit for a few weeks each year.' },
+    { id: 'en.swimming', name: 'Swimming', icon: 'waves', tier: 'intermediate', requires: ['en.crosstrain'], navTo: 'swimming', state: lock,
+      desc: 'Its own tree: breathing, all four strokes, starts, turns, training seasons and swim meets.' },
   ],
 };

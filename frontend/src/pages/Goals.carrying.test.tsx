@@ -21,7 +21,7 @@
 import { screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '@/test/render';
-import { stats } from '@/test/factories';
+import { goalHealth as reading, stats } from '@/test/factories';
 import type { Goal, Task } from '@/types';
 
 function day(offset: number): string {
@@ -69,9 +69,15 @@ const sinking = goal('over-late', {
   current_value: 5,
   start_date: day(-50),
   deadline: day(10),
+  health: reading('behind', '84 points behind where the calendar says it should be, with 10 days left.'),
 });
 
-const fine = goal('over-fine', { title: 'Read 24 books', priority: 1, current_value: 62 });
+const fine = goal('over-fine', {
+  title: 'Read 24 books',
+  priority: 1,
+  current_value: 62,
+  health: reading('on-track', '62% done, and worked on 1 time in the last two weeks.'),
+});
 
 const GOALS: Goal[] = [...ladder, sinking, fine];
 
@@ -113,14 +119,14 @@ const show = () =>
 
 /** The band itself, found by its heading rather than by position. */
 async function band() {
-  const heading = await screen.findByRole('heading', { name: /Also carrying/ });
+  const heading = await screen.findByRole('heading', { name: /Also tracking/ });
   return heading.closest('section')!;
 }
 
 describe('the goals that did not make the ladder', () => {
   it('says how many there are in the heading', async () => {
     show();
-    expect(await screen.findByRole('heading', { name: 'Also carrying · 2 goals' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Also tracking · 2 goals' })).toBeInTheDocument();
   });
 
   it('holds exactly the goals past the cap', async () => {
@@ -143,8 +149,8 @@ describe('the goals that did not make the ladder', () => {
     show();
     const rows = within(await band()).getAllByRole('listitem');
 
-    expect(within(rows[0]!).getByText('Off Track')).toBeInTheDocument();
-    expect(within(rows[1]!).getByText('On Track')).toBeInTheDocument();
+    expect(within(rows[0]!).getByText('Behind')).toBeInTheDocument();
+    expect(within(rows[1]!).getByText('On track')).toBeInTheDocument();
   });
 
   /* Not a second card system. A row is one button; a card carries a chart, a
@@ -154,7 +160,7 @@ describe('the goals that did not make the ladder', () => {
     show();
     const shelf = await band();
 
-    expect(within(shelf).queryByRole('button', { name: /View Details/i })).not.toBeInTheDocument();
+    expect(within(shelf).queryByRole('button', { name: /^details$/i })).not.toBeInTheDocument();
     expect(within(shelf).queryByRole('heading', { name: 'Current checkpoint' })).not.toBeInTheDocument();
     // One control per row, and it opens the goal.
     expect(within(shelf).getAllByRole('button')).toHaveLength(2);
@@ -164,8 +170,8 @@ describe('the goals that did not make the ladder', () => {
      twelfth goals — and the ten above it are still drawn as cards. */
   it('leaves the ten on the ladder as cards', async () => {
     show();
-    await screen.findByRole('heading', { name: /Also carrying/ });
+    await screen.findByRole('heading', { name: /Also tracking/ });
 
-    expect(screen.getAllByRole('button', { name: /View Details/i })).toHaveLength(10);
+    expect(screen.getAllByRole('button', { name: /^details$/i })).toHaveLength(10);
   });
 });

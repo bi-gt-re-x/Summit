@@ -88,6 +88,7 @@ import '@/styles/calendar/overview.css';
 import '@/styles/calendar/week.css';
 import '@/styles/calendar/day.css';
 import '@/styles/calendar/palette.css';
+import type { IconName } from '@/components/Icon';
 
 /**
  * The first day of the week a date falls in.
@@ -106,7 +107,7 @@ function weekOf(date: Date, startsOn: 0 | 1): Date {
     now, which is what lets it be twenty-four-hour too. */
 function clockLabel(hhmm: string): string {
   const [hours, minutes] = hhmm.split(':').map(Number);
-  if (hours === undefined || Number.isNaN(hours) || minutes === undefined) return 'All Day';
+  if (hours === undefined || Number.isNaN(hours) || minutes === undefined) return 'All day';
   return hmText(hours, minutes);
 }
 
@@ -114,7 +115,7 @@ function clockLabel(hhmm: string): string {
 function weekTitle(opens: Date): string {
   const closes = dates.addDays(opens, 6);
   const long = (date: Date) => dates.formatDate(date, { month: 'long', day: 'numeric' });
-  return `${long(opens)} – ${long(closes)}, ${closes.getFullYear()}`;
+  return `${long(opens)} to ${long(closes)}, ${closes.getFullYear()}`;
 }
 
 export default function Week() {
@@ -445,7 +446,7 @@ export default function Week() {
         id: `task-${task.id}`,
         iso: day(task.due_date),
         sortAt: `${day(task.due_date)} ${(task.due_date || '').slice(11, 16) || '99:99'}`,
-        icon: '📌',
+        icon: 'pin' as IconName,
         title: task.title || 'Untitled',
         when: clockLabel((task.due_date || '').slice(11, 16)),
       }));
@@ -459,7 +460,7 @@ export default function Week() {
           id: `event-${key}-${index}`,
           iso,
           sortAt: `${iso} ${section.startTime || '99:99'}`,
-          icon: '🗓️',
+          icon: 'calendar' as IconName,
           title: section.task || 'Untitled',
           when: clockLabel(section.startTime),
         });
@@ -664,7 +665,7 @@ export default function Week() {
           <button
             type="button"
             className="wk-today"
-            title="This week, and back to the hour it is (T)"
+            title="This week, at the current hour (T)"
             aria-keyshortcuts="T"
             onClick={goToday}
           >
@@ -888,7 +889,7 @@ export default function Week() {
             weekday: 'long',
             month: 'short',
             day: 'numeric',
-          })} · ${clockLabel(slot.startTime)} – ${clockLabel(slot.endTime)}`}
+          })} · ${clockLabel(slot.startTime)} to ${clockLabel(slot.endTime)}`}
           onChoose={(kind) => openDragged(kind === 'event' ? 'add-event' : 'add-task')}
           onCancel={() => setSlot(null)}
         />
@@ -929,6 +930,7 @@ export default function Week() {
       {rating && (
         <RatePrompt
           taskName={rating.name}
+          level={rating.level}
           depth={ratingDepth}
           onSubmit={saveRating}
           onClose={closeRating}

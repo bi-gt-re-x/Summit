@@ -18,7 +18,7 @@ import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '@/test/render';
-import { stats } from '@/test/factories';
+import { goalHealth as reading, stats } from '@/test/factories';
 import type { Goal, Task } from '@/types';
 
 function day(offset: number): string {
@@ -47,16 +47,16 @@ function goal(id: string, over: Partial<Goal> = {}): Goal {
   } as unknown as Goal;
 }
 
-/* Two ahead of pace and worked on, one badly behind with nothing against it.
-   Both halves matter: health is a blend and no single signal decides it. */
+/* Two on track, one badly behind — with the health the server attaches. */
 const GOALS: Goal[] = [
-  goal('fine-1', { title: 'Ship the parser' }),
-  goal('fine-2', { title: 'Read 24 books' }),
+  goal('fine-1', { title: 'Ship the parser', health: reading('on-track', '90% done, and worked on 10 times in the last two weeks.') }),
+  goal('fine-2', { title: 'Read 24 books', health: reading('on-track', '90% done, and worked on 10 times in the last two weeks.') }),
   goal('sunk', {
     title: 'Learn to sight-read',
     current_value: 3,
     start_date: day(-50),
     deadline: day(6),
+    health: reading('behind', '86 points behind where the calendar says it should be, with 6 days left.'),
   }),
 ];
 
@@ -116,12 +116,12 @@ describe('the answer at the top of Stats', () => {
   it('agrees with the per-goal breakdown underneath it', async () => {
     await openStats();
 
-    const rows = screen.getByRole('heading', { name: 'Goal Health' })
+    const rows = screen.getByRole('heading', { name: 'Goal health' })
       .closest('section')!
       .querySelectorAll('.gx-health-row');
 
     const needing = [...rows].filter(
-      (row) => row.classList.contains('is-at-risk') || row.classList.contains('is-off-track'),
+      (row) => row.classList.contains('is-behind'),
     );
     expect(needing).toHaveLength(1);
     /* Scoped to the verdict: the header's attention pill says the same thing,
@@ -151,28 +151,25 @@ describe('the answer at the top of Stats', () => {
 });
 
 describe('the per-goal diagnosis', () => {
-  /* It was one sentence — the weakest signal — which tells a reader their goal
-     is in trouble and leaves them guessing which of four things to change. */
-  it('names what is holding a goal back and what is helping it', async () => {
+  /* One sentence: the rule that put the goal where it is. */
+  it('names the rule that put a goal behind', async () => {
     await openStats();
 
     const row = [...document.querySelectorAll('.gx-health-row')].find((one) =>
       one.textContent?.includes('Learn to sight-read'),
     )!;
 
-    expect(within(row as HTMLElement).getByText('Holding it back')).toBeInTheDocument();
-    expect(row).toHaveTextContent(/points behind where the calendar says/);
-    expect(row).toHaveTextContent(/has ever been linked|Nothing done toward this/);
+    expect(row).toHaveTextContent(/points behind where the calendar says|Nothing done toward this|Its date passed/);
   });
 
-  it('prints the score the diagnosis explains', async () => {
+  it('prints the state the sentence explains', async () => {
     await openStats();
 
     const row = [...document.querySelectorAll('.gx-health-row')].find((one) =>
       one.textContent?.includes('Learn to sight-read'),
     )!;
 
-    expect(within(row as HTMLElement).getByText('Off Track')).toBeInTheDocument();
+    expect(within(row as HTMLElement).getByText('Behind')).toBeInTheDocument();
   });
 
   it('still opens the goal from the row', async () => {

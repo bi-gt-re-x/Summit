@@ -1,0 +1,128 @@
+/* The seven-level pill bar (components/LevelPills). It lands in dialogs on
+ * several pages that don't share a stylesheet, so every color is a custom
+ * property set here, on `.lv-pills`. Each level gets its own hue, from a calm
+ * green at Easy to a deep red at Grueling, so the bar reads as a climb. */
+.lv-pills {
+    --lv-ink: var(--color-ink);
+    --lv-faint: var(--color-ink-faint);
+    --lv-line: var(--color-line);
+    --lv-surface: var(--color-surface);
+    --lv-soft: var(--color-surface-2);
+
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+}
+
+.lv-label {
+    padding: 0;
+    margin-bottom: var(--space-2);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--lv-ink);
+}
+
+.lv-label span {
+    margin-left: var(--space-2);
+    font-weight: 400;
+    color: var(--lv-faint);
+}
+
+.lv-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+/* A grid rather than a wrapping flex row, so a bar that runs out of width
+   wraps into even rows instead of stretching the last pill across one. */
+.lv-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+    gap: 6px;
+}
+
+.lv-pill {
+    --lv-hue: #3aa76d;
+    position: relative;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    padding: 7px 8px;
+    border: 1px solid var(--lv-line);
+    border-radius: var(--radius-full);
+    background: var(--lv-surface);
+    color: var(--lv-ink);
+    cursor: pointer;
+    text-align: center;
+    transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+}
+
+.lv-pill[data-level="2"] { --lv-hue: #6fae3f; }
+.lv-pill[data-level="3"] { --lv-hue: #c9a227; }
+.lv-pill[data-level="4"] { --lv-hue: #e08a2b; }
+.lv-pill[data-level="5"] { --lv-hue: #df6532; }
+.lv-pill[data-level="6"] { --lv-hue: #d0443b; }
+.lv-pill[data-level="7"] { --lv-hue: #a92f4a; }
+
+.lv-pill:hover {
+    border-color: var(--lv-hue);
+}
+
+.lv-pill input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.lv-pill:has(input:focus-visible) {
+    outline: 2px solid var(--lv-hue);
+    outline-offset: 2px;
+}
+
+.lv-pill.is-on {
+    background: var(--lv-hue);
+    border-color: var(--lv-hue);
+    color: #fff;
+}
+
+.lv-name {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    line-height: 1.15;
+    /* "Medium Hard" may break onto two lines in a tight bar rather than spill. */
+    text-wrap: balance;
+}
+
+.lv-xp {
+    font-size: 11px;
+    color: var(--lv-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.lv-pill.is-on .lv-xp {
+    color: rgba(255, 255, 255, .85);
+}
+
+.lv-pills.is-compact .lv-row {
+    grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+}
+
+.lv-pills.is-compact .lv-pill {
+    padding: 5px 6px;
+}
+
+.lv-pills.is-compact .lv-name {
+    font-size: 12px;
+}
+
+/* In a settings row (a wide one, under its label) the bar takes the width. */
+.st-row-control > .lv-pills { width: 100%; max-width: 640px; }

@@ -55,7 +55,9 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Ambient, ErrorState, Loading, PageHero, STATS_CHANGED } from '@/components';
+import { AboutYouSettings } from '@/components/AboutYou';
+import { ArrowLeft } from 'lucide-react';
+import { ErrorState, Loading } from '@/components';
 import { GROUPS, SORTS } from '@/components/Tasks';
 import { useApi, useAuth, useDocumentTitle, usePageEntrance, useSettings, useTheme } from '@/hooks';
 import { settings as service } from '@/services';
@@ -76,8 +78,16 @@ import type {
   ThemeMode,
   ThemeSkin,
 } from '@/services/settings';
-import type { Theme } from '@/types';
+import type { Theme, UserStats } from '@/types';
+import { VacationMode } from '@/components/Settings/VacationMode';
 import '@/styles/settings.css';
+import { announceStatsChanged } from '@/utils/statsBus';
+import { settingsExit } from '@/utils/settingsExit';
+import { useStarter } from '@/hooks/useStarter';
+import { THEMES, ThemeCard } from '@/components/Settings/ThemePicker';
+import { replayTutorial } from '@/components/Tutorial/Tutorial';
+import { FEATURES, STARTER_LEVEL, STARTER_SINCE } from '@/utils/starter';
+import { LevelPills } from '@/components/LevelPills';
 
 const GOAL_MIN = 10;
 const GOAL_MAX = 2000;
@@ -90,7 +100,7 @@ const CLOCK_EXAMPLE: Record<Prefs['clock_format'], string> = {
 };
 const CLOCK_HINT: Record<Prefs['clock_format'], string> = {
   '12h': 'Morning and afternoon, with AM and PM.',
-  '24h': 'Hours counted 00 to 23, so there is no AM or PM to read.',
+  '24h': "Hours go from 00 to 23. No AM or PM.",
 };
 
 /** The pages an account may open on, and what each one is for. */
@@ -118,15 +128,11 @@ function goalOptions(current: number): number[] {
 
 /** What each of the three levels actually does, said in full under the seg. */
 const RATING_DEPTHS: Record<Prefs['rating_depth'], string> = {
-  none: 'Finishing a task finishes it. Nothing is asked, and Quality on Analytics falls back to '
-    + 'the average XP per task — a measure of how ambitiously you fill in the form, which is why '
-    + 'it is the fallback rather than the measure.',
-  ratings: 'Two star rows after a finished task: how hard it was, and how well it went. Quality '
-    + 'is the two multiplied, and the grid, the bands and the best-and-worst list all come from '
-    + 'them.',
-  reasons: 'The two star rows, and then one more question — the main thing that made the '
-    + 'difference, from six words. It is the only input on Analytics that can say *why* a window '
-    + 'went the way it did rather than what it came to.',
+  none: 'No questions after a task. Analytics uses XP per task for quality instead.',
+  ratings: 'Rate difficulty and how well it went after each task. Analytics uses these for '
+    + 'quality.',
+  reasons: 'Both ratings, plus what made the difference. This lets Analytics explain why a '
+    + 'period went well or badly.',
 };
 
 const RATING_DEPTH_NAMES: Record<Prefs['rating_depth'], string> = {
@@ -167,123 +173,47 @@ const NOTIFY_CHANNELS: {
     pref: 'notify_tasks',
     label: 'Overdue and due tasks',
     hint:
-      'Work that is past its date, work due today, and work due tomorrow — one of each a day, '
-      + 'kept current as you finish things.',
+      'Overdue work, work due today and work due tomorrow. One of each a day, updated as you '
+      + 'go.',
   },
   {
     key: 'calendar',
     pref: 'notify_calendar',
     label: 'Calendar',
     hint:
-      'What is on today’s calendar and what time the first block starts, plus the one that is '
-      + 'about to begin within the hour.',
+      "What's on today's calendar, when it starts, and anything starting within the hour.",
   },
   {
     key: 'analytics',
     pref: 'notify_analytics',
     label: 'Analytics',
     hint:
-      'Once a week: what you finished, how it compares to the week before, and the hours you '
-      + 'focused. Also a gap of four days or more with nothing on it, and the day you beat your '
-      + 'own best.',
+      'A weekly recap of what you finished and how it compares. Plus a heads-up after 4 quiet '
+      + 'days, and a cheer when you beat your best day.',
   },
   {
     key: 'goals',
     pref: 'notify_goals',
     label: 'Goals',
     hint:
-      'A goal whose date has passed, one due inside a week, and one whose arithmetic is '
-      + 'finished but which is still open.',
+      'Goals that are overdue, due within a week, or done but still open.',
   },
   {
     key: 'streak',
     pref: 'notify_streak',
     label: 'Streak',
     hint:
-      'A live streak with nothing on the board yet today — the one thing here that is lost by '
-      + 'doing nothing — and the days it passes worth marking.',
+      "A heads-up when your streak has nothing on it today, plus streak milestones.",
   },
   {
     key: 'progress',
     pref: 'notify_progress',
     label: 'Levels, badges and records',
     hint:
-      'A level reached, a badge earned, a record set. Never the backlog: an account that has '
-      + 'been here a year is not told about its first sixty levels.',
+      'New levels, badges and records. Only new ones, never old ones you already passed.',
   },
 ];
 
-
-/**
- * The six themes, in the order the grid draws them.
- *
- * Two bases and four palettes. Light and dark are the neutral grounds you then
- * pick an `Accent` on — they are unchanged by any of this, and an account on
- * one of them sees exactly what it saw before the other four existed. The
- * four skins are the other trade: a ground and an accent pair chosen together,
- * which is why picking one switches the accent row off rather than leaving a
- * control on screen that no longer does anything.
- *
- * No colours here. The swatch is painted from `--skin-*` in
- * styles/preferences.css, which is also where the rules that apply a skin read
- * them from — so a card cannot advertise a colour the theme does not use. All
- * this list carries is which base each one pins, and the words.
- */
-const THEMES: { skin: ThemeSkin; base: Theme; label: string; hint: string }[] = [
-  { skin: '', base: 'light', label: 'Light', hint: 'The neutral ground. Pick your own accent below.' },
-  { skin: '', base: 'dark', label: 'Dark', hint: 'The neutral ground. Pick your own accent below.' },
-  { skin: 'midnight', base: 'dark', label: 'Midnight', hint: 'Deep navy, periwinkle and cyan.' },
-  { skin: 'sunset', base: 'dark', label: 'Sunset', hint: 'Warm near-black, orange and gold.' },
-  { skin: 'meadow', base: 'light', label: 'Meadow', hint: 'Soft green ground, green and amber.' },
-  { skin: 'orchid', base: 'light', label: 'Orchid', hint: 'Pale blush, magenta and teal.' },
-];
-
-/**
- * One theme card: four bands of the theme's own colours, its name, and whether
- * it is the one running.
- *
- * The bands are `data-skin-preview`, not inline styles — the stylesheet owns
- * the palette and this reads it back. Light and dark have preview blocks of
- * their own there for the same reason, holding the values their sheets already
- * use.
- */
-function ThemeCard({
-  label,
-  hint,
-  preview,
-  on,
-  busy,
-  onPick,
-}: {
-  label: string;
-  hint: string;
-  preview: string;
-  on: boolean;
-  busy: boolean;
-  onPick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={`st-theme${on ? ' is-on' : ''}`}
-      aria-pressed={on}
-      title={hint}
-      disabled={busy}
-      onClick={onPick}
-    >
-      <span className="st-theme-bands" data-skin-preview={preview} aria-hidden="true">
-        <i className="st-band-ground" />
-        <i className="st-band-surface" />
-        <i className="st-band-accent" />
-        <i className="st-band-accent-2" />
-      </span>
-      <span className="st-theme-foot">
-        <span className="st-theme-name">{label}</span>
-        {on && <span className="st-theme-live">Active</span>}
-      </span>
-    </button>
-  );
-}
 
 const ACCENTS: { key: Accent; label: string; swatch: string }[] = [
   { key: 'violet', label: 'Violet', swatch: '#6d5ae0' },
@@ -292,6 +222,7 @@ const ACCENTS: { key: Accent; label: string; swatch: string }[] = [
   { key: 'amber', label: 'Amber', swatch: '#b8791f' },
   { key: 'rose', label: 'Rose', swatch: '#c0395f' },
   { key: 'slate', label: 'Slate', swatch: '#4a5568' },
+  { key: 'graphite', label: 'Graphite', swatch: '#2C302E' },
 ];
 
 /** A row's control, and the words the search matches it on. */
@@ -302,6 +233,8 @@ interface Item {
   control: React.ReactNode;
   /** Set on rows that change or remove data. Drawn apart, at the end. */
   danger?: boolean;
+  /** The control takes the row's full width, under the label. */
+  wide?: boolean;
 }
 
 interface Section {
@@ -402,20 +335,20 @@ const ASKS: Ask[] = [
   {
     scope: 'preferences',
     label: 'Reset every preference',
-    hint: 'Puts this whole page back to how it arrived.',
+    hint: 'Puts this page back to its defaults.',
     title: 'Reset every preference?',
     action: 'Reset preferences',
-    loses: 'Every choice on this page goes back to its default — theme, accent, the pages the app opens on, the tasks view, the focus goal.',
-    keeps: 'Your work is untouched: tasks, goals, notes, records and progress all stay exactly as they are. So does your profile picture.',
+    loses: 'Every setting on this page goes back to its default: theme, color, start pages, task view and focus goal.',
+    keeps: "Your work stays put. Tasks, goals, notes, records, progress and your profile picture don't change.",
   },
   {
     scope: 'completed',
     label: 'Clear finished tasks',
-    hint: 'Removes the tasks already ticked off. The XP they earned stays.',
+    hint: 'Removes tasks you already finished. You keep the XP.',
     title: 'Clear finished tasks?',
     action: 'Clear them',
     loses: 'Every task marked done, and its place on the calendar.',
-    keeps: 'The XP, the level and the streak they earned you — those are banked and are not undone by tidying the list. Open tasks stay.',
+    keeps: "The XP, level and streak they earned you. Those stay. So do open tasks.",
   },
   {
     scope: 'tasks',
@@ -423,38 +356,38 @@ const ASKS: Ask[] = [
     hint: 'The whole list, open and finished alike.',
     title: 'Delete every task?',
     action: 'Delete all tasks',
-    loses: 'Every task this account has, whether it is open or done, and every calendar block made from one.',
-    keeps: 'Goals, notes, records, and your level and XP. Analytics will still know what you did; it will no longer be able to name it.',
+    loses: "Every task you have, open or done, and every calendar block made from one.",
+    keeps: "Goals, notes, records, level and XP. Analytics still counts your work but can't name the tasks.",
     typed: true,
   },
   {
     scope: 'progress',
     label: 'Reset level and XP',
-    hint: 'Back to level 1 with nothing behind it. The work itself stays.',
+    hint: 'Back to level 1. Your work stays.',
     title: 'Reset your progress?',
     action: 'Reset progress',
-    loses: 'Your level, XP, streaks, the XP ledger behind them, the analytics readings taken from it, and any achievements earned.',
-    keeps: 'Every task, goal, note and record. The work is still there — this only forgets what it added up to.',
+    loses: 'Your level, XP, streaks, XP history, analytics scores and badges.',
+    keeps: 'Every task, goal, note and record. Your work stays. Only the totals reset.',
     typed: true,
   },
   {
     scope: 'content',
-    label: 'Erase everything you have made',
+    label: "Erase everything you've made",
     hint: 'Tasks, goals, notes, records, calendar and focus history. The account stays.',
-    title: 'Erase everything you have made?',
+    title: "Erase everything you've made?",
     action: 'Erase it all',
     loses: 'Tasks, goals, notes, records, calendar entries, focus history, subjects and your whole progression.',
-    keeps: 'The account itself — you stay signed in, and every preference on this page survives. It is the app on its first day, with your settings.',
+    keeps: "Your account itself. You stay signed in and keep your settings. It's like day one, with your preferences.",
     typed: true,
   },
   {
     scope: 'account',
     label: 'Delete this account',
-    hint: 'The account and everything in it, permanently. You will be signed out.',
+    hint: "Your account and everything in it, for good. You'll be signed out.",
     title: 'Delete this account?',
     action: 'Delete my account',
-    loses: 'Everything above, the preferences, and the account itself. Your username is released and nothing is recoverable.',
-    keeps: 'Nothing. Export your data first if any of it matters — the two buttons for that are one section up.',
+    loses: 'Everything above, your settings and the account itself. Your username frees up and nothing can come back.',
+    keeps: 'Nothing. Export your data first if any of it matters. The export buttons are one section up.',
     typed: true,
   },
 ];
@@ -574,6 +507,7 @@ export default function Settings() {
   // One `useAuth` for both. `username` came from `useUserData` and cost the
   // account's whole task list to read a string — see hooks/useUserData.
   const { username, signOut } = useAuth();
+  const starter = useStarter();
 
   const call = useCallback(
     () =>
@@ -683,7 +617,7 @@ export default function Settings() {
       setAsk(null);
       await refresh();
       reload();
-      window.dispatchEvent(new Event(STATS_CHANGED));
+      announceStatsChanged();
       flash(result.message);
     },
     [asking, flash, navigate, refresh, reload, signOut, username],
@@ -726,6 +660,24 @@ export default function Settings() {
       void savePref({ theme_skin: skin, theme_mode: base }, 'Theme');
     },
     [savePref, saveSheet, setTheme],
+  );
+
+  /**
+   * Vacation mode answered. The sheet holds its own copy of the window, and the
+   * rest of the app hears the way a completion is heard — the rail and the
+   * bell both re-read on it, and the bell is what stops warning about a
+   * streak that is on vacation.
+   */
+  const onVacation = useCallback(
+    (stats: UserStats, message: string) => {
+      mutate((current) => ({
+        ...current,
+        settings: { ...current.settings, streak_vacation: stats.vacation ?? null },
+      }));
+      announceStatsChanged();
+      flash(message);
+    },
+    [flash, mutate],
   );
 
   /** Whether a built palette is running, and which — the accent row's answer. */
@@ -776,19 +728,19 @@ export default function Settings() {
           {
             id: 'username',
             label: 'Username',
-            hint: 'Fixed. Everything you have made is filed under it.',
+            hint: "Can't be changed. Everything you've made is saved under it.",
             control: <span className="st-fixed">{sheet.username}</span>,
           },
           {
             id: 'email',
-            label: 'E-mail',
+            label: 'Email',
             hint: 'Changing this means verifying the new address again.',
             control: <span className="st-fixed">{sheet.email || 'None on file'}</span>,
           },
           {
             id: 'since',
             label: 'Member since',
-            hint: 'The day this account was made.',
+            hint: 'When you joined.',
             control: <span className="st-fixed">{joined(sheet.created_at)}</span>,
           },
         ],
@@ -848,10 +800,10 @@ export default function Settings() {
           },
           {
             id: 'accent',
-            label: 'Accent colour',
+            label: 'Accent color',
             hint: skinned
-              ? `${skinLabel} brings its own colours. Switch to Light or Dark to choose one.`
-              : 'The colour Summit uses for progress, links and highlights.',
+              ? `${skinLabel} brings its own colors. Switch to Light or Dark to choose one.`
+              : 'The color Summit uses for progress, links and highlights.',
             control: (
               /* Left on screen and switched off rather than removed. The row
                  disappearing when a palette is picked would read as the app
@@ -861,7 +813,7 @@ export default function Settings() {
               <div
                 className={`st-swatches${skinned ? ' is-locked' : ''}`}
                 role="group"
-                aria-label="Accent colour"
+                aria-label="Accent color"
               >
                 {ACCENTS.map((accent) => (
                   <button
@@ -895,7 +847,7 @@ export default function Settings() {
           {
             id: 'ambient',
             label: 'Animated background',
-            hint: 'The grid, the drifting particles and the slow gradient behind every page.',
+            hint: 'The grid, the floating dots and the slow color shift behind every page.',
             control: (
               <Toggle
                 on={prefs.show_ambient}
@@ -908,7 +860,7 @@ export default function Settings() {
           {
             id: 'rail',
             label: 'Collapsed navigation',
-            hint: 'Keeps the rail down the left as a strip of icons. The button on it does the same thing.',
+            hint: 'Shrinks the left sidebar to icons. The button on it does the same thing.',
             control: (
               <Toggle
                 on={prefs.nav_collapsed}
@@ -928,7 +880,7 @@ export default function Settings() {
           {
             id: 'home',
             label: 'Open on',
-            hint: 'Where signing in lands, and what the app opens on next time.',
+            hint: "Where you land after signing in. Reloading a page keeps you on it.",
             control: (
               <select
                 className="st-input"
@@ -952,6 +904,176 @@ export default function Settings() {
         ],
       },
       {
+        // About you: the last step of sign-up, editable. See components/AboutYou.
+        id: 'about',
+        label: 'About you',
+        group: 'Account',
+        items: [
+          {
+            id: 'about-you',
+            label: 'Who you are and where you want to go',
+            hint: 'Analytics, your study plans and your recommendations read this. More detail means better answers, and Analytics opens sooner.',
+            control: <AboutYouSettings />,
+            wide: true,
+          },
+        ],
+      },
+      {
+        // Getting started (utils/starter): which pages the sidebar lists while
+        // the account is new, and the way out of that early.
+        id: 'getting-started',
+        label: 'Getting started',
+        group: 'Account',
+        items: [
+          {
+            id: 'starter',
+            label: 'Advanced tools',
+            hint:
+              starter.stage === 'open'
+                ? 'Every tool is unlocked.'
+                : starter.stage === 'starter'
+                  ? `For your first days the sidebar shows Dashboard, Calendar, Timer and Log. The rest appear in ${
+                      starter.daysLeft === 1 ? '1 day' : `${starter.daysLeft} days`
+                    }, or at level ${STARTER_LEVEL}. Locked tools open with a short note first.`
+                  : `${prefs.features_open.filter((id) => FEATURES.some((feature) => feature.id === id)).length} of ${
+                      FEATURES.length
+                    } advanced tools opened. The rest show a padlock and open with a short note first.`,
+            control:
+              starter.stage === 'open' ? (
+                new Date(sheet.created_at) >= new Date(`${STARTER_SINCE}T00:00:00`) ? (
+                  <button
+                    type="button"
+                    className="st-btn"
+                    disabled={busy}
+                    onClick={() =>
+                      void savePref({ starter_done: false, features_open: [], welcome_seen: false }, 'Beginner mode')
+                    }
+                  >
+                    Start over as a beginner
+                  </button>
+                ) : (
+                  <span className="st-fixed">All unlocked</span>
+                )
+              ) : (
+                <div className="st-links">
+                  {starter.stage === 'starter' && (
+                    <button
+                      type="button"
+                      className="st-btn"
+                      disabled={busy}
+                      onClick={() => void savePref({ starter_done: true }, 'Sidebar')}
+                    >
+                      Show all tools
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="st-btn"
+                    disabled={busy}
+                    onClick={() =>
+                      void savePref(
+                        { starter_done: true, features_open: FEATURES.map((feature) => feature.id) },
+                        'Unlocks',
+                      )
+                    }
+                  >
+                    Unlock everything
+                  </button>
+                </div>
+              ),
+          },
+        ],
+      },
+      {
+        // Mango, the guide (components/Tutorial). The main tutorial, the page
+        // guides and the Mango that rests on the dashboard between them.
+        id: 'mango',
+        label: 'Mango',
+        group: 'Personalization',
+        items: [
+          {
+            id: 'mango-rest',
+            label: 'Mango on the dashboard',
+            hint: 'Mango sits on top of your dashboard between tours. Click it to say hi.',
+            control: (
+              <Toggle
+                on={prefs.mango_rest}
+                busy={busy}
+                label="Mango on the dashboard"
+                onFlip={() => void savePref({ mango_rest: !prefs.mango_rest }, 'Mango')}
+              />
+            ),
+          },
+          {
+            id: 'mango-energy',
+            label: 'How lively',
+            hint: 'Calm does something every so often. Lively moves around more. Still just sits there.',
+            control: (
+              <select
+                className="st-input"
+                value={prefs.mango_energy}
+                disabled={busy || !prefs.mango_rest}
+                onChange={(event) =>
+                  void savePref({ mango_energy: event.target.value as Prefs['mango_energy'] }, 'Mango')
+                }
+              >
+                <option value="calm">Calm</option>
+                <option value="lively">Lively</option>
+                <option value="still">Still</option>
+              </select>
+            ),
+          },
+          {
+            id: 'mango-tours',
+            label: 'Page guides',
+            hint: 'A short guide from Mango the first time you open each page.',
+            control: (
+              <Toggle
+                on={prefs.mango_tours}
+                busy={busy}
+                label="Page guides"
+                onFlip={() => void savePref({ mango_tours: !prefs.mango_tours }, 'Page guides')}
+              />
+            ),
+          },
+          {
+            id: 'mango-tours-again',
+            label: 'See the page guides again',
+            hint: prefs.tours_seen.length
+              ? `You've seen ${prefs.tours_seen.length} of them. Each page will show its guide again next time you open it.`
+              : "You haven't seen any yet. They show up the first time you open each page.",
+            control: (
+              <button
+                type="button"
+                className="st-btn"
+                disabled={busy || prefs.tours_seen.length === 0}
+                onClick={() => void savePref({ tours_seen: [], mango_tours: true }, 'Page guides')}
+              >
+                Show them again
+              </button>
+            ),
+          },
+          {
+            id: 'tour',
+            label: 'Tutorial',
+            hint: 'Mango walks you through the Dashboard, Calendar and Timer, then the rest of the tabs.',
+            control: (
+              <button
+                type="button"
+                className="st-btn"
+                disabled={busy}
+                onClick={() => {
+                  replayTutorial(username);
+                  void savePref({ welcome_seen: false }, 'Tutorial').then(() => navigate('/dashboard'));
+                }}
+              >
+                Show it again
+              </button>
+            ),
+          },
+        ],
+      },
+      {
         id: 'dashboard',
         label: 'Dashboard',
         group: 'Personalization',
@@ -959,7 +1081,7 @@ export default function Settings() {
           {
             id: 'goal',
             label: 'Daily XP goal',
-            hint: `The XP you are aiming at each day. Today's total is shown against it on the dashboard. ${GOAL_MIN}–${GOAL_MAX}.`,
+            hint: `Your daily XP target. The dashboard shows today's total against it. ${GOAL_MIN} to ${GOAL_MAX}.`,
             control: (
               <input
                 className="st-input is-num"
@@ -983,7 +1105,7 @@ export default function Settings() {
           {
             id: 'stats',
             label: 'Show the statistics row',
-            hint: 'The four figures across the top of the dashboard.',
+            hint: 'The four numbers across the top of the dashboard.',
             control: (
               <Toggle
                 on={prefs.show_stats}
@@ -996,7 +1118,7 @@ export default function Settings() {
           {
             id: 'insights',
             label: 'Show the insights panel',
-            hint: 'The readings under your task list.',
+            hint: 'The cards under your task list.',
             control: (
               <Toggle
                 on={prefs.show_insights}
@@ -1022,7 +1144,7 @@ export default function Settings() {
           {
             id: 'quote',
             label: 'Show the daily quote',
-            hint: 'The line at the foot of the dashboard.',
+            hint: 'The quote at the bottom of the dashboard.',
             control: (
               <Toggle
                 on={prefs.show_quote}
@@ -1040,43 +1162,21 @@ export default function Settings() {
         group: 'Productivity',
         items: [
           {
-            id: 'priority',
-            label: 'Default priority',
-            hint: 'Where Quick Add opens, and what a new task is filed as until its XP says otherwise.',
+            id: 'level',
+            label: 'Default difficulty',
+            // Seven pills need the row's full width, not the control column.
+            wide: true,
+            hint: 'Where new tasks start. Each level sets the XP a task pays. Applies everywhere you add tasks.',
             control: (
-              <Seg
-                value={prefs.default_priority}
-                busy={busy}
-                onPick={(next) => void savePref({ default_priority: next }, 'Default priority')}
-                options={[
-                  { key: 'low', label: 'Low' },
-                  { key: 'medium', label: 'Medium' },
-                  { key: 'high', label: 'High' },
-                ]}
-              />
-            ),
-          },
-          {
-            id: 'xp',
-            label: 'Default XP',
-            hint: 'What a new task is worth before you change it — Quick Add, the composer and both dialogs.',
-            control: (
-              <input
-                className="st-input is-num"
-                type="number"
-                min={5}
-                max={500}
-                step={5}
-                defaultValue={prefs.default_xp}
-                disabled={busy}
-                onBlur={(event) => {
-                  const next = Number(event.target.value);
-                  if (!Number.isFinite(next) || next === prefs.default_xp) return;
-                  void savePref({ default_xp: next }, 'Default XP');
+              <LevelPills
+                value={prefs.default_level}
+                onChange={(next) => {
+                  if (busy || next === prefs.default_level) return;
+                  void savePref({ default_level: next }, 'Default difficulty');
                 }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') event.currentTarget.blur();
-                }}
+                label="Default difficulty"
+                hideLabel
+                compact
               />
             ),
           },
@@ -1084,8 +1184,8 @@ export default function Settings() {
             id: 'rating',
             label: 'Ask how it went',
             hint:
-              'What the prompt after a finished task asks — and, because it is the only thing on '
-              + 'Analytics the app cannot measure for itself, how much Quality there has to go on.',
+              "What the pop-up asks after you finish a task. More answers mean better quality scores in "
+              + "Analytics.",
             control: (
               <Seg
                 value={prefs.rating_depth}
@@ -1108,7 +1208,7 @@ export default function Settings() {
           {
             id: 'task-status',
             label: 'Tasks page opens on',
-            hint: 'Which tasks are on the page when you arrive. The controls there still change it for a visit.',
+            hint: 'Which tasks show when you open the page. You can still change it there.',
             control: (
               <Seg
                 value={prefs.task_status}
@@ -1125,7 +1225,7 @@ export default function Settings() {
           {
             id: 'task-horizon',
             label: 'How far ahead it reaches',
-            hint: 'A week keeps the list to what you can act on. Everything is the whole backlog.',
+            hint: 'A week shows what you can act on now. Everything shows your whole list.',
             control: (
               <Seg
                 value={prefs.task_horizon}
@@ -1165,7 +1265,7 @@ export default function Settings() {
           {
             id: 'task-group',
             label: 'Default headings',
-            hint: 'What the list is cut into. No headings is one flat list.',
+            hint: 'How the list is grouped. No headings means one flat list.',
             control: (
               <select
                 className="st-input"
@@ -1229,7 +1329,7 @@ export default function Settings() {
           {
             id: 'week-start',
             label: 'Weeks start on',
-            hint: 'The calendar grid, the month, and the week your dashboard counts.',
+            hint: 'The calendar grid, the month and the week your dashboard counts.',
             control: (
               <Seg
                 value={prefs.week_starts_on}
@@ -1245,7 +1345,7 @@ export default function Settings() {
           {
             id: 'clock',
             label: 'Clock',
-            hint: 'Every time in the app — the calendar grid, due times, blocks and the dashboard.',
+            hint: 'Every time in the app: the calendar, due times, blocks and the dashboard.',
             control: (
               <Seg
                 value={prefs.clock_format}
@@ -1260,7 +1360,7 @@ export default function Settings() {
           },
           {
             id: 'clock-what',
-            label: 'How a time is written',
+            label: 'Time format',
             hint: CLOCK_HINT[prefs.clock_format],
             control: <span className="st-fixed">{CLOCK_EXAMPLE[prefs.clock_format]}</span>,
           },
@@ -1268,13 +1368,13 @@ export default function Settings() {
       },
       {
         id: 'records',
-        label: 'Records',
+        label: 'Personal bests',
         group: 'Productivity',
         items: [
           {
             id: 'records-sort',
             label: 'History opens ordered by',
-            hint: 'The list under your personal bests. The toolbar there still changes it for a visit.',
+            hint: 'The list under your personal bests. You can still change it there.',
             control: (
               <Seg
                 value={prefs.records_sort}
@@ -1290,9 +1390,9 @@ export default function Settings() {
           },
           {
             id: 'records-sort-what',
-            label: 'What “improvement” orders by',
-            hint: 'How far a record has come rather than how large it is — a score that went 18 to 25 above one logged once at 400.',
-            control: <span className="st-fixed">Distance travelled</span>,
+            label: 'How "most improved" is sorted',
+            hint: 'Most improved first. A score that went from 18 to 25 ranks above one that was always 400.',
+            control: <span className="st-fixed">Most improved</span>,
           },
         ],
       },
@@ -1304,7 +1404,7 @@ export default function Settings() {
           {
             id: 'focus-goal',
             label: 'Daily focus goal',
-            hint: 'What the focus ring fills against. A day you have given its own goal keeps it.',
+            hint: 'Your daily focus target. A day with its own goal keeps that one.',
             control: (
               <select
                 className="st-input"
@@ -1328,7 +1428,7 @@ export default function Settings() {
           {
             id: 'focus-dim',
             label: 'Clear the page while focusing',
-            hint: 'A running session folds the greeting, the figures and the quote away and leaves the work.',
+            hint: "Start Focus on the dashboard opens the full timer screen. Off, it just runs in the Focus panel.",
             control: (
               <Toggle
                 on={prefs.focus_dim}
@@ -1342,11 +1442,9 @@ export default function Settings() {
             id: 'catchup',
             label: 'Ask about untracked days',
             hint:
-              'Once a day, on the first load of the dashboard: the days since you were last '
-              + 'here that have no focus time on them, and two boxes to say how long you '
-              + 'worked. What you enter counts exactly as tracked time does — consistency, '
-              + 'the focus score, the growth chart, every "days you worked" figure. Days you '
-              + 'did track are never asked about, and a day you leave blank is left alone.',
+              'Once a day, the dashboard asks about days you missed logging focus time. What you enter '
+              + "counts just like timed work. Days you tracked aren't asked about, and blank days stay "
+              + 'blank.',
             control: (
               <Toggle
                 on={prefs.catchup_prompt}
@@ -1361,6 +1459,26 @@ export default function Settings() {
         ],
       },
       {
+        id: 'streak',
+        label: 'Streak',
+        group: 'Productivity',
+        items: [
+          {
+            id: 'vacation',
+            label: 'Vacation mode',
+            hint:
+              `Pause your streak while you're away, for up to ${sheet.vacation_max_days ?? 30} days. Vacation days won't break it or use your grace day. They don't add to it either. Anything you finish while away still counts.`,
+            control: (
+              <VacationMode
+                vacation={sheet.streak_vacation ?? null}
+                maxDays={sheet.vacation_max_days ?? 30}
+                onChanged={onVacation}
+              />
+            ),
+          },
+        ],
+      },
+      {
         id: 'notifications',
         label: 'Notifications',
         group: 'Notifications',
@@ -1369,19 +1487,17 @@ export default function Settings() {
            CHANNELS in backend/tracking/notify.py — so turning one off stops
            the rows being written instead of writing them and hiding them, and
            turning it back on starts from what is true then rather than
-           replaying a fortnight of backlog. */
+           replaying two weeks of backlog. */
         note:
-          'Nothing here is sent on a schedule. The app looks at your own record when you open '
-          + 'it and says what is true — so a quiet week is a quiet bell, and a notification you '
-          + 'delete stays deleted until the situation behind it is genuinely new.',
+          "Nothing gets sent on a timer. The app checks your work when you open it. A quiet week "
+          + "means a quiet bell, and anything you delete stays gone.",
         items: [
           {
             id: 'notify-master',
             label: 'Notifications',
             hint:
-              'The master switch. Off stops everything below it: nothing new is written, '
-              + 'nothing pops up, and the bell reads empty. Anything already in it is kept and '
-              + 'comes back the moment you turn this on again.',
+              'The main switch. Off stops everything below: no new alerts and no pop-ups. Old ones are '
+              + 'saved and come back when you turn it on.',
             control: (
               <Toggle
                 on={prefs.notifications_enabled}
@@ -1400,9 +1516,8 @@ export default function Settings() {
             id: 'notify-popups',
             label: 'Show them on screen',
             hint:
-              'A new notification slides in at the corner of the page for a few seconds. Off '
-              + 'takes away the interruption and leaves the bell doing its job — everything '
-              + 'still arrives, you just go and look at it.',
+              'New alerts pop up in the corner for a few seconds. Off means no pop-ups. Everything '
+              + 'still lands in the bell.',
             control: (
               <Toggle
                 on={prefs.notify_popups}
@@ -1445,8 +1560,8 @@ export default function Settings() {
            turned into a decision, and the header of
            components/Analytics/Setup for why the questions exist at all. */
         note:
-          'These are the answers you gave when you first opened Analytics. Every one of them '
-          + 'changes what that page draws or how it says it — none of them changes a figure.',
+          'Your answers from when you first opened Analytics. They change what the page shows and '
+          + 'how it talks. Your numbers stay the same.',
         items: [
           {
             id: 'window',
@@ -1477,8 +1592,8 @@ export default function Settings() {
             id: 'analytics-home',
             label: 'Analytics opens on',
             hint:
-              'Which of the seven tabs you land on. Recommendations is the one that ends in a '
-              + 'button; Overview is the long view.',
+              'Which tab you land on. Recommendations tells you what to do. Overview shows the big '
+              + 'picture.',
             control: (
               <select
                 className="st-input"
@@ -1491,7 +1606,7 @@ export default function Settings() {
                   )
                 }
               >
-                {/* The same seven the page's own tab bar draws, from the same
+                {/* The same tabs the page's own tab bar draws, from the same
                     list — a select here that had drifted from VIEWS would offer
                     a tab that no longer exists. */}
                 {VIEWS.map((view) => (
@@ -1523,9 +1638,8 @@ export default function Settings() {
             id: 'analytics-tone',
             label: 'How blunt Analytics is',
             hint:
-              'It never changes a figure — the score is the mean of the same five measures at '
-              + 'every setting. It changes where a shortfall starts being called one, and how '
-              + 'many problems are put in front of you at once.',
+              'Your numbers stay the same. This changes how strict the page is and how many problems it '
+              + 'shows at once.',
             control: (
               <Seg
                 value={prefs.analytics_tone}
@@ -1541,13 +1655,13 @@ export default function Settings() {
           },
           {
             id: 'analytics-tone-what',
-            label: 'What that setting does',
+            label: 'What this changes',
             hint: TONE_HINT[prefs.analytics_tone],
             control: <span className="st-fixed">{TONE_LABEL[prefs.analytics_tone]}</span>,
           },
           {
             id: 'analytics-detail',
-            label: 'How much of the page is drawn',
+            label: 'How much Overview shows',
             hint: DETAIL_HINT[prefs.analytics_detail],
             control: (
               <Seg
@@ -1563,28 +1677,10 @@ export default function Settings() {
             ),
           },
           {
-            id: 'analytics-standing',
-            label: 'Rank me against other accounts',
-            hint:
-              'The percentile panel on the Overview. Off removes it; nothing else on the page '
-              + 'reads anybody else\'s record.',
-            control: (
-              <Toggle
-                on={prefs.analytics_standing}
-                busy={busy}
-                label="Rank me against other accounts"
-                onFlip={() =>
-                  void savePref({ analytics_standing: !prefs.analytics_standing }, 'Standing')
-                }
-              />
-            ),
-          },
-          {
             id: 'analytics-setup',
             label: 'Answer the setup questions again',
             hint:
-              'The same seven questions, opened on the answers you already gave. Nothing is '
-              + 'cleared by going back to them.',
+              'The same seven questions, with your answers filled in. Nothing gets cleared.',
             /* A link rather than a switch, because there is no preference to
                write: the questions are a screen on the analytics page and this
                is the way to it. The page reads `?setup` and opens on the
@@ -1611,9 +1707,8 @@ export default function Settings() {
                were all things this app would delete and could not give back.
                The endpoint sends every one of them now, so the word in the
                label is true and the hint says what it means. */
-            hint: 'Every table this account owns — tasks, the calendar, goals and their '
-              + 'checkpoints, notes, records, subjects, badges and the XP ledger — as one '
-              + 'JSON file.',
+            hint: 'All your data in one JSON file: tasks, calendar, goals, notes, records, subjects, badges '
+              + 'and XP history.',
             control: (
               <a
                 className="st-btn"
@@ -1627,7 +1722,7 @@ export default function Settings() {
           {
             id: 'export-csv',
             label: 'Export a table',
-            hint: 'One table at a time, as CSV — a spreadsheet cannot hold five shapes at once.',
+            hint: "One table at a time, as a CSV you can open in a spreadsheet.",
             control: (
               <div className="st-links">
                 {['tasks', 'goals', 'records'].map((table) => (
@@ -1653,9 +1748,8 @@ export default function Settings() {
             id: 'storage',
             label: 'Where your data lives',
             hint:
-              'In the database on the server running Summit — not in this browser. ' +
-              'It is not sold, and it is not shared with anyone; the Privacy Policy ' +
-              'says what is kept and what leaves.',
+              "It's stored on the server running Summit. It's never sold or shared. The Privacy Policy "
+        + "has the details.",
             control: <span className="st-fixed">This server</span>,
           },
         ],
@@ -1668,13 +1762,13 @@ export default function Settings() {
           {
             id: 'version',
             label: 'Version',
-            hint: 'The build you are running.',
+            hint: "The build you're running.",
             control: <span className="st-fixed">Summit 1.2.0</span>,
           },
           {
             id: 'level',
             label: 'Level and XP',
-            hint: 'Counted from everything you have finished.',
+            hint: "Based on everything you've finished.",
             control: (
               <span className="st-fixed">
                 Level {sheet.level} · {sheet.xp.toLocaleString()} XP
@@ -1684,7 +1778,7 @@ export default function Settings() {
           {
             id: 'legal',
             label: 'Terms and privacy',
-            hint: 'What the app does with what it holds.',
+            hint: 'How your data is used.',
             /* The routes are the long spellings. /terms, /privacy and /about
                are not routed at all, so all three of these used to fall through
                to the catch-all and land on the home page. See App.tsx. */
@@ -1703,9 +1797,8 @@ export default function Settings() {
         label: 'Reset and delete',
         group: 'Danger zone',
         note:
-          'Each of these asks first and says what it takes. None of them can be '
-          + 'undone, and there is no backup — take an export from Data first if '
-          + 'any of it matters.',
+          "Each one asks first and tells you what it removes. None can be undone and there's no "
+          + 'backup, so export your data first.',
         items: ASKS.map((entry) => ({
           id: entry.scope,
           label: entry.label,
@@ -1727,7 +1820,22 @@ export default function Settings() {
         })),
       },
     ];
-  }, [busy, name, pickTheme, pickThemeMode, prefs, savePref, saveSheet, sheet, skinLabel, skinned, theme]);
+  }, [
+    busy,
+    name,
+    onVacation,
+    pickTheme,
+    pickThemeMode,
+    prefs,
+    savePref,
+    saveSheet,
+    sheet,
+    skinLabel,
+    skinned,
+    starter.daysLeft,
+    starter.stage,
+    theme,
+  ]);
 
   const current = useMemo(
     () => sections.find((entry) => entry.id === routeSection) ?? sections[0] ?? null,
@@ -1764,29 +1872,30 @@ export default function Settings() {
      starts when there is something to animate — see hooks/usePageEntrance. */
   const entering = usePageEntrance(!loading);
 
-  if (loading) return <Loading label="Reading your settings" />;
+  if (loading) return <Loading label="Loading your settings" />;
   if (error && !sheet) return <ErrorState message={error} onRetry={reload} />;
-  if (!sheet) return <ErrorState message="No settings to show." onRetry={reload} />;
+  if (!sheet) return <ErrorState message="Couldn't load your settings. Try refreshing." onRetry={reload} />;
 
   const shown = results ?? (current ? [current] : []);
 
   return (
     <div className="st-page">
-      <Ambient />
       <div className={`st-shell page-shell${entering ? ' pg-enter' : ''}`}>
-        {/* Slate, like Notes: the two pages that change things rather than
-            report them. */}
-        <PageHero variant="settings" tone="slate">
-          <header className="st-head">
-            <div>
-              <h1>Settings</h1>
-              <p className="st-quiet">What this account has chosen.</p>
-            </div>
-            <span className={`st-status${saved || failure ? ' is-on' : ''}`} role="status">
-              {failure ? <em className="st-bad">{failure}</em> : (saved ?? '')}
-            </span>
-          </header>
-        </PageHero>
+        {/* The whole window, with no rail or top bar (App.tsx, `no-chrome`):
+            the arrow in the corner is the way out, back to the page the reader
+            came from. */}
+        <header className="st-head">
+          <Link className="st-exit" to={settingsExit()} aria-label="Leave settings" title="Back">
+            <ArrowLeft aria-hidden="true" />
+          </Link>
+          <div className="st-head-text">
+            <h1>Settings</h1>
+            <p className="st-quiet">Your preferences</p>
+          </div>
+          <span className={`st-status${saved || failure ? ' is-on' : ''}`} role="status">
+            {failure ? <em className="st-bad">{failure}</em> : (saved ?? '')}
+          </span>
+        </header>
 
         <div className="st-body">
           <nav className="st-nav" aria-label="Settings sections">
@@ -1822,7 +1931,7 @@ export default function Settings() {
 
           <div className="st-content">
             {term && shown.length === 0 && (
-              <p className="st-empty">Nothing here matches “{query.trim()}”.</p>
+              <p className="st-empty">Nothing here matches "{query.trim()}".</p>
             )}
 
             {shown.map((entry) => {
@@ -1833,7 +1942,7 @@ export default function Settings() {
                   <h2>{entry.label}</h2>
                   {entry.note && <p className="st-note">{entry.note}</p>}
                   {plain.map((item) => (
-                    <div className="st-row" key={item.id}>
+                    <div className={`st-row${item.wide ? ' is-wide' : ''}`} key={item.id}>
                       <div className="st-row-text">
                         <span className="st-label">{item.label}</span>
                         <span className="st-quiet">{item.hint}</span>

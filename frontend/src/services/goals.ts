@@ -22,7 +22,9 @@ export interface GoalsResult {
 
 /** Every goal, with the self-tracking ones brought up to date first. */
 export function getGoals(): Promise<ApiResult<GoalsResult>> {
-  return get<GoalsResult>('/api/get_goals');
+  // A POST, because loading the goals is also when the streak and focus goals
+  // are brought up to date and saved (backend/api/goals.py). No GET writes.
+  return post<GoalsResult>('/api/get_goals');
 }
 
 export interface NewGoal {
@@ -51,6 +53,8 @@ export interface NewGoal {
   current_value?: number;
   target_number?: number;
   subject_ids?: string;
+  /** Which chart the card draws; empty lets the page pick. */
+  chart?: string;
   /** Checkpoint titles to create with the goal, in execution order. */
   milestones?: string[];
 }
@@ -94,6 +98,7 @@ export type GoalEdit = Partial<
     | 'current_value'
     | 'target_number'
     | 'subject_ids'
+    | 'chart'
   >
 >;
 
@@ -159,7 +164,11 @@ export function updateMilestone(
     steps?: MilestoneStep[];
   },
 ): Promise<ApiResult<Record<string, never>>> {
-  return post('/api/update_milestone', { id: milestoneId, ...edit });
+  // A placeholder row goes up empty. The server pads a short list with prompt
+  // wording ("Name the second"), and sent back as a title that wording would
+  // be stored as a step nobody wrote.
+  const steps = edit.steps?.map((step) => (step.placeholder ? { ...step, title: '' } : step));
+  return post('/api/update_milestone', { id: milestoneId, ...edit, ...(steps ? { steps } : {}) });
 }
 
 export function deleteMilestone(
@@ -189,6 +198,8 @@ export function suggestMilestones(
     category?: string;
     /** For a goal not yet written; an existing one's is read from its row. */
     deadline?: string;
+    /** Where the reader says they're starting from. Never saved. */
+    starting?: string;
   },
 ): Promise<ApiResult<{ milestones: string[] }>> {
   return post<{ milestones: string[] }>('/api/suggest_milestones', {
@@ -198,6 +209,7 @@ export function suggestMilestones(
     description: goal.description,
     category: goal.category,
     deadline: goal.deadline,
+    starting: goal.starting,
   });
 }
 
@@ -223,8 +235,8 @@ export interface DraftedGoal {
  * Needs a provider that will hold a fixed shape, which is not all of them —
  * the failure message says so and names the ones that do.
  */
-export function draftGoal(idea: string): Promise<ApiResult<DraftedGoal>> {
-  return post<DraftedGoal>('/api/draft_goal', { idea });
+export function draftGoal(idea: string, starting = ''): Promise<ApiResult<DraftedGoal>> {
+  return post<DraftedGoal>('/api/draft_goal', { idea, starting });
 }
 
 /**
@@ -301,4 +313,41 @@ export function applyTaskXp(
   xp: number,
 ): Promise<ApiResult<AppliedXp>> {
   return post<AppliedXp>('/api/auto_apply_task_xp', { xp });
+}
+
+// --------------------------------------------------------------------------
+// Confirming a goal done
+// --------------------------------------------------------------------------
+/** The figures a confirmed goal finished on, as Analytics reads them. */
+export interface FinishedGoal {
+  goal_id: string;
+  /** When it was confirmed, ISO. */
+  at: string;
+  title: string;
+  measure: string;
+  category: string;
+  progress: number;
+  /** Days from its start to its confirmation, or null without a start. */
+  days: number | null;
+  checkpoints: number;
+  steps: number;
+  tasks: number;
+}
+
+/**
+ * The answer to "is this goal really done?".
+ *
+ * Yes completes it and records it for Analytics; no takes a checkpoint goal
+ * back to its last open checkpoint. See `verify_goal` in backend/api/goals.py.
+ */
+export function verifyGoal(
+  goalId: string,
+  done: boolean,
+): Promise<ApiResult<{ goal: Goal; record?: Omit<FinishedGoal, 'goal_id' | 'at'> | null; reopened?: string }>> {
+  return post('/api/goals/verify', { id: goalId, done });
+}
+
+/** Every goal the reader has confirmed done, newest first. */
+export function finishedGoals(): Promise<ApiResult<{ goals: FinishedGoal[] }>> {
+  return get<{ goals: FinishedGoal[] }>('/api/goals/completed');
 }

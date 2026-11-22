@@ -98,21 +98,19 @@ export function EdgeCard({ edge, from, to, at, onOpen, onClose }: EdgeCardProps)
         {gate ? (
           met ? (
             <>
-              <b>{to.name}</b> was gated behind <b>{from.name}</b>, and that is done — this line is
-              part of the route you have already taken.
+              <b>{to.name}</b> needed <b>{from.name}</b>, and that's done. You've already walked this part of the route.
             </>
           ) : (
             <>
-              <b>{to.name}</b> will not open until <b>{from.name}</b> is finished. It is{' '}
+              <b>{to.name}</b> won't open until <b>{from.name}</b> is finished. It is{' '}
               {STATUS_LABEL[from.status].toLowerCase()}
               {from.status === 'progress' ? ` at ${Math.round(from.percent)}%` : ''}.
             </>
           )
         ) : (
           <>
-            A suggestion rather than a gate. <b>{to.name}</b> is open whether or not you do{' '}
-            <b>{from.name}</b> first — it is here because it is the easier way in, not because
-            anything is waiting on it.
+            It's a suggestion. You don't have to. <b>{to.name}</b> is open whether or not you do{' '}
+            <b>{from.name}</b> first. It's the easier way in. Nothing's waiting on it.
           </>
         )}
       </p>

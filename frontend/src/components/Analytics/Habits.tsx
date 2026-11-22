@@ -13,28 +13,19 @@
  * is what stops the number on a card and the number in the timeline from
  * drifting apart when one of them is edited.
  */
-import { useMemo, useState } from 'react';
-import type { CSSProperties } from 'react';
 import { Panel, Sparkline, asTone, toneVar } from './charts';
 import { StatRow, type Stat } from './StatRow';
 import {
-  CALENDAR_WINDOWS,
   STRENGTH_LABEL,
   STRENGTH_NOTE,
   STRENGTH_TONE,
-  habitCalendar,
-  type CalendarKey,
   type Habit,
-  type HabitDay,
   type HabitPattern,
   type HabitShift,
   type HabitStrength,
   type HabitSummary,
 } from '@/utils/habits';
-
-/** Sunday first, matching every other weekday list in the app. */
-const WEEKDAY_INITIALS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-const WEEKDAY_NAMES = ['Sun', '', 'Tue', '', 'Thu', '', 'Sat'];
+import type { HabitFacts } from '@/utils/habitEffects';
 
 /** "Mar 14, 2026" from an ISO date. */
 function pretty(iso: string): string {
@@ -63,27 +54,15 @@ function since(iso: string | null, todayIso: string): string {
 export function HabitTiles({
   summary,
   span,
-  hours,
 }: {
   summary: HabitSummary;
   span: string;
-  /**
-   * Focus hours logged across the window, when the account logs them.
-   *
-   * The scale under "Days worked". A rate of 62% is a different fact over
-   * eleven logged hours than over ninety, and this row counted days without
-   * ever saying how much was done on them — the one tab about repetition had
-   * no measure of volume on it at all.
-   */
-  hours?: number | null;
 }) {
-  const logged = typeof hours === 'number' && hours > 0
-    ? `${Math.round(hours).toLocaleString()}h logged`
-    : null;
   /* Two or three words a note, not a clause. These are read at a glance beside
      a figure, and "nothing repeats often enough yet to count as a habit" under
      a 0 is a sentence doing the work the 0 already did. The long-form versions
-     of all four live in the panels underneath. */
+     of all three live in the panels underneath. "Days worked" was a fourth;
+     it is the Consistency tile on the Overview. */
   const stats: Stat[] = [
     {
       key: 'tracked',
@@ -100,16 +79,9 @@ export function HabitTiles({
       tone: 'green',
     },
     {
-      key: 'active',
-      label: 'Days worked',
-      value: `${summary.activeRate}%`,
-      note: logged ? `of this range · ${logged}` : 'of this range',
-      tone: 'blue',
-    },
-    {
       key: 'anchor',
       label: 'Anchor',
-      value: summary.anchor?.name ?? '—',
+      value: summary.anchor?.name ?? '-',
       note: summary.anchor ? `${summary.anchor.consistency}% of weeks` : 'none steady yet',
       tone: 'amber',
     },
@@ -129,7 +101,16 @@ export function HabitTiles({
  * answer "is it alive"; everything else is a footnote and is set as one. A card
  * that gave nine numbers equal weight would be a table with rounded corners.
  */
-export function HabitCard({ habit, todayIso }: { habit: Habit; todayIso: string }) {
+export function HabitCard({
+  habit,
+  todayIso,
+  facts,
+}: {
+  habit: Habit;
+  todayIso: string;
+  /** What the habit is worth — see utils/habitEffects. Absent draws no lines. */
+  facts?: HabitFacts;
+}) {
   const tone = STRENGTH_TONE[habit.strength];
   const unit = habit.unit === 'day' ? 'day' : 'week';
 
@@ -160,7 +141,7 @@ export function HabitCard({ habit, todayIso }: { habit: Habit; todayIso: string 
           {habit.streak > 0 ? `${habit.streak}-${unit} streak` : 'no run going'}
         </span>
         {habit.trend === null ? (
-          <span className="ax-delta ax-delta-none">too short to trend</span>
+          <span className="ax-delta ax-delta-none">too new to tell</span>
         ) : (
           <span
             className={`ax-delta ax-delta-${habit.trend > 4 ? 'up' : habit.trend < -4 ? 'down' : 'flat'}`}
@@ -193,175 +174,92 @@ export function HabitCard({ habit, todayIso }: { habit: Habit; todayIso: string 
           <dd>{since(habit.lastCompleted, todayIso)}</dd>
         </div>
       </dl>
+
+      {/* Behaviour, then consequence.
+
+          The block above is the diary: how often, how finished, how long ago.
+          These three lines are what the habit is *for* — the week against last
+          week, the condition it goes best under, and what it is associated
+          with. A card that stops at the diary tells a reader what they already
+          know; see utils/habitEffects for what each figure is and what it
+          refuses to claim.
+
+          Each line is drawn only when its comparison cleared its floor, and the
+          block disappears entirely on a habit with nothing behind it yet —
+          three greyed-out placeholders would be worse than the card this
+          replaced. */}
+      {facts && (facts.week || facts.condition || facts.effect) && (
+        <div className="ax-habit-effect">
+          {facts.week && (
+            <p className="ax-habit-week">
+              <strong>{facts.week.now}</strong> this week
+              {facts.week.before > 0 || facts.week.now > 0 ? (
+                <span
+                  className={`ax-delta ax-delta-${
+                    facts.week.change > 0 ? 'up' : facts.week.change < 0 ? 'down' : 'flat'
+                  }`}
+                >
+                  {facts.week.change > 0 ? '↑' : facts.week.change < 0 ? '↓' : '→'}{' '}
+                  {facts.week.change === 0
+                    ? 'same as last week'
+                    : `${Math.abs(facts.week.change)} from last week`}
+                </span>
+              ) : null}
+            </p>
+          )}
+          {facts.condition && (
+            <p className="ax-habit-cond">
+              <span className="ax-habit-cond-label">Best</span> {facts.condition.label}
+              <span className="ax-muted"> · {Math.round(facts.condition.lift)}% better</span>
+            </p>
+          )}
+          {facts.effect && (
+            <p
+              className={`ax-habit-impact ax-tone-${facts.effect.lift >= 0 ? 'green' : 'pink'}`}
+              title={facts.effect.basis}
+            >
+              <span className="ax-habit-cond-label">Impact</span>
+              <strong>
+                {facts.effect.lift > 0 ? '+' : '−'}
+                {Math.abs(Math.round(facts.effect.lift))}%
+              </strong>
+              <span className="ax-muted">on {facts.effect.measure}</span>
+            </p>
+          )}
+        </div>
+      )}
     </article>
   );
 }
 
-export function HabitCards({ habits, todayIso }: { habits: Habit[]; todayIso: string }) {
+export function HabitCards({
+  habits,
+  todayIso,
+  effects,
+}: {
+  habits: Habit[];
+  todayIso: string;
+  /** Habit key → what it is worth. Absent draws the cards without the block. */
+  effects?: Map<string, HabitFacts>;
+}) {
   if (habits.length === 0) {
     return (
       <p className="ax-empty">
-        Nothing here repeats often enough to call a habit yet.
+        Nothing repeats often enough to be a habit yet.
       </p>
     );
   }
   return (
     <div className="ax-habit-grid">
       {habits.map((habit) => (
-        <HabitCard key={habit.id} habit={habit} todayIso={todayIso} />
+        <HabitCard
+          key={habit.id}
+          habit={habit}
+          todayIso={todayIso}
+          facts={effects?.get(habit.key)}
+        />
       ))}
     </div>
-  );
-}
-
-// --------------------------------------------------------------------------
-// The calendar
-// --------------------------------------------------------------------------
-export interface HabitCalendarProps {
-  byDate: Map<string, HabitDay>;
-  lastIso: string;
-  accountDays: number;
-}
-
-/**
- * Every day in the window as a square, clickable.
- *
- * The window picker is the panel's own rather than the page's, for the same
- * reason the consistency heatmap on the Overview tab always draws a year: a map
- * of 91 squares and a map of 730 are not the same picture, and the question
- * this panel answers — what does my rhythm look like — is asked at whatever
- * zoom the reader wants regardless of what the rest of the tab is showing.
- *
- * Clicking a square is the whole reason the dates are carried through
- * `habitCalendar`. A heatmap that cannot be interrogated is decorative; one
- * that names what happened on the dark Tuesday is a record.
- */
-export function HabitCalendarPanel({ byDate, lastIso, accountDays }: HabitCalendarProps) {
-  const [window, setWindow] = useState<CalendarKey>('90');
-  const [picked, setPicked] = useState<string | null>(null);
-
-  const rows = useMemo(
-    () => habitCalendar(byDate, lastIso, window, accountDays),
-    [accountDays, byDate, lastIso, window],
-  );
-
-  const chosen = picked ? byDate.get(picked) : undefined;
-  const worked = rows.reduce(
-    (count, row) => count + row.days.filter((cell) => cell.date && cell.count > 0).length,
-    0,
-  );
-  const covered = rows.reduce((count, row) => count + row.days.filter((cell) => cell.date).length, 0);
-
-  return (
-    <Panel
-      title="Habit calendar"
-      note="One square a day — click for detail"
-      aside={
-        <div className="ax-chips ax-chips-sm" role="group" aria-label="Calendar window">
-          {CALENDAR_WINDOWS.map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              className={`ax-chip${option.key === window ? ' is-on' : ''}`}
-              aria-pressed={option.key === window}
-              onClick={() => {
-                setWindow(option.key);
-                setPicked(null);
-              }}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      }
-    >
-      {/* Two shapes, one set of cells. Under about a month the map turns on its
-          side and becomes the month calendar in `.is-calendar` — see the note
-          in analytics.css. The column count goes to CSS as a number because a
-          square here has a maximum size, and the width that follows from it is
-          arithmetic no intrinsic sizing can do: the grid clips its overflow, so
-          it will not state a width of its own. */}
-      <div
-        className={`ax-heat ax-heat-wide${window === '7' || window === '30' ? ' is-calendar' : ''}`}
-        style={{ '--ax-heat-weeks': rows.length } as CSSProperties}
-      >
-        <div className="ax-heat-days" aria-hidden="true">
-          {WEEKDAY_NAMES.map((day, index) => (
-            <span key={index}>{day || WEEKDAY_INITIALS[index]}</span>
-          ))}
-        </div>
-        <div className="ax-heat-main">
-          <div className="ax-heat-months" aria-hidden="true">
-            {rows.map((row, index) => (
-              <span key={index}>{row.label.slice(0, 1)}</span>
-            ))}
-          </div>
-          <div className="ax-heat-grid">
-            {rows.map((row, index) => (
-              <div className="ax-heat-week" key={index}>
-                {row.days.map((cell, cellIndex) =>
-                  cell.date ? (
-                    <button
-                      key={cellIndex}
-                      type="button"
-                      className={`ax-heat-cell ax-heat-hit${cell.date === picked ? ' is-picked' : ''}`}
-                      data-level={cell.level}
-                      title={`${pretty(cell.date)} · ${cell.count} finished`}
-                      aria-label={`${pretty(cell.date)}, ${cell.count} finished`}
-                      onClick={() => setPicked(cell.date === picked ? null : cell.date)}
-                    />
-                  ) : (
-                    <span key={cellIndex} className="ax-heat-cell is-blank" data-level={0} />
-                  ),
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="ax-heat-key">
-        <span>
-          {worked} of {covered} days worked
-        </span>
-        <span className="ax-heat-key-scale">
-          Less
-          {[0, 1, 2, 3, 4].map((level) => (
-            <i key={level} className="ax-heat-cell" data-level={level} />
-          ))}
-          More
-        </span>
-      </div>
-
-      <div className="ax-daycard">
-        {chosen ? (
-          <>
-            <div className="ax-daycard-head">
-              <strong>{pretty(chosen.date)}</strong>
-              <span className="ax-muted ax-small">
-                {chosen.count} finished · {Math.round(chosen.xp).toLocaleString()} XP
-              </span>
-            </div>
-            <ul className="ax-daycard-list">
-              {chosen.names.slice(0, 6).map((name, index) => (
-                <li key={`${name}-${index}`}>{name}</li>
-              ))}
-              {chosen.names.length > 6 && (
-                <li className="ax-muted">and {chosen.names.length - 6} more</li>
-              )}
-            </ul>
-          </>
-        ) : picked ? (
-          <p className="ax-muted ax-small">
-            <strong>{pretty(picked)}</strong> — nothing finished on this day.
-          </p>
-        ) : (
-          <p className="ax-muted ax-small">
-            Pick any square to see what was completed that day.
-          </p>
-        )}
-      </div>
-    </Panel>
   );
 }
 
@@ -392,11 +290,11 @@ export function PatternsPanel({
   return (
     <Panel
       title="Patterns in what you do"
-      note="Counts. Why is the Insights tab"
+      note='What you repeat and how often. Why it matters is under "Why it happens".'
     >
       {patterns.length === 0 ? (
         <p className="ax-empty">
-          Nothing repeats often enough to call a pattern yet.
+          Nothing repeats often enough to be a pattern yet.
         </p>
       ) : (
         <ul className="ax-patterns">
@@ -442,13 +340,13 @@ export function ConsistencyPanel({ habits }: { habits: Habit[] }) {
 
   return (
     <Panel
-      title="Which habits are actually stable"
-      note="By reliability, not by earnings"
+      title="Your steadiest habits"
+      note="Sorted by how often you keep them"
       claim={
         habits.length === 0 ? undefined : (
           <>
             <strong>{solid}</strong> of your <strong>{habits.length}</strong> habits{' '}
-            {solid === 1 ? 'is' : 'are'} holding reliably; the rest come and go.
+            {solid === 1 ? 'is' : 'are'} steady. The rest come and go.
           </>
         )
       }
@@ -514,21 +412,21 @@ export function TimelinePanel({
 
   return (
     <Panel
-      title="Your behavioural history"
-      note="Where each started, where it is"
+      title="How your habits changed"
+      note="Where each one started and where it is now"
       claim={
         withPhases.length === 0 ? undefined : (
           <>
-            Of the <strong>{withPhases.length}</strong> habits with enough history to split,{' '}
-            <strong>{rising}</strong> {rising === 1 ? 'is' : 'are'} stronger now than when{' '}
-            {rising === 1 ? 'it' : 'they'} started.
+            <strong>{rising}</strong> of your <strong>{withPhases.length}</strong> older habits{' '}
+            {rising === 1 ? 'is' : 'are'} stronger now than when {rising === 1 ? 'it' : 'they'}{' '}
+            started.
           </>
         )
       }
     >
       {withPhases.length === 0 ? (
         <p className="ax-empty">
-          Too short a range to split into phases.
+          Not enough time here to compare. Try a longer window.
         </p>
       ) : (
         <ul className="ax-phases">
@@ -600,17 +498,17 @@ export function habitLead(summary: HabitSummary, span: string): string {
   const parts: string[] = [];
   if (summary.tracked > 0) {
     parts.push(
-      `${summary.tracked} recurring ${summary.tracked === 1 ? 'behaviour' : 'behaviours'} show up in ${span}`,
+      `${summary.tracked} ${summary.tracked === 1 ? 'habit' : 'habits'} found in ${span}`,
     );
   }
   if (summary.anchor) {
     parts.push(
-      `and ${summary.anchor.name} is the steadiest of them, appearing in ${summary.anchor.consistency}% of the weeks`,
+      `and ${summary.anchor.name} is your most consistent (${summary.anchor.consistency}% of weeks)`,
     );
   }
   return parts.length
     ? `${parts.join(', ')}.`
-    : 'Nothing here repeats often enough to call a habit yet.';
+    : 'Nothing repeats often enough to be a habit yet.';
 }
 
 /** What the routine looks like underneath the sentence at the top of the tab. */
@@ -637,8 +535,8 @@ export function HabitOpening({
   const slip =
     summary.slipping && summary.slipping.trend !== null ? (
       <p className="ax-prose" key="slip">
-        <strong>{summary.slipping.name}</strong> is moving the wrong way — down{' '}
-        <strong>{Math.abs(summary.slipping.trend)}%</strong> against its own earlier rate.
+        <strong>{summary.slipping.name}</strong> is slipping. It's down{' '}
+        <strong>{Math.abs(summary.slipping.trend)}%</strong> from where it was.
       </p>
     ) : null;
 
@@ -647,21 +545,18 @@ export function HabitOpening({
   const hold =
     leadWithStrength && slip && summary.anchor ? (
       <p className="ax-prose" key="hold">
-        <strong>{summary.anchor.name}</strong> is holding at{' '}
+        <strong>{summary.anchor.name}</strong> is steady. You do it in{' '}
         <strong>{summary.anchor.consistency}%</strong> of weeks.
       </p>
     ) : null;
 
+  /* The share of days worked used to lead this panel, with a line of advice
+     under it. The share is the Consistency tile on the Overview, and advice is
+     the Recommendations tab, so the panel is the habits' own movement only. */
+  if (!slip) return null;
+
   return (
-    <Panel title="What you actually do" note={span}>
-      <p className="ax-prose ax-prose-lead">
-        You worked <strong>{summary.activeRate}%</strong> of the days here.{' '}
-        {summary.activeRate >= 80
-          ? 'At that rate the totals climb on their own.'
-          : summary.activeRate >= 50
-            ? 'A real routine with holes in it. What is missing is frequency, not effort.'
-            : 'Most of the calendar is empty. How often you turn up matters more than what you do.'}
-      </p>
+    <Panel title="Your routine" note={span}>
       {leadWithStrength ? [hold, slip] : [slip, hold]}
     </Panel>
   );

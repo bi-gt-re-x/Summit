@@ -19,7 +19,7 @@
  * In skills/trees, one file per subject, collected by skills/trees/index. This
  * file is the catalogue and the conversion to the renderer's model: what the
  * trees *are* lives next door, and everything here is derived from it. The split
- * happened when the data outgrew a file — fifty-five lattices of authored
+ * happened when the data outgrew a file — a hundred-odd lattices of authored
  * description is not something anybody reviews as one document.
  *
  * ## Navigation nodes
@@ -120,9 +120,9 @@ export function parentChain(id: string): SubjectTree[] {
  *
  * `group` is stated on roots only — a child tree is inside whatever group its
  * root is in — so this walks up to the root rather than reading the field, and
- * answers for Calculus ("Maths and science") as readily as for Mathematics.
+ * answers for Calculus ("Math and science") as readily as for Mathematics.
  *
- * It exists because how a subject is *practised* follows the group and almost
+ * It exists because how a subject is *practiced* follows the group and almost
  * nothing else: reading a proof, running a set of squats and cutting a draft
  * are three different verbs, and advice general enough to cover all three says
  * nothing about any of them. See skills/improve.

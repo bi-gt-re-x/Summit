@@ -26,9 +26,10 @@
  * it, and the link goes to the page that can say more.
  */
 import { Link } from 'react-router-dom';
-import { goalNumbers } from '@/components/Goals';
+import { fmtGoalNumber, goalNumbers } from '@/components/Goals';
 import { goalPace } from '@/utils/goalHealth';
 import type { Goal } from '@/types';
+import { Card } from '@/components/ui';
 
 export interface GoalsCardProps {
   goals: Goal[];
@@ -56,7 +57,7 @@ export function GoalsCard({ goals, limit = 2 }: GoalsCardProps) {
     .slice(0, limit);
 
   return (
-    <section className="card dash-panel dash-insight dash-goals">
+    <Card className="dash-panel dash-insight dash-goals">
       <h2 className="dash-panel-title dash-insight-title">
         <span className="dash-stat-ico dash-ico-goal" aria-hidden="true">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -65,7 +66,7 @@ export function GoalsCard({ goals, limit = 2 }: GoalsCardProps) {
             <circle cx="12" cy="12" r="1" />
           </svg>
         </span>
-        What it is for
+        What you're working toward
         <Link className="dash-goals-all" to="/goals">
           All goals
         </Link>
@@ -73,8 +74,7 @@ export function GoalsCard({ goals, limit = 2 }: GoalsCardProps) {
 
       {live.length === 0 ? (
         <p className="dash-empty">
-          No goals running. <Link to="/goals">Set one</Link> and the day&rsquo;s work
-          starts adding up to something.
+          No goals yet. <Link to="/goals">Set one</Link> and your daily work starts counting toward it.
         </p>
       ) : (
         <ul className="dash-goal-list">
@@ -101,13 +101,13 @@ export function GoalsCard({ goals, limit = 2 }: GoalsCardProps) {
                 </span>
                 <span className="dash-goal-foot">
                   <span>
-                    {Math.round(numbers.current).toLocaleString()}
-                    {numbers.target > 0 && ` / ${Math.round(numbers.target).toLocaleString()}`}
-                    {numbers.label && ` ${numbers.label}`}
+                    {fmtGoalNumber(numbers.current, numbers)}
+                    {numbers.target > 0 && ` / ${fmtGoalNumber(numbers.target, numbers)}`}
+                    {numbers.label && numbers.measure !== 'focus' && ` ${numbers.label}`}
                   </span>
                   {late && (
                     <span className="dash-goal-late">
-                      {drift === 1 ? '1 day behind' : `${drift} days behind`}
+                      {drift === 1 ? '1 day behind' : `${drift.toLocaleString()} days behind`}
                     </span>
                   )}
                 </span>
@@ -116,6 +116,6 @@ export function GoalsCard({ goals, limit = 2 }: GoalsCardProps) {
           })}
         </ul>
       )}
-    </section>
+    </Card>
   );
 }

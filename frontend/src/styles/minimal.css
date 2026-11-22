@@ -1,0 +1,67 @@
+/* ==========================================================================
+   minimal.css — what is left of the sidebar's look on every app page.
+
+   This sheet once brought every page to the rail's flat terms: a white
+   ground, headers without their sky and mountain range, cards without their
+   washes, the dashboard's four colours in one grey, gradient buttons made
+   solid, and a charcoal (Graphite) default accent. All of that colour is
+   back the way it was before the sidebar redesign — each page's own tones,
+   its gradients and its shadows, and Violet as the default accent — and what
+   stays is the heavier rule on each page's outer containers.
+
+   ## Why every selector starts `body.has-rail`
+
+   Signed-in pages only — the landing and sign-in pages keep their own look,
+   and `has-rail` is the class App.tsx sets on exactly the pages with the rail.
+   It also lifts each rule a class and an element above the page's own, which
+   matters because the pages' sheets are loaded with their routes, after this
+   one, and would otherwise win on source order.
+   ========================================================================== */
+
+/* ---- Outer containers: a heavier rule -------------------------------------
+   Every page's outermost boxes — the cards and panels a page is laid out in,
+   not the boxes inside them — draw their rule at 1.5px rather than 1px.
+   Found by measuring each page for bordered boxes with no bordered box
+   around them (2026-10-06). List items inside a container (a task row, a
+   calendar event) and chips keep their 1px. The Personal and Team spaces
+   are not on the list: they are open pages with no box to draw. */
+body.has-rail .ui-card,
+body.has-rail .peak-hero,
+body.has-rail .tk-stat,
+body.has-rail .tk-side,
+body.has-rail .ag-card,
+body.has-rail .gx-cta,
+body.has-rail .ax-lens,
+body.has-rail .ax-panel,
+body.has-rail .ax-section,
+body.has-rail .ax-building-body,
+body.has-rail .ax-gp-overall,
+body.has-rail .ax-gp-metric-card,
+body.has-rail .ax-group,
+body.has-rail .ax-observe,
+body.has-rail .ax-tabs-major,
+body.has-rail .gr-hero-card,
+body.has-rail .gr-panel,
+body.has-rail .sx-hero,
+body.has-rail .sb-card,
+body.has-rail .sb-path,
+body.has-rail .sb-link,
+body.has-rail .so-band,
+body.has-rail .wk-panel,
+body.has-rail .mv-card,
+body.has-rail .mv-summary,
+body.has-rail .stx-setup,
+body.has-rail .nt-list-panel,
+body.has-rail .nt-editor,
+body.has-rail .pom-hero,
+body.has-rail .pom-panel,
+body.has-rail .rc-tile,
+body.has-rail .rc-card,
+body.has-rail .ac-band,
+body.has-rail .ac-recent-card,
+body.has-rail .ac-ladder,
+body.has-rail .ac-tile,
+body.has-rail .ac-foot,
+body.has-rail .st-card {
+    border-width: 1.5px;
+}

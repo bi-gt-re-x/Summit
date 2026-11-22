@@ -1,0 +1,548 @@
+/* ==========================================================================
+   paper.css — the dashboard and the sidebar on warm paper.
+
+   A quiet look drawn from the user's mock (2026-10-21): a cream ground, cards
+   that are one shade off it with a hairline rule and no shadow, a serif for
+   every word and number, thin line icons, and one sage green for whatever is
+   pressed, filled or in progress. Nothing here changes what's shown; it only
+   restyles the rail, the top bar and the dashboard.
+
+   ## Why every selector starts the way it does
+
+   `html:root body.has-rail`: signed-in pages only (App.tsx sets `has-rail`). It
+   applies under every skin too; a skin still colours the other pages, but
+   the dashboard and the sidebar are drawn on paper, light or dark by the
+   theme. The prefix is also what lets these rules beat the page's own
+   sheets, which load with their routes after this one, and the skins' own
+   rail and top bar rules in preferences.css (`html:root[data-skin] …`). Dark mode adds
+   `[data-theme="dark"]`, one step more.
+
+   Every rule is scoped under an ancestor, so this sheet claims no class of its
+   own (scripts/check_css.mjs).
+   ========================================================================== */
+
+/* ---- The palette ------------------------------------------------------- */
+html:root body.has-rail {
+    --pa-font: 'EB Garamond', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+    --pa-bg: #f5f3ee;
+    --pa-rail: #f8f6f2;
+    --pa-card: #fbfaf7;
+    --pa-line: #e6e2d9;
+    --pa-line-soft: #eeebe4;
+    --pa-fill: #efece6;
+    --pa-fill-strong: #e7e3db;
+    --pa-ink: #2f322e;
+    --pa-muted: #6f726b;
+    --pa-faint: #a3a59d;
+    /* Sage, always: the look is one palette, so neither a skin's accent nor
+       the account's own reaches the dashboard and the sidebar. */
+    --pa-accent: #7d907c;
+    --pa-accent-deep: color-mix(in srgb, var(--pa-accent) 82%, #1f2a1f);
+    --pa-accent-soft: color-mix(in srgb, var(--pa-accent) 14%, var(--pa-card));
+    --pa-on-accent: #ffffff;
+    --pa-radius: 16px;
+}
+
+html:root[data-theme="dark"] body.has-rail {
+    --pa-bg: #181a17;
+    --pa-rail: #1c1e1b;
+    --pa-card: #20221f;
+    --pa-line: #30332d;
+    --pa-line-soft: #282a26;
+    --pa-fill: #272925;
+    --pa-fill-strong: #31342f;
+    --pa-ink: #e9e6de;
+    --pa-muted: #a6a89f;
+    --pa-faint: #777970;
+    --pa-accent: #9db09a;
+    --pa-accent-deep: color-mix(in srgb, var(--pa-accent) 85%, #ffffff);
+    --pa-accent-soft: color-mix(in srgb, var(--pa-accent) 16%, var(--pa-card));
+    --pa-on-accent: #141613;
+}
+
+/* The page's ground, on the dashboard. Other pages keep their own ground (and
+   a skin's), so only the sidebar is paper there. */
+html:root body.has-rail:has(.dash) { background: var(--pa-bg); }
+
+/* The app's shared tokens, pointed at the paper inside the three regions
+   this sheet draws. Anything in them that colours itself from a token (a
+   chart, a dialog, a skin's leftovers) then lands on the same palette
+   instead of the skin's or the theme's. */
+html:root body.has-rail .rail,
+html:root body.has-rail:has(.dash) .topbar,
+html:root body.has-rail .dash {
+    --color-bg: var(--pa-bg);
+    --color-surface: var(--pa-card);
+    --color-surface-2: var(--pa-fill);
+    --color-line: var(--pa-line);
+    --color-line-soft: var(--pa-line-soft);
+    --color-ink: var(--pa-ink);
+    --color-ink-muted: var(--pa-muted);
+    --color-ink-faint: var(--pa-faint);
+    --color-accent: var(--pa-accent);
+    --pref-accent: var(--pa-accent);
+    --pref-accent-2: var(--pa-accent-deep);
+    --skin-accent: var(--pa-accent);
+    --ax-card: var(--pa-card);
+    --ax-card-2: var(--pa-fill);
+    --ax-line: var(--pa-line);
+    --ax-line-soft: var(--pa-line-soft);
+    --ax-text: var(--pa-ink);
+    --ax-muted: var(--pa-muted);
+    --ax-faint: var(--pa-faint);
+    --ax-violet: var(--pa-accent);
+    scrollbar-color: var(--pa-line) transparent;
+}
+
+/* ==========================================================================
+   THE SIDEBAR
+   ========================================================================== */
+html:root body.has-rail .rail {
+    background: var(--pa-rail);
+    border-right: 1px solid var(--pa-line);
+    font-family: var(--pa-font);
+}
+
+html:root body.has-rail .rail .rail-brand,
+html:root body.has-rail .rail .rail-brand-name {
+    color: var(--pa-ink);
+}
+html:root body.has-rail .rail .rail-brand-name {
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: .32em;
+}
+
+html:root body.has-rail .rail .rail-toggle { color: var(--pa-faint); }
+html:root body.has-rail .rail .rail-toggle:hover { background: var(--pa-fill); color: var(--pa-ink); }
+
+html:root body.has-rail .rail .rail-section-head {
+    color: var(--pa-faint);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: .16em;
+}
+html:root body.has-rail .rail .rail-section-head:hover { color: var(--pa-ink); }
+
+html:root body.has-rail .rail .rail-link,
+html:root body.has-rail .rail .rail-sub-link {
+    color: var(--pa-muted);
+    font-size: 17px;
+    font-weight: 400;
+    border-radius: 10px;
+}
+html:root body.has-rail .rail .rail-link svg {
+    width: 19px;
+    height: 19px;
+    stroke-width: 1.5;
+    color: currentColor;
+}
+html:root body.has-rail .rail .rail-link:hover,
+html:root body.has-rail .rail .rail-sub-link:hover,
+html:root body.has-rail .rail .rail-disclose:hover {
+    background: var(--pa-fill);
+    color: var(--pa-ink);
+}
+html:root body.has-rail .rail .rail-link.active,
+html:root body.has-rail .rail .rail-sub-link.active {
+    background: var(--pa-fill-strong);
+    color: var(--pa-ink);
+}
+html:root body.has-rail .rail .rail-link.active svg { color: var(--pa-ink); }
+html:root body.has-rail .rail .rail-sub-link.active::before { background: var(--pa-accent); }
+html:root body.has-rail .rail .rail-sub { border-left-color: var(--pa-line); }
+html:root body.has-rail .rail .rail-disclose { color: var(--pa-faint); }
+html:root body.has-rail .rail .rail-foot-settings { color: var(--pa-muted); }
+html:root body.has-rail .rail .rail-foot-settings:hover,
+html:root body.has-rail .rail .rail-foot-settings.active { background: var(--pa-fill); color: var(--pa-ink); }
+html:root body.has-rail .rail .rail-avatar { background: var(--pa-fill); }
+
+html:root body.has-rail .rail .rail-foot { border-top-color: var(--pa-line); }
+html:root body.has-rail .rail .rail-rank-title,
+html:root body.has-rail .rail .rail-rank-num {
+    color: var(--pa-ink);
+    font-weight: 500;
+    letter-spacing: 0;
+}
+html:root body.has-rail .rail .rail-xp-row { color: var(--pa-faint); font-weight: 400; }
+html:root body.has-rail .rail .rail-xp-bar { background: var(--pa-fill-strong); }
+html:root body.has-rail .rail .rail-xp-bar i { background: var(--pa-accent); }
+html:root body.has-rail .rail .rail-rank-more:hover,
+html:root body.has-rail .rail .rail-rank-more.is-open { background: var(--pa-fill); color: var(--pa-ink); }
+
+/* ==========================================================================
+   THE TOP BAR — on the dashboard, the page's own ground with no rule under it
+   ========================================================================== */
+html:root body.has-rail:has(.dash) .topbar {
+    background: var(--pa-bg);
+    border-bottom-color: transparent;
+    font-family: var(--pa-font);
+}
+html:root body.has-rail:has(.dash) .topbar .topbar-btn { color: var(--pa-muted); }
+html:root body.has-rail:has(.dash) .topbar .topbar-btn svg { stroke-width: 1.6; }
+html:root body.has-rail:has(.dash) .topbar .topbar-btn:hover,
+html:root body.has-rail:has(.dash) .topbar .topbar-btn.is-on { background: var(--pa-fill); color: var(--pa-ink); }
+html:root body.has-rail:has(.dash) .topbar .topbar-account { color: var(--pa-ink); font-family: var(--pa-font); }
+html:root body.has-rail:has(.dash) .topbar .topbar-name { font-size: 16px; font-weight: 400; }
+
+/* ==========================================================================
+   THE DASHBOARD
+   ========================================================================== */
+html:root body.has-rail .dash {
+    font-family: var(--pa-font);
+    color: var(--pa-ink);
+    --dash-card-radius: var(--pa-radius);
+    --dash-card-line: var(--pa-line);
+    --dash-card-shadow: none;
+    --fp-focus: var(--pa-accent);
+}
+/* The app-wide graph paper, wash and drifting dots (components/Ambient)
+   stay on every other page. On the dashboard they'd be a second texture over
+   the paper, so they go while it's showing. */
+html:root body.has-rail:has(.dash) .hm-ambient { display: none; }
+html:root body.has-rail .dash button { font-family: var(--pa-font); }
+
+/* ---- The greeting ------------------------------------------------------ */
+html:root body.has-rail .dash .dash-hello {
+    font-size: clamp(34px, 3.4vw, 46px);
+    font-weight: 500;
+    letter-spacing: -.01em;
+    line-height: 1.1;
+    color: var(--pa-ink);
+}
+html:root body.has-rail .dash .dash-date {
+    font-size: 16px;
+    font-weight: 400;
+    color: var(--pa-muted);
+}
+html:root body.has-rail .dash .dash-date svg { stroke-width: 1.5; }
+html:root body.has-rail .dash .dash-datebar .refresh-btn {
+    color: var(--pa-muted);
+    background: transparent;
+    border-color: transparent;
+}
+
+/* ---- Every card on the page: paper on paper, a hairline, no shadow ----- */
+html:root body.has-rail .dash .dash-stat,
+html:root body.has-rail .dash .dash-panel,
+html:root body.has-rail .dash .focus-panel,
+html:root body.has-rail .dash .dash-next,
+html:root body.has-rail .dash .ns-panel {
+    background: var(--pa-card);
+    border: 1px solid var(--pa-line);
+    border-radius: var(--pa-radius);
+    box-shadow: none;
+    color: var(--pa-ink);
+}
+
+/* ---- The four figures -------------------------------------------------- */
+html:root body.has-rail .dash .dash-stats { gap: 20px; }
+html:root body.has-rail .dash .dash-stat { padding: 26px 28px 24px; }
+
+/* The icon without its coloured disc: a thin line beside the name. */
+html:root body.has-rail .dash .dash-stat-chip {
+    width: 26px;
+    height: 26px;
+    background: transparent;
+    color: var(--pa-ink);
+    box-shadow: none;
+}
+html:root body.has-rail .dash .dash-stat-chip svg {
+    width: 24px;
+    height: 24px;
+    stroke-width: 1.4;
+}
+html:root body.has-rail .dash .dash-stat-head { align-items: center; }
+html:root body.has-rail .dash .dash-stat-name {
+    font-size: 24px;
+    font-weight: 500;
+    letter-spacing: -.005em;
+    color: var(--pa-ink);
+}
+html:root body.has-rail .dash .dash-stat-tag,
+html:root body.has-rail .dash .dash-stat-sub,
+html:root body.has-rail .dash .dash-week-say,
+html:root body.has-rail .dash .dash-xp-goal,
+html:root body.has-rail .dash .dash-stat-usual {
+    color: var(--pa-muted);
+}
+html:root body.has-rail .dash .dash-stat-sub { font-size: 18px; }
+
+html:root body.has-rail .dash .dash-big {
+    font-size: 52px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+    color: var(--pa-ink);
+}
+html:root body.has-rail .dash .dash-big-unit {
+    font-size: 22px;
+    font-weight: 400;
+    color: var(--pa-muted);
+}
+
+/* The badges in a card's corner ("166% vs usual"): a quiet note, not a flag. */
+html:root body.has-rail .dash .dash-stat .ui-badge {
+    background: var(--pa-fill);
+    color: var(--pa-muted);
+    border-color: transparent;
+    font-weight: 500;
+}
+
+/* Today: the ring and the three figures. */
+html:root body.has-rail .dash .dash-ring-track { stroke: var(--pa-fill-strong); stroke-width: 7; }
+html:root body.has-rail .dash .dash-ring-fill { stroke: var(--pa-accent); stroke-width: 7; }
+html:root body.has-rail .dash .dash-ring-centre { color: var(--pa-muted); }
+html:root body.has-rail .dash .dash-ring-centre strong,
+html:root body.has-rail .dash .dash-ring-centre b { color: var(--pa-ink); font-weight: 500; }
+html:root body.has-rail .dash .dash-today-figures { border-color: var(--pa-line); }
+html:root body.has-rail .dash .dash-figure dd,
+html:root body.has-rail .dash .dash-figure strong { color: var(--pa-ink); font-weight: 500; }
+html:root body.has-rail .dash .dash-figure dt,
+html:root body.has-rail .dash .dash-figure span { color: var(--pa-muted); }
+
+/* XP: the level, a thin sage bar, today's gain. */
+html:root body.has-rail .dash .dash-xp-level { color: var(--pa-ink); font-weight: 500; }
+html:root body.has-rail .dash .dash-xp-count { color: var(--pa-muted); }
+html:root body.has-rail .dash .dash-bar {
+    height: 7px;
+    background: var(--pa-fill-strong);
+}
+html:root body.has-rail .dash .dash-bar .dash-bar-fill,
+html:root body.has-rail .dash .dash-bar-green .dash-bar-fill { background: var(--pa-accent); }
+html:root body.has-rail .dash .dash-xp-today { color: var(--pa-muted); }
+html:root body.has-rail .dash .dash-xp-today strong,
+html:root body.has-rail .dash .dash-xp-today svg { color: var(--pa-accent-deep); font-weight: 500; }
+
+/* The inset strip under Focus and Streak. */
+html:root body.has-rail .dash .dash-stat .dash-stat-panel {
+    background: var(--pa-fill);
+    border-color: transparent;
+    border-radius: 10px;
+    color: var(--pa-muted);
+}
+html:root body.has-rail .dash .dash-stat-panel-ico { background: transparent; color: var(--pa-muted); }
+
+/* Streak: hollow days, sage when worked. The run's grace and vacation keep
+   their own marks. */
+html:root body.has-rail .dash .dash-week-dot {
+    border: 1px solid var(--pa-line);
+    background: transparent;
+}
+html:root body.has-rail .dash .dash-week-day.is-done .dash-week-dot {
+    border-color: var(--pa-accent);
+    background: var(--pa-accent);
+    color: var(--pa-on-accent);
+}
+html:root body.has-rail .dash .dash-week-day.is-forgiven .dash-week-dot {
+    border-color: var(--pa-accent);
+    background: var(--pa-accent-soft);
+    color: var(--pa-accent-deep);
+}
+html:root body.has-rail .dash .dash-week-name { color: var(--pa-muted); font-weight: 400; }
+
+/* The grace-day pill under the streak. */
+html:root body.has-rail .dash .dash-guard {
+    font-weight: 500;
+}
+html:root body.has-rail .dash .dash-guard.is-locked {
+    background: var(--pa-card);
+    border-color: var(--pa-line);
+    color: var(--pa-muted);
+}
+html:root body.has-rail .dash .dash-guard.is-ready {
+    background: var(--pa-accent-soft);
+    border-color: transparent;
+    color: var(--pa-accent-deep);
+}
+
+/* ---- Tasks and Focus --------------------------------------------------- */
+html:root body.has-rail .dash .dash-panel { padding: 26px 30px; }
+html:root body.has-rail .dash .dash-panel-title,
+html:root body.has-rail .dash .focus-panel h2 {
+    font-size: 26px;
+    font-weight: 500;
+    letter-spacing: -.005em;
+    color: var(--pa-ink);
+}
+html:root body.has-rail .dash .dash-panel-title svg,
+html:root body.has-rail .dash .focus-panel h2 svg { stroke-width: 1.4; }
+
+html:root body.has-rail .dash .dash-tabs {
+    background: var(--pa-fill);
+    border-radius: 999px;
+    padding: 4px;
+}
+html:root body.has-rail .dash .dash-tab {
+    border-radius: 999px;
+    padding: 7px 20px;
+    font-size: 16px;
+    font-weight: 400;
+    color: var(--pa-muted);
+}
+html:root body.has-rail .dash .dash-tab:hover { color: var(--pa-ink); }
+html:root body.has-rail .dash .dash-tab.is-active {
+    background: var(--pa-fill-strong);
+    color: var(--pa-ink);
+    font-weight: 500;
+}
+
+html:root body.has-rail .dash .dash-add,
+html:root body.has-rail .dash .fp-primary {
+    background: var(--pa-accent);
+    color: var(--pa-on-accent);
+    border-color: transparent;
+    font-weight: 500;
+    filter: none;
+}
+html:root body.has-rail .dash .dash-add {
+    border-radius: 12px;
+    padding: 9px 18px;
+    font-size: 16px;
+}
+html:root body.has-rail .dash .dash-add:hover,
+html:root body.has-rail .dash .fp-btn.fp-primary:hover {
+    background: var(--pa-accent-deep);
+    color: var(--pa-on-accent);
+}
+
+/* A task: a row between hairlines rather than a box of its own. */
+html:root body.has-rail .dash .dash-task-list { gap: 0; }
+html:root body.has-rail .dash .dash-task {
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--pa-line-soft);
+    border-radius: 0;
+    padding: 16px 8px;
+}
+html:root body.has-rail .dash .dash-task:hover { background: color-mix(in srgb, var(--pa-fill) 55%, transparent); }
+html:root body.has-rail .dash .dash-task-check {
+    border: 1.5px solid var(--pa-faint);
+    border-radius: 5px;
+}
+html:root body.has-rail .dash .dash-task-check:hover { border-color: var(--pa-accent); }
+html:root body.has-rail .dash .dash-task-name {
+    font-size: 18px;
+    font-weight: 400;
+    color: var(--pa-ink);
+}
+html:root body.has-rail .dash .dash-task-meta,
+html:root body.has-rail .dash .dash-task-tag { color: var(--pa-muted); font-weight: 400; }
+html:root body.has-rail .dash .dash-task-tag { background: transparent; border-color: transparent; }
+html:root body.has-rail .dash .dash-task-subject {
+    background: var(--pa-fill);
+    border-color: transparent;
+    border-radius: 8px;
+    color: var(--pa-muted);
+    font-weight: 400;
+}
+html:root body.has-rail .dash .dash-task-when { color: var(--pa-muted); font-weight: 400; }
+html:root body.has-rail .dash .dash-task-head {
+    color: var(--pa-faint);
+    font-weight: 500;
+    letter-spacing: .14em;
+}
+
+html:root body.has-rail .dash .dash-panel-link {
+    color: var(--pa-muted);
+    font-weight: 400;
+}
+html:root body.has-rail .dash .dash-panel-link:hover { color: var(--pa-ink); }
+html:root body.has-rail .dash .dash-panel-lede { color: var(--pa-faint); }
+
+html:root body.has-rail .dash .tk-day-all {
+    background: transparent;
+    border: 1px solid var(--pa-line);
+    color: var(--pa-ink);
+    border-radius: 12px;
+    font-weight: 400;
+}
+html:root body.has-rail .dash .tk-day-all:hover { border-color: var(--pa-accent); color: var(--pa-accent-deep); }
+html:root body.has-rail .dash .dash-tasks .tk-day-all::before { background: var(--pa-line); }
+html:root body.has-rail .dash .dash-goals-all,
+html:root body.has-rail .dash .dash-insight a { color: var(--pa-muted); }
+html:root body.has-rail .dash .dash-goals-all:hover,
+html:root body.has-rail .dash .dash-insight a:hover { color: var(--pa-ink); }
+
+/* The focus dial: a thin track, a sage arc, the time in the serif. A break
+   keeps its own colour, so the phase still shows at a glance. */
+html:root body.has-rail .dash .focus-panel.is-focus { --fp-tone: var(--pa-accent); }
+html:root body.has-rail .dash .fp-dial-track { stroke: var(--pa-fill-strong); stroke-width: 6; }
+html:root body.has-rail .dash .fp-dial-run { stroke: var(--fp-tone, var(--pa-accent)); stroke-width: 6; }
+html:root body.has-rail .dash .fp-time {
+    font-size: 46px;
+    font-weight: 500;
+    letter-spacing: 0;
+    color: var(--pa-ink);
+}
+html:root body.has-rail .dash .fp-phase { font-weight: 500; letter-spacing: .14em; }
+html:root body.has-rail .dash .fp-sub,
+html:root body.has-rail .dash .fp-today { color: var(--pa-muted); }
+html:root body.has-rail .dash .fp-dots li { background: var(--pa-fill-strong); }
+html:root body.has-rail .dash .fp-btn {
+    background: transparent;
+    border-color: var(--pa-line);
+    color: var(--pa-muted);
+}
+html:root body.has-rail .dash .fp-btn:hover { color: var(--pa-ink); border-color: var(--pa-faint); }
+html:root body.has-rail .dash .fp-btn.fp-primary {
+    background: var(--pa-accent);
+    color: var(--pa-on-accent);
+    border-color: transparent;
+    border-radius: 999px;
+    padding: 13px 20px;
+    font-size: 17px;
+}
+
+/* ---- The cards under the fold ------------------------------------------ */
+html:root body.has-rail .dash .dash-insight .dash-panel-title { font-size: 22px; }
+html:root body.has-rail .dash .dash-task-scroll { scrollbar-color: var(--pa-line) transparent; scrollbar-width: thin; }
+html:root body.has-rail .dash .dash-stat-ico {
+    background: transparent;
+    color: var(--pa-ink);
+}
+html:root body.has-rail .dash .dash-goal-name,
+html:root body.has-rail .dash .dash-activity-name { color: var(--pa-ink); font-weight: 400; }
+html:root body.has-rail .dash .dash-goal-track { background: var(--pa-fill-strong); }
+html:root body.has-rail .dash .dash-activity-ico { background: var(--pa-fill); color: var(--pa-muted); }
+html:root body.has-rail .dash .dash-activity-at,
+html:root body.has-rail .dash .dash-goal-pct,
+html:root body.has-rail .dash .dash-week-vs-note { color: var(--pa-muted); }
+
+/* ---- Next sessions, at the foot of the page ------------------------------ */
+html:root body.has-rail .dash .ns-panel .sx-step,
+html:root body.has-rail .dash .ns-panel .sx-step.is-taken {
+    background-image: none;
+    background-color: var(--pa-card);
+    border-color: var(--pa-line);
+}
+html:root body.has-rail .dash .ns-panel .sx-step:hover {
+    border-color: var(--pa-faint);
+    box-shadow: none;
+}
+html:root body.has-rail .dash .ns-panel .sx-step-rank,
+html:root body.has-rail .dash .ns-panel .sx-step.is-taken .sx-step-rank {
+    background: var(--pa-fill-strong);
+    color: var(--pa-ink);
+    font-weight: 500;
+    box-shadow: none;
+}
+html:root body.has-rail .dash .ns-panel .ns-pill { font-weight: 400; }
+html:root body.has-rail .dash .ns-panel .ns-pill.is-on {
+    border-color: var(--pa-line);
+    background: var(--pa-fill);
+}
+html:root body.has-rail .dash .ns-panel .ns-btn { font-weight: 500; }
+html:root body.has-rail .dash .ns-panel .ns-btn.is-primary,
+html:root body.has-rail .dash .ns-panel .ns-btn.is-primary:hover:not(:disabled) {
+    background: var(--pa-accent);
+    color: var(--pa-on-accent);
+    filter: none;
+}
+html:root body.has-rail .dash .ns-panel h2 { font-size: 26px; font-weight: 500; }
+
+/* ---- Phones ------------------------------------------------------------ */
+@media (max-width: 640px) {
+    html:root body.has-rail .dash .dash-big { font-size: 42px; }
+    html:root body.has-rail .dash .dash-panel { padding: 20px; }
+    html:root body.has-rail .dash .dash-stat { padding: 22px; }
+}

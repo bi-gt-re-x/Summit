@@ -18,7 +18,15 @@
  * read it moves is what keeps that pairing from drifting.
  */
 import { useCallback, useState } from 'react';
+import { DEFAULT_BUDGET, type NextResult } from '@/services/next';
+import { next as nextService } from '@/services';
 import { useApi, useStats } from '@/hooks';
+import * as backgroundService from '@/services/background';
+import type { Background } from '@/services/background';
+import * as saidService from '@/services/said';
+import type { MoodVsOutput, SaidVsDid } from '@/services/said';
+import { taskHistory } from '@/services/taskHistory';
+import { takeOrAsk } from './earlyReads';
 import {
   analytics as analyticsService,
   goals as goalsService,
@@ -31,7 +39,6 @@ import type {
   BaselineResult,
   MetricHistories,
   MetricHistory,
-  Standing,
 } from '@/services/analytics';
 import type { BaselineValues } from './Baseline';
 import type { Advice } from '@/utils/advice';
@@ -60,6 +67,11 @@ export function useAnalyticsData() {
   /*
    * The tasks, in the sixteen fields the panels actually count.
    *
+   * Through `taskHistory` rather than straight at the service: this is the
+   * largest response the app makes and the subject page wants the same one, so
+   * opening a subject from here and coming back used to be three downloads of
+   * identical bytes. See services/taskHistory.
+   *
    * See `analyticsTasks` in services/analytics and ANALYTICS_TASK_FIELDS on the
    * other side of it. Still the whole record rather than the window: the picker
    * slices in the browser so that changing it is instant, and the goal and
@@ -69,7 +81,7 @@ export function useAnalyticsData() {
   const tasksCall = useCallback(
     () =>
       username
-        ? analyticsService.analyticsTasks()
+        ? taskHistory(username)
         : Promise.resolve({ success: false as const, message: 'Sign in to see your analytics.' }),
     [username],
   );
@@ -81,7 +93,7 @@ export function useAnalyticsData() {
   const seriesCall = useCallback(
     () =>
       username
-        ? growthService.series(0)
+        ? takeOrAsk('series', () => growthService.series(0))
         : Promise.resolve({ success: false as const, message: 'Sign in to see your analytics.' }),
     [username],
   );
@@ -94,25 +106,11 @@ export function useAnalyticsData() {
   const ratingsCall = useCallback(
     () =>
       username
-        ? growthService.ratings()
+        ? takeOrAsk('ratings', () => growthService.ratings())
         : Promise.resolve({ success: false as const, message: 'Sign in to see your score.' }),
     [username],
   );
   const ratings = useApi<Ratings>(ratingsCall, [username]);
-
-  // The fourth call, and the only one that reads anything but this account:
-  // "Where You Stand" ranks the reader against every other account with a
-  // comparable record, which is arithmetic the client cannot do and should not
-  // have the data for. Unscoped by the window picker on purpose — the panel
-  // asks where this account stands, not where it stood over a quarter.
-  const standingCall = useCallback(
-    () =>
-      username
-        ? analyticsService.standing()
-        : Promise.resolve({ success: false as const, message: 'Sign in to see where you stand.' }),
-    [username],
-  );
-  const standing = useApi<Standing>(standingCall, [username]);
 
   // The goals, for the Records tab and nothing else. A goal is the only place
   // this account records a target somebody chose — every other benchmark on
@@ -121,7 +119,7 @@ export function useAnalyticsData() {
   const goalsCall = useCallback(
     () =>
       username
-        ? goalsService.getGoals()
+        ? takeOrAsk('goals', () => goalsService.getGoals())
         : Promise.resolve({ success: false as const, message: 'Sign in to see your goals.' }),
     [username],
   );
@@ -135,8 +133,8 @@ export function useAnalyticsData() {
   const baselineCall = useCallback(
     () =>
       username
-        ? analyticsService.baseline()
-        : Promise.resolve({ success: false as const, message: 'Sign in to set a baseline.' }),
+        ? takeOrAsk('baseline', () => analyticsService.baseline())
+        : Promise.resolve({ success: false as const, message: 'Sign in to set your targets.' }),
     [username],
   );
   const baseline = useApi<BaselineResult>(baselineCall, [username]);
@@ -147,7 +145,7 @@ export function useAnalyticsData() {
   const adoptedCall = useCallback(
     () =>
       username
-        ? analyticsService.adoptedAdvice()
+        ? takeOrAsk('adopted', () => analyticsService.adoptedAdvice())
         : Promise.resolve({ success: false as const, message: 'Sign in to see your changes.' }),
     [username],
   );
@@ -159,7 +157,7 @@ export function useAnalyticsData() {
   const gradedCall = useCallback(
     () =>
       username
-        ? analyticsService.metricHistories()
+        ? takeOrAsk('graded', () => analyticsService.metricHistories())
         : Promise.resolve({ success: false as const, message: 'Sign in to see your history.' }),
     [username],
   );
@@ -170,11 +168,59 @@ export function useAnalyticsData() {
   const historyCall = useCallback(
     () =>
       username
-        ? analyticsService.metricHistory('overall')
+        ? takeOrAsk('history:overall', () => analyticsService.metricHistory('overall'))
         : Promise.resolve({ success: false as const, message: 'Sign in to see your history.' }),
     [username],
   );
   const scoreLog = useApi<MetricHistory>(historyCall, [username]);
+
+  // What the account said about itself at the end of sign-up: the answers,
+  // the facts filed from them, and the head start their detail earns on this
+  // page's waits. See backend/api/background.py.
+  const backgroundCall = useCallback(
+    () =>
+      username
+        ? backgroundService.read()
+        : Promise.resolve({ success: false as const, message: 'Sign in to see this.' }),
+    [username],
+  );
+  const background = useApi<Background>(backgroundCall, [username]);
+
+  // What the account said (About you, the Log) against what it did. See
+  // backend/tracking/said_did.py.
+  const saidCall = useCallback(
+    () =>
+      username
+        ? saidService.read()
+        : Promise.resolve({ success: false as const, message: 'Sign in to see this.' }),
+    [username],
+  );
+  const said = useApi<SaidVsDid>(saidCall, [username]);
+
+  // How the days felt against what they did. backend/tracking/mood.py.
+  const moodCall = useCallback(
+    () =>
+      username
+        ? saidService.readMood()
+        : Promise.resolve({ success: false as const, message: 'Sign in to see this.' }),
+    [username],
+  );
+  const mood = useApi<MoodVsOutput>(moodCall, [username]);
+
+  // What to do next, for the minutes the reader picked. Decided on the server
+  // (backend/tracking/next_actions.py) — the same list the dashboard's top line
+  // reads — and asked again when the budget changes or the plan's own refresh
+  // is pressed, which re-reads it against the clock.
+  const [budget, setBudget] = useState<number>(DEFAULT_BUDGET);
+  const [nudge, setNudge] = useState(0);
+  const nextCall = useCallback(
+    () =>
+      username
+        ? nextService.nextActions(budget)
+        : Promise.resolve({ success: false as const, message: 'Sign in to see what to do next.' }),
+    [username, budget],
+  );
+  const next = useApi<NextResult>(nextCall, [username, budget, nudge]);
   // ---- Accepting a recommendation ----------------------------------------
   /**
    * Turn a recommendation into a task, and start the clock on measuring it.
@@ -275,10 +321,10 @@ export function useAnalyticsData() {
   /**
    * Re-read everything a visit can change.
    *
-   * Five of the eight, not all of them. Standing, the baseline and the graded
-   * log do not move because the reader pressed a button on this page — the
-   * first is other people's records, and the other two only change when this
-   * page itself writes them, which reloads them on its own above.
+   * Five of the seven, not all of them. The baseline and the graded log do
+   * not move because the reader pressed a button on this page — they only
+   * change when this page itself writes them, which reloads them on its own
+   * above.
    */
   const refresh = useCallback(() => {
     series.reload();
@@ -286,7 +332,10 @@ export function useAnalyticsData() {
     ratings.reload();
     goals.reload();
     adopted.reload();
-  }, [adopted, goals, ratings, series, tasks]);
+    next.reload();
+    said.reload();
+    mood.reload();
+  }, [adopted, goals, mood, next, ratings, said, series, tasks]);
 
   return {
     stats,
@@ -294,12 +343,19 @@ export function useAnalyticsData() {
     username,
     series,
     ratings,
-    standing,
     goals,
     baseline,
     adopted,
     gradedLog,
     scoreLog,
+    background,
+    said,
+    mood,
+    next,
+    budget,
+    setBudget,
+    nudge,
+    setNudge,
     refresh,
     adopt,
     adopting,

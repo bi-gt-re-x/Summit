@@ -34,12 +34,16 @@
  * busy to answer a dialog are often their best ones.
  */
 import type { Task } from '@/types';
+import { RULES } from '@/utils/sharedRules';
+import { difficultyName, fiveToLevel, levelLabel } from '@/utils/priority';
 
 /** The best a single task can score: 5 for difficulty times 5 for execution. */
 export const QUALITY_MAX = 25;
 
-/** The five stars, in words. Shared with the prompt that collects them. */
-export const DIFFICULTY_WORDS = ['Trivial', 'Easy', 'Fair', 'Hard', 'Brutal'];
+/** The five points of the old difficulty star, named as the level each one
+ *  maps to (utils/priority `fiveToLevel`): Easy, Slightly Easy, Medium, Hard,
+ *  Grueling. The averages still run on five; these are the words for them. */
+export const DIFFICULTY_WORDS: string[] = [1, 2, 3, 4, 5].map((five) => levelLabel(fiveToLevel(five) ?? five));
 export const EXECUTION_WORDS = ['Poor', 'Patchy', 'Solid', 'Strong', 'Excellent'];
 
 // --------------------------------------------------------------------------
@@ -59,8 +63,9 @@ export const EXECUTION_WORDS = ['Poor', 'Patchy', 'Solid', 'Strong', 'Excellent'
  * asked what made it go well. The same list on both sides would ask somebody
  * who has just done something well what went wrong with it.
  *
- * The keys are what the database stores and must match ALL_REASONS in
- * backend/api/tasks.py. The words are only ever read here.
+ * Keys, labels and phrases all come from shared/rules.json, which the server
+ * reads too (the keys are what it stores; the labels go into the model's
+ * brief).
  */
 export interface Reason {
   key: string;
@@ -69,23 +74,9 @@ export interface Reason {
   phrase: string;
 }
 
-export const STRUGGLE_REASONS: Reason[] = [
-  { key: 'distracted', label: 'Could not focus', phrase: 'could not focus' },
-  { key: 'unclear', label: 'Did not know where to start', phrase: 'was unclear where to start' },
-  { key: 'underestimated', label: 'Bigger than it looked', phrase: 'was bigger than it looked' },
-  { key: 'no-time', label: 'Ran out of time', phrase: 'ran out of time' },
-  { key: 'low-energy', label: 'Low energy', phrase: 'was done on low energy' },
-  { key: 'interrupted', label: 'Kept getting interrupted', phrase: 'kept getting interrupted' },
-];
+export const STRUGGLE_REASONS: Reason[] = RULES.task_reasons.struggle;
 
-export const WENT_WELL_REASONS: Reason[] = [
-  { key: 'prepared', label: 'Knew exactly what to do', phrase: 'was clear from the start' },
-  { key: 'deep-focus', label: 'Had a clear run at it', phrase: 'had a clear run at it' },
-  { key: 'momentum', label: 'Carried momentum in', phrase: 'carried momentum in' },
-  { key: 'broken-down', label: 'Broken into small steps', phrase: 'was broken into small steps' },
-  { key: 'fresh', label: 'Was fresh', phrase: 'was done fresh' },
-  { key: 'familiar', label: 'Had done one like it', phrase: 'was familiar work' },
-];
+export const WENT_WELL_REASONS: Reason[] = RULES.task_reasons.went_well;
 
 export type ReasonSide = 'struggle' | 'went-well';
 
@@ -285,25 +276,25 @@ export function qualityBands(rated: RatedTask[]): QualityBand[] {
   return [
     band(
       'Hard, done well',
-      'Difficulty 3+ and execution 3+. The work worth having a record of.',
+      'Difficulty 3+ and execution 3+. This is the work that counts most.',
       'green',
       count((task) => task.difficulty >= 3 && task.execution >= 3),
     ),
     band(
       'Hard, went badly',
-      'Difficulty 3+, execution below 3. Worth knowing what these had in common.',
+      'Difficulty 3+, execution below 3. Look for what these had in common.',
       'amber',
       count((task) => task.difficulty >= 3 && task.execution < 3),
     ),
     band(
       'Easy, done well',
-      'Difficulty below 3, execution 3+. Real work, but it is not stretching you.',
+      "Difficulty below 3, execution 3+. Real work, but it's not stretching you.",
       'blue',
       count((task) => task.difficulty < 3 && task.execution >= 3),
     ),
     band(
       'Easy, went badly',
-      'Difficulty below 3, execution below 3. Usually a day thing rather than a task thing.',
+      'Easy and it still went badly. Usually just an off day.',
       'pink',
       count((task) => task.difficulty < 3 && task.execution < 3),
     ),
@@ -333,7 +324,7 @@ export function ratingFindings(summary: RatingSummary, rated: RatedTask[]): Rati
       {
         tone: 'note',
         headline: `${summary.rated} rated ${summary.rated === 1 ? 'task' : 'tasks'} in this window.`,
-        hint: `Findings need ${FLOOR}. Rating is optional.`,
+        hint: `Patterns show up after ${FLOOR}. Rating is optional.`,
       },
     ];
   }
@@ -350,20 +341,20 @@ export function ratingFindings(summary: RatingSummary, rated: RatedTask[]): Rati
       gap > 0
         ? {
             tone: 'watch',
-            headline: 'You are executing well above the difficulty you take on.',
-            hint: `Execution ${execution.toFixed(1)} against difficulty ${difficulty.toFixed(1)}. The work has stopped stretching you — take harder tasks, not better ones.`,
+            headline: 'Your tasks may be too easy.',
+            hint: `They go ${execution.toFixed(1)} out of 5 and average ${difficultyName(difficulty)}. Try harder ones.`,
           }
         : {
             tone: 'watch',
-            headline: 'You are taking on more than is going well.',
-            hint: `Difficulty ${difficulty.toFixed(1)} against execution ${execution.toFixed(1)}. Fine as a phase — worth watching that it stays one.`,
+            headline: 'Your tasks may be too hard.',
+            hint: `They average ${difficultyName(difficulty)} and go ${execution.toFixed(1)} out of 5. Fine for now, but keep an eye on it.`,
           },
     );
   } else {
     out.push({
       tone: 'good',
-      headline: 'Difficulty and execution are well matched.',
-      hint: `${difficulty.toFixed(1)} against ${execution.toFixed(1)} — you are working at roughly the hardest level you can still do well, which is where the learning is.`,
+      headline: 'Your tasks are the right difficulty.',
+      hint: `They average ${difficultyName(difficulty)} and go ${execution.toFixed(1)} out of 5. You're pushed but still doing well.`,
     });
   }
 
@@ -375,7 +366,7 @@ export function ratingFindings(summary: RatingSummary, rated: RatedTask[]): Rati
     out.push({
       tone: share >= 60 ? 'good' : 'watch',
       headline: `${share}% of your hardest tasks went well.`,
-      hint: `${hardWell} of ${hard.length} tasks you rated 4 or 5 for difficulty came out at 3 or better for execution.`,
+      hint: `${hardWell} of ${hard.length} Hard or harder tasks went 3 out of 5 or better.`,
     });
   }
 
@@ -391,8 +382,8 @@ export function ratingFindings(summary: RatingSummary, rated: RatedTask[]): Rati
     if (Math.abs(change) >= 1.5) {
       out.push({
         tone: change > 0 ? 'good' : 'watch',
-        headline: `Quality has ${change > 0 ? 'risen' : 'fallen'} ${Math.abs(change).toFixed(1)} points across this window.`,
-        hint: `${avg(early).toFixed(1)} over the first ${early.length} rated tasks against ${avg(late).toFixed(1)} over the last ${late.length}.`,
+        headline: `Quality ${change > 0 ? 'up' : 'down'} ${Math.abs(change).toFixed(1)} points.`,
+        hint: `From ${avg(early).toFixed(1)} (first ${early.length} tasks) to ${avg(late).toFixed(1)} (last ${late.length}).`,
       });
     }
   }
@@ -402,11 +393,11 @@ export function ratingFindings(summary: RatingSummary, rated: RatedTask[]): Rati
   // it is even when — especially when — the findings sound confident.
   out.push({
     tone: 'note',
-    headline: `These read ${summary.rated} of the ${summary.finished} tasks you finished.`,
+    headline: `Based on ${summary.rated} of ${summary.finished} finished tasks.`,
     hint:
       summary.coverage >= 60
-        ? 'A high enough share that the sample is unlikely to be flattering you.'
-        : 'A minority of your work, and one you chose. An impression, not a measurement.',
+        ? 'Enough to be reliable.'
+        : 'Less than half your tasks, so treat this as a rough guide.',
   });
 
   return out;
@@ -517,7 +508,7 @@ export function reasonFindings(summary: ReasonSummary): RatingFinding[] {
     out.push({
       tone: 'watch',
       headline: `When work goes badly, it ${worst.phrase}.`,
-      hint: `${worst.count} of the ${summary.struggled} tasks you rated below 3 for execution came back with that reason — ${worst.share}% of them. It is the one thing on this page you could change on purpose.`,
+      hint: `${worst.count} of ${summary.struggled} low-rated tasks (${worst.share}%) gave this reason.`,
     });
   }
 
@@ -525,7 +516,7 @@ export function reasonFindings(summary: ReasonSummary): RatingFinding[] {
     out.push({
       tone: 'good',
       headline: `When it goes well, it ${best.phrase}.`,
-      hint: `${best.count} of the ${summary.succeeded} tasks you rated 3 or better named that — ${best.share}%. Worth arranging for rather than waiting for.`,
+      hint: `${best.count} of ${summary.succeeded} well-rated tasks (${best.share}%) gave this reason. Plan for it.`,
     });
   }
 
@@ -545,8 +536,8 @@ export function reasonFindings(summary: ReasonSummary): RatingFinding[] {
     if (OPPOSITES[worst.key] === best.key) {
       out.push({
         tone: 'note',
-        headline: 'Your best and worst work turn on the same thing.',
-        hint: `Bad tasks ${worst.phrase}; good ones ${best.phrase}. That is one condition, not two problems, and it is the one worth protecting.`,
+        headline: 'Your best and worst tasks have the same cause.',
+        hint: `When work goes badly, it ${worst.phrase}. When it goes well, it ${best.phrase}. Set that up before you start.`,
       });
     }
   }
@@ -554,8 +545,8 @@ export function reasonFindings(summary: ReasonSummary): RatingFinding[] {
   if (out.length === 0) {
     out.push({
       tone: 'note',
-      headline: `${summary.answered} ${summary.answered === 1 ? 'reason' : 'reasons'} given in this window.`,
-      hint: `A side needs ${REASON_FLOOR} before anything is claimed from it — one of six answers landing twice is chance, not a pattern.`,
+      headline: `${summary.answered} ${summary.answered === 1 ? 'reason' : 'reasons'} given so far.`,
+      hint: `Patterns show up after ${REASON_FLOOR} answers.`,
     });
   }
 

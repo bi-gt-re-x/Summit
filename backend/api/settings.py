@@ -51,6 +51,7 @@ exists, and the *next* write of the notes table fails its integrity check. So
 order, and the delete is the last step rather than the only one.
 """
 import re
+from datetime import date
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, Request
@@ -62,6 +63,7 @@ from backend.api.reply import fail, ok
 from backend.config.settings import THEME_COOKIE_MAX_AGE
 from backend.database import connection as db
 from backend.tracking import avatar as avatars
+from backend.tracking import xp as xp_tracking
 from backend.tracking.auth import load_user
 
 router = APIRouter(tags=['settings'])
@@ -271,7 +273,7 @@ FIELDS: Dict[str, Any] = {
     #: page says so rather than leaving a dead control on screen. A palette
     #: that let you swap its accent out would not be a palette.
     'theme_skin':        ('', _one_of('', 'midnight', 'sunset', 'meadow', 'orchid')),
-    'accent':            ('violet', _one_of('violet', 'blue', 'green', 'amber', 'rose', 'slate')),
+    'accent':            ('violet', _one_of('violet', 'blue', 'green', 'amber', 'rose', 'slate', 'graphite')),
     'reduce_motion':     (False, _boolean),
     'show_ambient':      (True, _boolean),
     'nav_collapsed':     (False, _boolean),
@@ -303,6 +305,10 @@ FIELDS: Dict[str, Any] = {
     # stays on: the controls above the list still change the view for a visit.
     'default_priority':  ('medium', _one_of('low', 'medium', 'high')),
     'default_xp':        (30, _whole(5, 500)),
+    #: How hard a new task starts out, Easy (1) to Grueling (7). Its XP
+    #: follows from it (backend/tracking/levels.py). The two keys above are
+    #: kept so older clients still read, but nothing new writes them.
+    'default_level':     (3, _whole(1, 7)),
     #: How much the app asks after a task is finished, and therefore how much
     #: the report card has to go on. See REASONS in backend/api/tasks.py and
     #: the note in backend/tracking/analytics.py on what quality is measured
@@ -350,6 +356,32 @@ FIELDS: Dict[str, Any] = {
     #: `user_settings` is where an account's small facts already live.
     'catchup_seen_on':   ('', _iso_day),
 
+    # Getting started. A new account opens on three pages — the dashboard, the
+    # calendar and the timer — and meets the rest one at a time, each behind a
+    # note on what it is and why it can wait. All three keys are state rather
+    # than taste; frontend/src/utils/starter.ts is what reads them, and has the
+    # whole of the rule.
+    #: The tutorial has been finished or skipped (components/Tutorial/Tutorial.tsx).
+    'welcome_seen':      (False, _boolean),
+    #: The starter days were ended early from the rail or Settings, so every
+    #: page is listed even though the account is young.
+    'starter_done':      (False, _boolean),
+    #: The advanced pages opened past their note, by id. Unknown ids are kept
+    #: and ignored, like `analytics_subjects`: the list of advanced pages is
+    #: the frontend's, and it may grow.
+    'features_open':     ([], _id_list(24)),
+
+    # Mango, the guide (frontend/src/components/Tutorial). Taste, not state,
+    # except `tours_seen`, which is the page guides already shown, by id.
+    #: Mango sits on the dashboard's top card between tutorials.
+    'mango_rest':        (True, _boolean),
+    #: The short guide each page gives the first time it is opened.
+    'mango_tours':       (True, _boolean),
+    #: How often the resting Mango does something. Calm is the default: it is
+    #: company on a page somebody works on, not a show.
+    'mango_energy':      ('calm', _one_of('calm', 'lively', 'still')),
+    'tours_seen':        ([], _id_list(32)),
+
     # Analytics.
     #
     # The first is where the page opens; the six below it are the answers to
@@ -363,10 +395,25 @@ FIELDS: Dict[str, Any] = {
     #: An account that set a baseline before this key existed is treated as done
     #: by the page rather than by a migration here.
     'analytics_setup_done': (False, _boolean),
-    #: Which tab the page opens on. The same seven keys as VIEWS in
+    #: The highest analytics stage this account has been *told* it reached.
+    #:
+    #: Not the stage it is on — utils/dataMaturity works that out from the
+    #: record every time, and storing it would be a second answer that could
+    #: drift. This is only the announcement's own memory: the page compares the
+    #: real stage against it, shows the overlay when the real one is higher,
+    #: and writes it forward. Empty means nothing has been announced yet, which
+    #: is why a brand new account does not get an overlay for arriving at the
+    #: stage it started on.
+    #:
+    #: On the account rather than in the browser for the reason
+    #: `analytics_setup_done` is: a milestone announced on a laptop should not
+    #: be announced again on a phone.
+    'analytics_stage_seen': ('', _one_of('', 'new', 'early', 'weekly',
+                                         'developing', 'full')),
+    #: Which tab the page opens on. The same keys as VIEWS in
     #: frontend/src/components/Analytics/Header.tsx.
-    'analytics_home_tab': ('overview', _one_of('recommendations', 'overview', 'goals',
-                                               'habits', 'insights', 'subjects', 'growth')),
+    'analytics_home_tab': ('overview', _one_of('recommendations', 'overview', 'insights', 'subjects',
+                                                   'growth')),
     #: How the account records work, and therefore which figure leads the row
     #: of tiles: the tasks it finished, the hours it sat, or both.
     'analytics_log_style': ('both', _one_of('tasks', 'sessions', 'both')),
@@ -379,9 +426,6 @@ FIELDS: Dict[str, Any] = {
     #: answer, 'everything' adds the panels a reader has to visit another tab
     #: for.
     'analytics_detail':  ('standard', _one_of('essentials', 'standard', 'everything')),
-    #: Whether the page is allowed to rank this account against everybody
-    #: else. Off hides the percentile panel outright.
-    'analytics_standing': (True, _boolean),
     #: The subjects the account said it most wants to work on, by id, at most
     #: ANALYTICS_SUBJECTS_MAX of them. Empty is the honest default and a real
     #: state: an account that named none gets the one Analytics entry it has
@@ -435,7 +479,7 @@ FIELDS: Dict[str, Any] = {
     # written rather than hiding rows that were written anyway. That is the
     # difference between a preference and a filter, and it is why turning a
     # channel back on starts from what is true then instead of replaying a
-    # fortnight of backlog.
+    # two weeks of backlog.
     #: The master. Off means nothing is swept, nothing is raised, and the bell
     #: shows the account's own list as empty — the switches below are still
     #: honoured the moment it comes back on.
@@ -499,8 +543,11 @@ def _inherited(username, key):
 #: about this release and not about the account's data, and because the write
 #: path above already refuses the old spelling — so this only ever has to hold
 #: for values stored before the rename.
+#:
+#: The Habits, Insights, Goals and Growth tabs were later cut outright, so an
+#: account that opened on any of them opens on the Overview.
 ALIASES = {
-    'analytics_home_tab': {'records': 'growth'},
+    'analytics_home_tab': {'records': 'growth', 'goals': 'overview', 'habits': 'insights'},
 }
 
 
@@ -551,6 +598,12 @@ def _shape(user):
         'level': int(user.get('level') or 1),
         'xp': int(user.get('xp') or 0),
         'avatar': '/static/' + avatars.avatar_path(avatars.avatar_for(user)),
+        # Vacation mode is a state of the streak rather than a preference, so
+        # it lives on the user row and is changed through /api/streak/vacation
+        # (backend/api/dashboard.py). It is shown here because Settings is
+        # where people look for it.
+        'streak_vacation': xp_tracking.current_vacation(user, date.today()),
+        'vacation_max_days': xp_tracking.VACATION_MAX_DAYS,
     }
 
 
@@ -571,21 +624,26 @@ def update_settings(request: Request, body: UpdateSettings,
 
     sent = body.model_fields_set
     theme_changed = None
+    # Only the columns this request changes are written back. Saving the whole
+    # row wrote every column as it stood when it was read — and the top bar's
+    # dark-mode switch sends /api/set_theme and this request at the same
+    # moment, so this one put back the `theme` the other had just changed.
+    changes = {}
 
     if 'name' in sent:
-        user['name'] = (body.name or '').strip()[:NAME_MAX]
+        changes['name'] = (body.name or '').strip()[:NAME_MAX]
 
     if 'theme' in sent:
         if body.theme not in ('light', 'dark'):
             return fail("Theme must be 'light' or 'dark'.", status=400)
-        user['theme'] = body.theme
+        changes['theme'] = body.theme
         theme_changed = body.theme
 
     if 'daily_goal' in sent:
         goal = _whole(GOAL_MIN, GOAL_MAX)(body.daily_goal)
         if goal is None:
             return fail('Daily goal must be a number.', status=400)
-        user['daily_goal'] = goal
+        changes['daily_goal'] = goal
 
     for key, value in (body.values or {}).items():
         if key not in FIELDS:
@@ -596,10 +654,12 @@ def update_settings(request: Request, body: UpdateSettings,
             continue
         checked = FIELDS[key][1](value)
         if checked is None:
-            return fail('That is not a valid value for {}.'.format(key), status=400)
+            return fail("That's not a valid value for {}.".format(key), status=400)
         db.set_user_setting(user['username'], key, checked)
 
-    db.save_user(user)
+    if changes:
+        user.update(changes)
+        db.save_user({'id': user['id'], **changes})
 
     payload = ok(settings=_shape(user))
     if theme_changed is None:
@@ -739,12 +799,35 @@ ACCOUNT_TABLES = (
     'day_focus_notes', 'calendar_entries', 'calendar_events', 'notes',
     'records', 'metric_snapshots', 'user_achievements', 'activity_log',
     'library_items', 'user_subjects', 'user_settings',
+    # Derived from tasks and goals: which goals each task counts toward. Only
+    # ids, but ids pointing at rows removed here. See data/sql/goals.sql.
+    'task_goal_matches',
+    # Cached model answers about this account's tasks and goals.
+    'goal_ai_answers',
     # Not content the account made, but entirely derived from content it made:
     # every row is a sentence about a task, a goal or a badge that is being
     # removed here. Left behind they would be notifications about a record that
     # no longer exists — and their tombstones would go on suppressing the ones
     # the emptied account earns next.
     'notifications',
+    # What the account got right and wrong on each skill. The only per-skill
+    # evidence there is, so it goes out with an export and goes with a reset.
+    'skill_attempts',
+    # What the account said about itself at sign-up, and the facts kept from
+    # it. Its own words, so they go out with an export and go with a reset.
+    'user_background', 'user_facts',
+    # The Log page's entries and what was learned from them. Private writing,
+    # so it goes out with an export and goes with a reset.
+    'log_entries', 'log_insights',
+    # Every focus sitting, with the task it was for. Hours are in focus_days;
+    # this is the account's own record of how they were spent.
+    'focus_sittings',
+    # The first-week quests already paid. Each one's XP is in xp_events, so
+    # a reset that clears the ledger clears these too (see `_reset_progress`).
+    'quest_claims',
+    # Reviews marked on the review queue. The account's own record of what it
+    # went back over.
+    'review_marks',
 )
 
 #: What `progress` puts an account's counters back to. The XP ledger and the
@@ -754,6 +837,7 @@ FRESH = {
     'xp': 0, 'level': 1, 'tasks_completed': 0,
     'current_streak': 0, 'best_streak': 0,
     'last_task_date': None, 'day_state': None, 'charge': 0,
+    'streak_grace_day': None, 'streak_vacations': None,
 }
 
 
@@ -794,6 +878,7 @@ def _forget_tasks(doomed):
         return 0
     _drop('library_task_links', lambda row: str(row.get('task_id') or '') not in doomed)
     _drop('calendar_entries', lambda row: str(row.get('task_id') or '') not in doomed)
+    _drop('task_goal_matches', lambda row: str(row.get('task_id') or '') not in doomed)
     _clear_column('notes', 'task_id', doomed)
     return _drop('tasks', lambda row: str(row.get('id') or '') not in doomed)
 
@@ -807,6 +892,7 @@ def _forget_goals(doomed):
     if not doomed:
         return 0
     _drop('goal_milestones', lambda row: str(row.get('goal_id') or '') not in doomed)
+    _drop('task_goal_matches', lambda row: str(row.get('goal_id') or '') not in doomed)
     _clear_column('notes', 'goal_id', doomed)
     rows = db.tasks()
     touched = False
@@ -876,6 +962,8 @@ def _reset_progress(user):
         'xp_events': _drop('xp_events', lambda row: row.get('user_id') != username),
         'snapshots': _drop('metric_snapshots', lambda row: row.get('user_id') != username),
         'achievements': _drop('user_achievements', lambda row: row.get('user_id') != username),
+        # The quests' XP just left with the ledger, so they can be earned again.
+        'quests': _drop('quest_claims', lambda row: row.get('user_id') != username),
     }
 
 
@@ -934,7 +1022,7 @@ RESETS = {
     'tasks': (_reset_tasks, 'Every task removed.'),
     'progress': (_reset_progress, 'Level, XP and streak reset.'),
     'content': (_reset_content, 'Everything you had made has been removed.'),
-    'account': (_reset_account, 'The account and everything in it is gone.'),
+    'account': (_reset_account, 'Your account and everything in it is gone.'),
 }
 
 #: The scopes that will not run on a click alone. The request has to carry the
@@ -959,7 +1047,7 @@ def reset_data(request: Request, body: ResetRequest,
 
     scope = (body.scope or '').strip()
     if scope not in RESETS:
-        return fail('There is nothing called {}.'.format(scope or 'that'), status=400)
+        return fail("There's nothing called {}.".format(scope or 'that'), status=400)
 
     if scope in TYPED:
         typed = (body.confirm or '').strip()

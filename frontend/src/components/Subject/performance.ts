@@ -87,10 +87,10 @@ const FAMILY_OF: Record<string, FamilyKey> = {
 };
 
 const FAMILY_LABEL: Record<FamilyKey, string> = {
-  conceptual: 'Not knowing it',
-  execution: 'The sitting itself',
+  conceptual: "Didn't know it",
+  execution: 'The session itself',
   time: 'Time pressure',
-  calibration: 'Misjudging the work',
+  calibration: 'Misjudged the work',
 };
 
 export interface ErrorFamilies {
@@ -220,13 +220,13 @@ export interface GoalGap {
 
 const GROUPS: Array<{ key: string; label: string; keys: string[]; from: string }> = [
   { key: 'knowledge', label: 'Knowing it', keys: ['mastery'],
-    from: 'how hard the work you take on is' },
+    from: 'how hard your work is' },
   { key: 'execution', label: 'Doing it', keys: ['execution', 'quality'],
-    from: 'how it goes once you start' },
+    from: 'how well it goes' },
   { key: 'time', label: 'Time', keys: ['efficiency'],
-    from: 'whether the time bought anything' },
-  { key: 'consistency', label: 'Turning up', keys: ['consistency', 'productivity', 'momentum'],
-    from: 'how often there is work here at all' },
+    from: 'whether your time paid off' },
+  { key: 'consistency', label: 'Showing up', keys: ['consistency', 'productivity', 'momentum'],
+    from: 'how often you work on it' },
 ];
 
 /** Points between the largest part and the next before one is named. */
@@ -332,7 +332,7 @@ export function calibration(curve: DifficultyCurve, time: TimeAnalysis): Calibra
  * on steadily harder material whose score has sat still is not stuck — their
  * ability is climbing and their *conversion* of it has stalled, and those two
  * situations want opposite instructions. Told apart, the advice is "stop
- * adding difficulty and practise under the real conditions"; conflated, it is
+ * adding difficulty and practice under the real conditions"; conflated, it is
  * "keep going", which is the advice that wastes the next month.
  *
  * `capability` is momentum: execution over the later half of the window

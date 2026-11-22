@@ -118,6 +118,9 @@ export function LatticeNode({
     // Read by the mask rule in the stylesheet. A custom property rather than an
     // inline background, so the stylesheet keeps deciding how it is painted.
     ['--ico' as string]: `url(${iconUrl(node.icon)})`,
+    // How far along, for Progress mode's fill. See `.mode-progress` in the
+    // stylesheet; Map and Path ignore it.
+    ['--pct' as string]: `${nav ? 0 : Math.max(0, Math.min(100, Math.round(node.percent)))}%`,
   } as CSSProperties;
 
   return (
@@ -159,7 +162,7 @@ export function LatticeNode({
       onFocus={onPeek ? (event) => onPeek(node, event.currentTarget.getBoundingClientRect()) : undefined}
       onBlur={onPeekEnd}
     >
-      {here && <span className="stx-tile-here">You are here</span>}
+      {here && <span className="stx-tile-here">You're here</span>}
       {optional && selected && !nav && (
         <span className="stx-tile-optional" aria-hidden="true">
           Optional

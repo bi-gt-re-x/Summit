@@ -25,11 +25,9 @@ import { Panel, Scatter, asTone, toneVar } from '@/components/Analytics';
 import {
   STRENGTH_HUE,
   STRENGTH_TEXT,
-  type CurrentState,
   type Finding,
   type Relationship,
   type Unlock,
-  type Win,
 } from '@/utils/insight';
 
 // --------------------------------------------------------------------------
@@ -41,7 +39,7 @@ function StrengthChip({ strength }: { strength: Finding['strength'] }) {
     <span
       className="ax-evidence"
       style={{ color: toneVar(hue), borderColor: toneVar(hue) }}
-      title="How much weight this finding can carry, from its sample size and its correlation"
+      title="How sure this is"
     >
       {STRENGTH_TEXT[strength]}
     </span>
@@ -106,14 +104,14 @@ export function WhyPanel({
 }) {
   return (
     <Panel
-      title="Why the last stretch went the way it did"
-      note="What accounts for the change"
+      title="Why your last stretch went the way it did"
+      note="What caused the change"
     >
       {!notice.ready ? (
         <Waiting notice={notice} />
       ) : findings.length === 0 ? (
         <p className="ax-empty">
-          Nothing moved far enough to have a cause worth naming.
+          Nothing changed enough to explain.
         </p>
       ) : (
         <ul className="ax-findings">
@@ -139,58 +137,18 @@ export function HowPanel({
   return (
     <Panel
       title="How you tend to work"
-      note="Associations, not mechanisms"
+      note="These go together. That doesn't mean one causes the other."
     >
       {!notice.ready ? (
         <Waiting notice={notice} />
       ) : findings.length === 0 ? (
         <p className="ax-empty">
-          Not enough spread yet to separate conditions that produce different results.
+          Not enough variety yet to compare.
         </p>
       ) : (
         <ul className="ax-findings">
           {findings.map((finding) => (
             <FindingCard key={finding.id} finding={finding} />
-          ))}
-        </ul>
-      )}
-    </Panel>
-  );
-}
-
-// --------------------------------------------------------------------------
-// What is working
-// --------------------------------------------------------------------------
-/**
- * The measured improvements, and only the measured ones.
- *
- * A page that only ever finds faults gets closed, and an account improving on
- * four counts has earned being told so in the same voice the problems are
- * stated in. Nothing here is generated on a schedule — every line is a real
- * delta against the previous period of the same length, so a genuinely flat
- * stretch produces nothing and the panel says exactly that rather than
- * reaching for an encouragement.
- */
-export function WorkingPanel({ wins }: { wins: Win[] }) {
-  return (
-    <Panel
-      title="What’s working right now"
-      note="Against the period before"
-    >
-      {wins.length === 0 ? (
-        <p className="ax-empty">
-          Nothing improved measurably against the previous period.
-        </p>
-      ) : (
-        <ul className="ax-wins">
-          {wins.map((win) => (
-            <li key={win.id}>
-              <span className="ax-win-mark" style={{ background: toneVar(win.tone) }} aria-hidden="true" />
-              <div>
-                <strong>{win.text}</strong>
-                <span className="ax-muted ax-small">{win.figure}</span>
-              </div>
-            </li>
           ))}
         </ul>
       )}
@@ -222,7 +180,7 @@ export function RelationshipsPanel({
   return (
     <Panel
       title="What moves with what"
-      note="Correlation, not cause"
+      note="Linked doesn't mean caused"
     >
       {!notice.ready || !active ? (
         <Waiting
@@ -231,7 +189,7 @@ export function RelationshipsPanel({
               ? {
                   ready: false,
                   message:
-                    'Not enough paired days yet — these need both focus time and finished tasks.',
+                    'Not enough days yet. These need days with both focus time and finished tasks.',
                 }
               : notice
           }
@@ -264,13 +222,13 @@ export function RelationshipsPanel({
               <div className="ax-figures ax-figures-tight">
                 <div className="ax-figure">
                   <span className="ax-muted">Correlation</span>
-                  <strong>{active.r === 0 ? '—' : active.r.toFixed(2)}</strong>
-                  <span className="ax-muted ax-small">Pearson’s r</span>
+                  <strong>{active.r === 0 ? '-' : active.r.toFixed(2)}</strong>
+                  <span className="ax-muted ax-small">Pearson's r</span>
                 </div>
                 <div className="ax-figure">
                   <span className="ax-muted">Observations</span>
                   <strong>{active.n}</strong>
-                  <span className="ax-muted ax-small">pairs behind it</span>
+                  <span className="ax-muted ax-small">days compared</span>
                 </div>
               </div>
               <StrengthChip strength={active.strength} />
@@ -279,34 +237,6 @@ export function RelationshipsPanel({
           </div>
         </>
       )}
-    </Panel>
-  );
-}
-
-// --------------------------------------------------------------------------
-// You, right now
-// --------------------------------------------------------------------------
-/**
- * The snapshot that opens the tab: where this account currently is.
- *
- * Assembled from the same figures the panels below are drawn from, so it cannot
- * drift from them, and it names the single weakest thing rather than listing
- * every weakness — one problem a reader remembers beats four they skim.
- */
-export function CurrentStatePanel({ state, span }: { state: CurrentState; span: string }) {
-  return (
-    <Panel
-      title="You, right now"
-      note={span}
-      aside={
-        <span className="ax-phase-badge" style={{ color: toneVar(state.tone), borderColor: toneVar(state.tone) }}>
-          {state.phase}
-        </span>
-      }
-    >
-      {/* `state.sentence` is not here: it is the tab's opening line, in the
-          slot above the first section. This panel is what follows from it. */}
-      <p className="ax-prose ax-prose-lead">{state.weakness}</p>
     </Panel>
   );
 }

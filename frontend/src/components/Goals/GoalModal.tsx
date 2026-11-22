@@ -29,6 +29,8 @@ import { SubjectPicker } from '@/components/SubjectPicker';
 import type { Subject } from '@/services/subjects';
 import type { Goal, GoalType } from '@/types';
 import type { NewGoal } from '@/services/goals';
+import { Icon } from '@/components/Icon';
+import { Button } from '@/components/ui';
 
 export interface GoalModalProps {
   open: boolean;
@@ -46,10 +48,10 @@ const TARGETS: Record<
   { label: string; placeholder: string; min: string; step?: string }
 > = {
   xp: { label: 'Target XP', placeholder: 'e.g., 1000', min: '1' },
-  streak: { label: 'Target Streak (days)', placeholder: 'e.g., 30', min: '1' },
-  tasks: { label: 'Target Tasks', placeholder: 'e.g., 100', min: '1' },
+  streak: { label: 'Target streak (days)', placeholder: 'e.g., 30', min: '1' },
+  tasks: { label: 'Target tasks', placeholder: 'e.g., 100', min: '1' },
   focus: {
-    label: 'Target Focus Time (hours)',
+    label: 'Target focus time (hours)',
     placeholder: 'e.g., 10',
     min: '0.5',
     step: '0.5',
@@ -161,23 +163,23 @@ export function GoalModal({
         >
           ×
         </span>
-        <h2 id="modalTitle">{goal ? 'Edit Goal' : 'Add New Goal'}</h2>
+        <h2 id="modalTitle">{goal ? 'Edit goal' : 'Add new goal'}</h2>
 
         <form onSubmit={submit}>
-          <label htmlFor="goalTitle">Goal Title</label>
+          <label htmlFor="goalTitle">Goal</label>
           <input
             type="text"
             id="goalTitle"
             className={invalid.title ? 'invalid-input' : ''}
-            placeholder="e.g., Complete 100 tasks"
+            placeholder='Like "Finish 100 tasks"'
             value={title}
             onChange={(e) => setTitle(e.target.value)}
           />
 
-          <label htmlFor="goalDescription">Description (optional)</label>
+          <label htmlFor="goalDescription">Notes (optional)</label>
           <textarea
             id="goalDescription"
-            placeholder="Describe your goal..."
+            placeholder="Anything worth remembering"
             rows={3}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -185,16 +187,16 @@ export function GoalModal({
 
           <div className="gm-row">
             <div className="gm-col">
-              <label htmlFor="goalType">Goal Type</label>
+              <label htmlFor="goalType">Count by</label>
               <select
                 id="goalType"
                 value={type}
                 onChange={(e) => changeType(e.target.value as GoalType)}
               >
-                <option value="xp">XP Based</option>
-                <option value="streak">Streak Based</option>
-                <option value="tasks">Tasks Completed</option>
-                <option value="focus">Focus Time</option>
+                <option value="xp">XP</option>
+                <option value="streak">Streak</option>
+                <option value="tasks">Tasks done</option>
+                <option value="focus">Focus time</option>
               </select>
             </div>
             <div className="gm-col">
@@ -214,12 +216,12 @@ export function GoalModal({
 
           {type === 'focus' && (
             <p className="gm-hint" id="focusGoalHint">
-              ⏱ Fills in as you log focus time after the goal is set.
+              <Icon name="timer" /> Fills in as you log focus time from today on.
             </p>
           )}
 
           <label htmlFor="goalPriority" className="gm-priority-label">
-            Priority Rank <span className="gm-priority-val">{priority}</span>/10
+            Priority <span className="gm-priority-val">{priority}</span>/10
           </label>
           <input
             type="range"
@@ -231,7 +233,7 @@ export function GoalModal({
             onChange={(e) => setPriority(Number(e.target.value))}
           />
 
-          <label htmlFor="goalDeadline">Deadline (optional)</label>
+          <label htmlFor="goalDeadline">Due date (optional)</label>
           <input
             type="date"
             id="goalDeadline"
@@ -250,89 +252,21 @@ export function GoalModal({
             />
           </div>
           <p className="gm-hint">
-            What links this goal to your record. Its subject's analytics page reads the goal
-            and says what your work there is doing about it.
+            Links this goal to a subject so that subject's page can track it.
           </p>
 
-          <button
+          <Button
             type="submit"
-            className="confirm-add-btn"
+            variant="primary"
+            size="lg"
+            block
+            className="gx-modal-submit"
             id="saveGoalBtn"
             disabled={busy}
           >
-            {goal ? 'Save Changes' : 'Add Goal'}
-          </button>
+            {goal ? 'Save' : 'Add goal'}
+          </Button>
         </form>
-      </div>
-    </div>
-  );
-}
-
-export interface ConfirmModalProps {
-  open: boolean;
-  title: string;
-  body: string;
-  confirmLabel: string;
-  cancelLabel?: string;
-  busy?: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}
-
-/**
- * The page's four confirmations — delete, give up, complete early, and the
- * deadline extension's sibling — were four near-identical blocks of markup in
- * goals.html. They are one component with different words in it.
- */
-export function ConfirmModal({
-  open,
-  title,
-  body,
-  confirmLabel,
-  cancelLabel = 'Cancel',
-  busy = false,
-  onCancel,
-  onConfirm,
-}: ConfirmModalProps) {
-  if (!open) return null;
-  return (
-    <div className="modal" style={{ display: 'block' }}>
-      <div className="modal-content">
-        <span
-          className="close"
-          onClick={onCancel}
-          role="button"
-          aria-label="Close"
-        >
-          ×
-        </span>
-        <h2>{title}</h2>
-        <p>{body}</p>
-        <div
-          style={{
-            display: 'flex',
-            gap: '10px',
-            justifyContent: 'center',
-            marginTop: '20px',
-          }}
-        >
-          <button
-            type="button"
-            onClick={onCancel}
-            className="confirm-add-btn"
-            style={{ background: '#666' }}
-          >
-            {cancelLabel}
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            className="confirm-add-btn"
-            disabled={busy}
-          >
-            {confirmLabel}
-          </button>
-        </div>
       </div>
     </div>
   );

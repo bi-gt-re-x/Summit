@@ -22,38 +22,38 @@
  * the page held the figures; the model holds them now, so the only thing left
  * to pass is the one callback that opens a screen the page owns.
  */
-import { Link } from 'react-router-dom';
 import { PanelGroup } from '../charts';
 import {
   BaselinePanel,
+  ActiveDayPrinciple,
+  AwayNotice,
   Collecting,
   ConsistencyPanel,
-  LearningStrip,
   StageNote,
-  FinishPanel,
-  WhenPanel,
+  Upcoming,
+  EarlyRead,
   DepthPicker,
-  InsightsPanel,
   QualityGridPanel,
   QualityPanel,
-  ScorePanel,
-  StandingPanel,
-  StreaksPanel,
   SubjectPanel,
   Tiles,
   Trajectory,
 } from '../index';
 import type { Stat } from '../StatRow';
 import { number as fmtNumber } from '@/utils/format';
-import { partsOfDay } from '@/utils/habits';
-import { NEED_DAYS } from '../useAnalyticsModel';
+import { ObservationNote } from '../Observation';
+import { LensLine } from '../Lens';
 import { stageShows } from '@/utils/dataMaturity';
-import type { LearningItem } from '../index';
+import { SOLID_AT } from '../milestones';
 
 /** No earlier period to compare a subject against. Shared, so it is one object. */
 const EMPTY_PREVIOUS = new Map<string, number>();
 import type { AnalyticsData } from '../useAnalyticsData';
 import type { AnalyticsModel } from '../useAnalyticsModel';
+import { WhatYouToldUs } from '../WhatYouToldUs';
+import { GoalsFinished } from '../GoalsFinished';
+import { FirstReads } from '../FirstReads';
+import { useMemo } from 'react';
 
 export function OverviewTab({
   model,
@@ -66,18 +66,18 @@ export function OverviewTab({
   onEditBaseline: () => void;
 }) {
   const {
+    background,
+    nameOf,
+    waitFor,
     breakdown,
-    card,
+    lens,
+    observed,
     compareLabel,
     figures,
     subjectLabel,
-    fromIso,
-    historyDays,
     maturity,
-    waitFor,
     streak,
     tasks,
-    toIso,
     grain,
     heatRows,
     sparks,
@@ -89,29 +89,31 @@ export function OverviewTab({
     ratingGrid,
     ratingRows,
     rhythm,
-    rhythmRate,
-    score,
-    scoreLine,
-    scoreMarks,
-    scoreDates,
     setDepth,
     setGrain,
     setMetric,
     slice,
     spanText,
-    /* What the account asked this page to be — see utils/analyticsPrefs. Four
+    /* What the account asked this page to be — see utils/analyticsPrefs. Three
        reads on this tab: which volume the tiles print, which panels are drawn
-       at all, whether the comparison against everybody else is allowed, and
-       how blunt the baseline's verdict is. */
+       at all, and how blunt the baseline's verdict is. */
     detail,
     logStyle,
-    showStanding,
     tone,
-    insights,
-    previousBySubject,
   } = model;
-  const { stats, baseline, standing } = data;
+  const { baseline } = data;
   const aim = baseline.data?.baseline ?? null;
+  const goalList = useMemo(() => data.goals.data?.goals ?? [], [data.goals.data]);
+
+  /*
+   * What the page has worked out about the reader, as opposed to about the
+   * window — see the note at the top of utils/knows.
+   *
+   * Computed above the stage split because both branches draw it: the facts
+   * carry their own floors, so a young account gets the two that are true and
+   * a long one gets four, without this file deciding which stage deserves a
+   * profile.
+   */
 
   /*
    * Day 0-7, in one path that gains panels rather than two that replace each
@@ -129,8 +131,8 @@ export function OverviewTab({
    *
    * What is dropped is exactly the set that needs a *second* period to mean
    * anything — `Tiles` prints a delta against the window before, `Trajectory`
-   * is a line, `ScorePanel` needs two readings, the quality panels need rated
-   * tasks, and `ConsistencyPanel` compares against a previous rate. What stays
+   * is a line, the quality panels need rated tasks, and `ConsistencyPanel` is
+   * a calendar with nothing on it yet. What stays
    * is what is already true: the counts, and where the work went.
    *
    * The tab is not replaced. It is the same file, the same sections and the
@@ -139,6 +141,7 @@ export function OverviewTab({
    */
   if (maturity.stage === 'new' || maturity.stage === 'early') {
     const finished = tasks.filter((task) => task.status === 'done').length;
+
     /* Against every task on the books, not against the ones that went well.
        Expired tasks count in the denominator — a rate that quietly drops the
        ones you missed is not a completion rate. */
@@ -149,6 +152,7 @@ export function OverviewTab({
         key: 'tasks',
         label: 'Tasks finished',
         value: fmtNumber(figures.tasks.value),
+        short: `${fmtNumber(figures.tasks.value)} ${figures.tasks.value === 1 ? 'task' : 'tasks'}`,
         tone: 'green',
         glyph: 'check',
       },
@@ -157,6 +161,7 @@ export function OverviewTab({
         label: 'Focus time',
         value: figures.focusHours.value.toFixed(1),
         unit: 'h',
+        short: `${figures.focusHours.value.toFixed(1)}h focused`,
         tone: 'blue',
         glyph: 'clock',
       },
@@ -172,6 +177,9 @@ export function OverviewTab({
         label: 'Current streak',
         value: String(streak),
         unit: streak === 1 ? 'day' : 'days',
+        /* Dropped from the digest at zero rather than printed as "0-day
+           streak", which reads as a rebuke on somebody's first morning. */
+        ...(streak > 0 ? { short: `${streak}-day streak` } : {}),
         tone: 'amber',
         glyph: 'flame',
       },
@@ -184,6 +192,7 @@ export function OverviewTab({
               key: 'completion',
               label: 'Completion rate',
               value: `${completion}%`,
+              short: `${completion}% completion`,
               tone: 'pink' as const,
               glyph: 'target' as const,
               note: `${finished} of ${tasks.length} finished`,
@@ -193,29 +202,46 @@ export function OverviewTab({
 
     return (
       <>
+        {/* Before anything else, when there is a gap to explain. A reader
+            coming back to a page of zeros is owed the reason before they are
+            shown the zeros. */}
+        <AwayNotice maturity={maturity} />
+
         <section id="overview" className="ax-section">
-          <Collecting
-            maturity={maturity}
-            stats={basics}
-            nextBrings={
-              maturity.stage === 'new'
-                ? 'your first patterns open here'
-                : 'weekly trends and a comparison against last week open here'
-            }
-          />
+          <Collecting maturity={maturity} stats={basics} />
         </section>
 
-        {/* Day 4-7. Two tallies and nothing inferred from them — see the note
-            at the top of Early for the line these sit on the safe side of.
-            They arrive here rather than on Habits because Habits is about what
-            repeats, and four days cannot say what repeats. */}
-        {maturity.stage === 'early' && (
-          <section className="ax-section ax-grid ax-grid-halves-even">
-            <WhenPanel parts={partsOfDay(tasks, fromIso, toIso)} days={maturity.activeDays} />
-            <FinishPanel tasks={tasks} days={maturity.activeDays} />
+        {/* The first reads: facts about the person, off a handful of tasks and
+            sittings, each wearing its sample. See ../reads. */}
+        <section className="ax-section">
+          <FirstReads tasks={tasks} goals={goalList} />
+        </section>
+
+        {/* A confirmed goal is a fact on day one: it does not wait for the
+            record to fill the way the tallies do. */}
+        <GoalsFinished />
+
+        {/* What the account said about itself at sign-up, and what it counts
+            for while the record is short. */}
+        <section className="ax-section">
+          <WhatYouToldUs background={background} credit={maturity.credit ?? 0} waiting nameOf={nameOf} />
+        </section>
+
+        {/* The one inference allowed this early, and only once it is earned.
+            Everything else at this stage is a tally, which is the right
+            default and also the reason an account can spend two weeks being
+            handed totals and never once told anything about itself. The
+            restraint is in utils/observations — a floor, an effect size, and a
+            tier that has to be earned on both — so this renders nothing at all
+            until there is something honest to render. */}
+        {observed[0] && (
+          <section className="ax-section">
+            <ObservationNote observation={observed[0]} />
           </section>
         )}
 
+        {/* The two day-4-to-7 tallies (when you work, how sessions end) are
+            the Insights tab's "What is already true" now. */}
         {/* Where the work went. A share of a total is true on day one — it is
             a description of what is on record, not a claim about a trend — so
             this is the one panel from the mature tab that survives intact. */}
@@ -225,7 +251,7 @@ export function OverviewTab({
           <SubjectPanel rows={breakdown.rows} previous={EMPTY_PREVIOUS} />
         </section>
 
-        <WhereNext />
+        <ActiveDayPrinciple />
       </>
     );
   }
@@ -247,7 +273,7 @@ export function OverviewTab({
    *
    * `judgement` holds back the ones that grade the *person*: the score, its
    * letter, the percentile against everybody else, the quality readings. A
-   * fortnight is the floor for those, because being told you are a C-minus on
+   * two weeks is the floor for those, because being told you are a C-minus on
    * your ninth day is a claim about somebody the app has barely met.
    *
    * Read from `stageShows` rather than spelled out here. The page's opening
@@ -258,31 +284,18 @@ export function OverviewTab({
    */
   const { judgement, note } = stageShows(maturity.stage);
 
-  /* The three gated tabs, from their own `NEED_DAYS` rather than from a table
-     here — one source for what each needs, so a threshold changed there shows
-     up in this strip without anybody remembering to update it. */
-  const learning: LearningItem[] = [
-    { label: 'Recommendations', have: historyDays, need: NEED_DAYS.recommendations, href: '/recommendations' },
-    { label: 'Habits', have: historyDays, need: NEED_DAYS.habits, href: '/analytics/habits' },
-    { label: 'Insights', have: historyDays, need: NEED_DAYS.insights, href: '/insights' },
-  ];
 
   return (
     <>
+      <AwayNotice maturity={maturity} />
+
       {note && (
         <section className="ax-section">
-          <StageNote
-            maturity={maturity}
-            brings={
-              maturity.stage === 'weekly'
-                ? 'your Growth Rating and how you compare open here'
-                : 'the last of the long-range readings open here'
-            }
-          />
-          {/* What the rest of the page is still working on. Named rather than
-              left silent: a reader who does not know Habits exists cannot look
-              forward to it. See the note at the top of LearningStrip. */}
-          <LearningStrip items={learning} />
+          <StageNote maturity={maturity} />
+          {/* What the rest of the page is still working on, as locked cards
+              with an example of each. Named rather than left silent: a reader
+              who does not know Habits exists cannot look forward to it. */}
+          <Upcoming activeDays={maturity.activeDays} />
         </section>
       )}
 
@@ -291,25 +304,21 @@ export function OverviewTab({
           shared opening slot a few lines up in this file, alongside the two
           things this tab could never say: what to change, and why. */}
       <section id="overview" className="ax-section">
+        {/* The week-on-week deltas open at five work days now, so they say
+            how thin the comparison is until the old seven. */}
+        <EarlyRead days={maturity.activeDays} solidAt={SOLID_AT.trends} />
         <Tiles
           figures={figures}
           sparks={sparks}
-          score={score}
-          scoreSeries={scoreLine}
           compareLabel={compareLabel}
           logStyle={logStyle}
           scopedOut={subjectLabel}
         />
       </section>
 
-      {/* The line on its own until the score has something to say. `ax-grid-
-          trajectory` is 1.85fr to 1fr, so dropping the second child would
-          leave the chart in two thirds of the row with a third of it empty —
-          the class comes off with the panel. */}
-      <section
-        id="trajectory"
-        className={`ax-section${judgement ? ' ax-grid ax-grid-trajectory' : ''}`}
-      >
+      {/* The growth score panel that sat beside this is the Growth tab now,
+          so the line has the row to itself. */}
+      <section id="trajectory" className="ax-section">
         <Trajectory
           current={slice.current}
           previous={slice.previous}
@@ -320,19 +329,17 @@ export function OverviewTab({
           spanLabel={spanText}
           previousSpanLabel={previousSpanText}
         />
-        {judgement && (
-        <ScorePanel
-          score={score}
-          factors={card.factors}
-          series={scoreLine}
-          marks={scoreMarks}
-          dates={scoreDates}
-          // The counted placement, so the badge here and the Growth Score row
-          // on "Where You Stand" are one figure rather than two that disagree.
-          percentile={standing.data?.rows.find((row) => row.key === 'score')?.percentile ?? null}
-        />
-        )}
       </section>
+
+      {/* The quick reads off sittings, tasks and goals, beside the totals.
+          Past the first week they sit under the trend panels rather than
+          leading, but the sittings still feed nothing else on this tab. */}
+      <section className="ax-section">
+        <FirstReads tasks={tasks} goals={goalList} />
+      </section>
+
+      {/* Goals the reader confirmed done. Draws nothing until there is one. */}
+      <GoalsFinished />
 
       {/* The reader's own target, before the panels that measure against
           nothing. A total is not good or bad on its own — four days a week is
@@ -354,9 +361,9 @@ export function OverviewTab({
              the page — the offer belongs beside the totals it would give a
              meaning to, not in front of them. */
           <section className="ax-baseline-offer">
-            <strong>No target behind these numbers.</strong>
+            <strong>No targets set yet.</strong>
             <button type="button" className="ax-btn ax-btn-primary" onClick={onEditBaseline}>
-              Set a baseline
+              Set targets
             </button>
           </section>
         )}
@@ -394,7 +401,7 @@ export function OverviewTab({
         {judgement && detail.quality && (
           <PanelGroup
             title="Quality"
-            note="What your ratings said, and where those tasks landed"
+            note="How your rated tasks went"
           >
             <div className="ax-grid ax-grid-halves-even">
               <QualityPanel
@@ -410,121 +417,47 @@ export function OverviewTab({
           </PanelGroup>
         )}
 
-        {/* Consistency and streaks are counts of this account's own days and
-            belong to `trends`. Standing is a placement against everybody else,
-            which is the most confident claim on the page — it waits. Three
-            columns with the third missing would leave a gap, so the grid
-            narrows with it. */}
+        {/* The calendar of days worked. The rate itself is the Consistency
+            tile above and is printed nowhere else on the page; the streaks
+            that sat beside this are personal bests on Achievements. */}
         <PanelGroup
-          title="Consistency and standing"
-          note="How often you show up, and how that compares"
+          title="Consistency"
+          note="Which days you worked"
         >
-          <div
-            className={`ax-grid ${
-              judgement && showStanding ? 'ax-grid-three' : 'ax-grid-halves-even'
-            }`}
-          >
-            <ConsistencyPanel
-              rate={rhythmRate.rate}
-              previousRate={rhythmRate.previousRate}
-              rows={heatRows}
-              compareLabel={compareLabel}
-            />
-            <StreaksPanel
-              current={stats.stats?.current_streak ?? 0}
-              best={stats.stats?.best_streak ?? 0}
-              bestMonth={rhythmRate.bestMonth}
-            />
-            {/* Two conditions, and they refuse for different reasons. The stage
-                holds it back because a percentile is the most confident claim
-                the page makes and a fortnight is the floor for making it; the
-                preference holds it back because some readers do not want to be
-                ranked against strangers at all, which is a different question
-                and is theirs to answer. See `analytics_standing`. */}
-            {judgement && showStanding && <StandingPanel standing={standing.data ?? null} />}
-          </div>
+          <ConsistencyPanel rows={heatRows} />
         </PanelGroup>
 
-        {/* The two tallies stay until Habits can do the stronger version of the
-            same question. Tied to that tab's own gate rather than to a stage, so
-            there is never a stretch where the page has stopped answering "when
-            do you work" and nothing else has started. */}
-        {waitFor('habits') > 0 && detail.tallies && (
-          <PanelGroup
-            title="When you work"
-            note="Time of day, and how your sessions end"
-          >
-            <div className="ax-grid ax-grid-halves-even">
-              <WhenPanel parts={partsOfDay(tasks, fromIso, toIso)} days={maturity.activeDays} />
-              <FinishPanel tasks={tasks} days={maturity.activeDays} />
-            </div>
-          </PanelGroup>
-        )}
-
-        {/* The two panels an account on 'everything' asked to have here rather
-            than a tab away. Both are already computed for the tabs that own them
-            — Subjects draws the split in full, Insights draws the findings — so
-            this costs no request and no second arithmetic, which is the only
-            reason repeating a panel is acceptable at all. */}
-        {detail.extras && (
-          <PanelGroup
-            title="Subjects and findings"
-            note="The split by subject, and what the record suggests"
-          >
-            <SubjectPanel rows={breakdown.rows} previous={previousBySubject} />
-            <InsightsPanel insights={insights} />
-          </PanelGroup>
-        )}
+        {/* "When you work" and "Findings" were here too. The first is the
+            Insights tab's opening while habits are still filling, and the
+            second is all figures other tabs print, with advice under them. */}
       </section>
 
-      <WhereNext />
+      {lens && (
+        <section className="ax-section">
+          <LensLine lens={lens} />
+        </section>
+      )}
+
+      {/* "Your coach's read" ended every fact in something to do, so it is on
+          Recommendations now. */}
+      {/* The rule every "active days" figure above depends on, at the length
+          it can be left on screen permanently. The full note only appears
+          beside a countdown, so an account past the staged tabs has not seen
+          it in months. See `ActiveDayPrinciple`. */}
+      {/* What the account said at sign-up. Last here: by now the record says
+          more than the answers do, but they stay in view and editable. */}
+      {background && background.facts.length > 0 && (
+        <section className="ax-section">
+          <WhatYouToldUs
+            background={background}
+            credit={maturity.credit ?? 0}
+            waiting={waitFor('recommendations') > 0 || waitFor('insights') > 0}
+            nameOf={nameOf}
+          />
+        </section>
+      )}
+
+      <ActiveDayPrinciple />
     </>
-  );
-}
-
-/**
- * Where the tab hands over.
-
-          This used to run four rows longer: a subject radar, a milestone list,
-          a year-on-year bar chart, the compounding projection and four
-          insights, all before the reader reached the bottom. Every one of them
-          exists in full on a tab built for it — the radar and the balance on
-          Insights, the milestones and the pace on Trends, the projection on
-          Trends, the findings on Insights — and the Overview was answering
-          "how am I doing" by restating all four other tabs at lower
-          resolution.
-
-          What is left is the shortest honest answer to that question: what
-          moved, then productivity, consistency and quality — how much a day,
-          how often, and how much each piece was worth — then their trajectory
-          and the score they roll up into. One screen, no scrolling past the
-          part you came for, and three links out to whichever of the four
-          questions you actually have.
- *
- * A component rather than a block inside the tab, because both arms of the
- * stage branch above end with it and two copies would drift. It is the same
- * three links on day two as on day two hundred: the tabs it points at are
- * where a reader goes with a question, and having little data is not a reason
- * to stop telling them where the questions are answered.
- */
-function WhereNext() {
-  return (
-    <section className="ax-section ax-next">
-      <p>Where to go next</p>
-      <div className="ax-next-row">
-        <Link to="/analytics/goals">
-          <strong>Goals</strong>
-          <span>Whether what you aimed at is going to happen</span>
-        </Link>
-        <Link to="/insights">
-          <strong>Insights</strong>
-          <span>Why your record looks like this, with the evidence</span>
-        </Link>
-        <Link to="/recommendations">
-          <strong>Recommendations</strong>
-          <span>What to change, ranked by what it is worth</span>
-        </Link>
-      </div>
-    </section>
   );
 }

@@ -14,12 +14,12 @@
  */
 .tk-rate-backdrop {
     --rt-ink: #111827;
-    --rt-ink-soft: #6b7280;
-    --rt-ink-faint: #9aa3b2;
-    --rt-surface: #ffffff;
+    --rt-ink-soft: var(--color-ink-muted);
+    --rt-ink-faint: var(--color-ink-faint);
+    --rt-surface: var(--color-surface);
     --rt-surface-soft: #f6f7fb;
-    --rt-line: #e6e9f0;
-    --rt-accent: #6c5ce7;
+    --rt-line: var(--color-line);
+    --rt-accent: var(--color-accent);
     --rt-star: #e8a33d;
     --rt-star-off: #d7dbe4;
 
@@ -28,20 +28,21 @@
     z-index: 900;
     display: grid;
     place-items: center;
-    padding: 20px;
-    background: rgba(16, 20, 30, .45);
-    backdrop-filter: blur(2px);
+    padding: var(--space-5);
+    /* No backdrop blur, for the reason in catch-up.css: it re-blurred the
+       animated dashboard under it on every frame. */
+    background: rgba(16, 20, 30, .5);
     animation: tk-rate-in .14s ease-out;
 }
 
 html[data-theme="dark"] .tk-rate-backdrop {
-    --rt-ink: #f0f2f6;
-    --rt-ink-soft: #c2c9d4;
-    --rt-ink-faint: #8b93a2;
-    --rt-surface: #161b22;
-    --rt-surface-soft: #1b212b;
-    --rt-line: #263041;
-    --rt-accent: #8b7cf0;
+    --rt-ink: var(--color-ink);
+    --rt-ink-soft: var(--color-ink-muted);
+    --rt-ink-faint: var(--color-ink-faint);
+    --rt-surface: var(--color-surface);
+    --rt-surface-soft: var(--color-surface-2);
+    --rt-line: var(--color-line);
+    --rt-accent: var(--color-accent);
     --rt-star: #f0b458;
     --rt-star-off: #39414f;
 
@@ -54,12 +55,13 @@ html[data-theme="dark"] .tk-rate-backdrop {
 }
 
 .tk-rate-popup {
-    width: min(420px, 100%);
+    /* Wide enough for the seven level pills on one row. */
+    width: min(560px, 100%);
     background: var(--rt-surface);
     border: 1px solid var(--rt-line);
-    border-radius: 16px;
-    box-shadow: 0 18px 48px rgba(16, 24, 40, .22);
-    padding: 24px 26px 20px;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    padding: var(--space-6) var(--space-6) var(--space-5);
     animation: tk-rate-rise .16s ease-out;
 }
 
@@ -70,8 +72,8 @@ html[data-theme="dark"] .tk-rate-backdrop {
 
 .tk-rate-title {
     margin: 0;
-    font-size: 19px;
-    font-weight: 650;
+    font-size: var(--text-xl);
+    font-weight: 600;
     letter-spacing: -.02em;
     color: var(--rt-ink);
 }
@@ -80,8 +82,8 @@ html[data-theme="dark"] .tk-rate-backdrop {
    off and not about the day in general. One line, clipped — a task title can
    be a paragraph and this is a caption. */
 .tk-rate-task {
-    margin: 5px 0 0;
-    font-size: 13px;
+    margin: var(--space-1) 0 0;
+    font-size: var(--text-sm);
     color: var(--rt-ink-faint);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -89,37 +91,37 @@ html[data-theme="dark"] .tk-rate-backdrop {
 }
 
 .tk-rate-row {
-    margin: 22px 0 0;
+    margin: var(--space-6) 0 0;
     padding: 0;
     border: 0;
 }
 
 .tk-rate-label {
     padding: 0;
-    font-size: 14px;
-    font-weight: 650;
+    font-size: var(--text-md);
+    font-weight: 600;
     color: var(--rt-ink);
 }
 
 .tk-rate-label span {
-    margin-left: 7px;
+    margin-left: var(--space-2);
     font-weight: 400;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     color: var(--rt-ink-faint);
 }
 
 .tk-rate-stars {
-    margin-top: 8px;
+    margin-top: var(--space-2);
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--space-1);
 }
 
 .tk-rate-star {
     position: relative;
     cursor: pointer;
     line-height: 1;
-    font-size: 30px;
+    font-size: var(--text-3xl);
     color: var(--rt-star-off);
     transition: color .1s ease, transform .1s ease;
 }
@@ -140,15 +142,15 @@ html[data-theme="dark"] .tk-rate-backdrop {
 .tk-rate-star input:focus-visible + span {
     outline: 2px solid var(--rt-accent);
     outline-offset: 3px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
 }
 
 /* The word for whatever the cursor is over. Holds its height when empty so
    the dialog does not jump the first time a star is hovered. */
 .tk-rate-word {
-    margin-left: 10px;
+    margin-left: var(--space-2);
     min-height: 1em;
-    font-size: 13px;
+    font-size: var(--text-sm);
     font-weight: 600;
     color: var(--rt-ink-soft);
 }
@@ -172,23 +174,23 @@ html[data-theme="dark"] .tk-rate-backdrop {
    here. The inputs are hidden without leaving the tree.
    -------------------------------------------------------------------------- */
 .tk-rate-reasons {
-    margin-top: 10px;
+    margin-top: var(--space-2);
     display: flex;
     flex-wrap: wrap;
-    gap: 7px;
+    gap: var(--space-2);
 }
 
 .tk-rate-reason {
     position: relative;
     display: inline-flex;
     align-items: center;
-    padding: 7px 12px;
+    padding: var(--space-2) var(--space-3);
     border: 1px solid var(--rt-line);
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: var(--rt-surface-soft);
     color: var(--rt-ink-soft);
-    font-size: 12.5px;
-    font-weight: 550;
+    font-size: var(--text-sm);
+    font-weight: 500;
     cursor: pointer;
     transition: border-color .14s ease, background .14s ease, color .14s ease;
 }
@@ -207,7 +209,7 @@ html[data-theme="dark"] .tk-rate-backdrop {
     border-color: var(--rt-accent);
     background: color-mix(in srgb, var(--rt-accent) 12%, transparent);
     color: var(--rt-accent);
-    font-weight: 650;
+    font-weight: 600;
 }
 /* The focus ring has to be on the label, since the input it belongs to is the
    invisible one. */
@@ -221,11 +223,11 @@ html[data-theme="dark"] .tk-rate-backdrop {
 }
 
 .tk-rate-actions {
-    margin-top: 26px;
+    margin-top: var(--space-6);
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 14px;
+    gap: var(--space-4);
 }
 
 .tk-rate-skip {
@@ -233,7 +235,7 @@ html[data-theme="dark"] .tk-rate-backdrop {
     background: none;
     padding: 0;
     font-family: inherit;
-    font-size: 13.5px;
+    font-size: var(--text-md);
     color: var(--rt-ink-faint);
     cursor: pointer;
 }
@@ -241,14 +243,14 @@ html[data-theme="dark"] .tk-rate-backdrop {
 
 .tk-rate-save {
     height: 38px;
-    padding: 0 20px;
+    padding: 0 var(--space-5);
     border: 0;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     background: var(--rt-accent);
     color: #fff;
     font-family: inherit;
-    font-size: 14px;
-    font-weight: 650;
+    font-size: var(--text-md);
+    font-weight: 600;
     cursor: pointer;
 }
 
@@ -262,8 +264,52 @@ html[data-theme="dark"] .tk-rate-backdrop {
 }
 
 @media (max-width: 420px) {
-    .tk-rate-popup { padding: 20px 18px 16px; }
-    .tk-rate-star { font-size: 26px; }
-    .tk-rate-word { width: 100%; margin: 6px 0 0; }
+    .tk-rate-popup { padding: var(--space-5) var(--space-4) var(--space-4); }
+    .tk-rate-star { font-size: var(--text-2xl); }
+    .tk-rate-word { width: 100%; margin: var(--space-2) 0 0; }
     .tk-rate-stars { flex-wrap: wrap; }
+}
+
+/* ---------- How many did you get right ----------------------------------- */
+.tk-rate-score {
+    margin-top: var(--space-2);
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+    color: var(--rt-ink-soft);
+}
+.tk-rate-score input {
+    width: 4.5em;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--rt-line);
+    border-radius: var(--radius-sm);
+    background: var(--rt-surface-soft);
+    color: var(--rt-ink);
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+}
+.tk-rate-score input:focus-visible { outline: 2px solid var(--rt-accent); outline-offset: 1px; }
+.tk-rate-score-warn { color: #c0392b; font-weight: 600; }
+.tk-rate-add-score {
+    display: block;
+    width: auto;
+    margin: var(--space-4) 0 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--rt-accent);
+    font: inherit;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    cursor: pointer;
+}
+.tk-rate-add-score:hover { text-decoration: underline; }
+
+/* The line under the level pills when the pick moves the task's XP. */
+.tk-rate-moved {
+    margin: var(--space-2) 0 0;
+    font-size: var(--text-sm);
+    color: var(--rt-ink-soft);
 }

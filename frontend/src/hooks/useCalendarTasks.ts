@@ -68,6 +68,8 @@ import { tasks as taskService } from '@/services';
 import { isCalendarPlaced, isoStamp } from '@/utils/calendarGrid';
 import type { RatingDepth } from '@/services/settings';
 import type { Task, UserStats } from '@/types';
+import { announceStatsChanged } from '@/utils/statsBus';
+import { announceXpChange, ratingTarget, withRating, type RatingTarget } from '@/utils/rated';
 
 const NO_STATS: UserStats = {
   level: 1,
@@ -109,11 +111,11 @@ export interface UseCalendarTasks extends TaskPatch {
 
   // ---- The question that follows a completion ------------------------------
   /** The task the prompt is asking about, or null when nothing is asked. */
-  rating: { id: string; name: string } | null;
+  rating: RatingTarget | null;
   /** How much to ask, straight from the account's preference. */
   ratingDepth: RatingDepth;
   /** Sends whatever was answered and writes it onto the list on screen. */
-  saveRating: (values: { difficulty?: number; execution?: number; reason?: string }) => void;
+  saveRating: (values: taskService.RatingAnswers) => void;
   /** Dismissal, by any of the dialog's three routes. */
   closeRating: () => void;
 }
@@ -122,7 +124,7 @@ export function useCalendarTasks(): UseCalendarTasks {
   const { data, error, loading, refreshing, reload, mutate, username } = useUserData();
   const { prefs } = useSettings();
   const [completing, setCompleting] = useState<string | null>(null);
-  const [rating, setRating] = useState<{ id: string; name: string } | null>(null);
+  const [rating, setRating] = useState<RatingTarget | null>(null);
 
   const tasks = useMemo(
     () => (data?.tasks ?? []).filter(isCalendarPlaced),
@@ -167,8 +169,7 @@ export function useCalendarTasks(): UseCalendarTasks {
               xp: (Number(current.stats.xp) || 0) + (Number(result.xp_earned) || 0),
               level: result.new_level,
               tasks_completed: result.new_tasks_completed,
-              current_streak: result.current_streak,
-              best_streak: result.best_streak,
+              ...taskService.streakPatch(result),
             },
             tasks: current.tasks.map((task) => {
               if (String(task.id) !== String(taskId)) return task;
@@ -191,6 +192,9 @@ export function useCalendarTasks(): UseCalendarTasks {
               };
             }),
           }));
+          // The rail and the bell re-read once the burst settles; the cached
+          // task history is dropped at once. See utils/statsBus.
+          announceStatsChanged();
 
           /* Ask how it went, now that the work is banked. Nothing waits on
              the answer — the XP is already awarded and this dialog can be
@@ -203,7 +207,7 @@ export function useCalendarTasks(): UseCalendarTasks {
             const named = (data?.tasks ?? []).find(
               (task) => String(task.id) === String(taskId),
             );
-            setRating({ id: String(taskId), name: named?.title ?? 'that task' });
+            setRating(ratingTarget(named, String(taskId)));
           }
         })
         .catch((cause: unknown) => {
@@ -221,7 +225,7 @@ export function useCalendarTasks(): UseCalendarTasks {
      written onto the list on screen rather than re-read — the same rule the
      completion above follows. */
   const saveRating = useCallback(
-    (values: { difficulty?: number; execution?: number; reason?: string }) => {
+    (values: taskService.RatingAnswers) => {
       const target = rating;
       setRating(null);
       if (!username || !target) return;
@@ -233,9 +237,10 @@ export function useCalendarTasks(): UseCalendarTasks {
         mutate((current) => ({
           ...current,
           tasks: current.tasks.map((task) =>
-            String(task.id) === target.id ? { ...task, ...values } : task,
+            String(task.id) === target.id ? withRating(task, values, result) : task,
           ),
         }));
+        announceXpChange(result);
       });
     },
     [mutate, rating, username],

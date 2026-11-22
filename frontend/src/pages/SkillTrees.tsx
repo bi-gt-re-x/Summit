@@ -97,7 +97,7 @@
  * The tiles have always been buttons, so Tab and Enter worked; nothing else
  * did. The arrows now walk between tiles — spatially, because a reader
  * pressing → means *that one, over there* — and four page verbs have letters:
- * Esc clears, F frames where you are, R fits the tree, P practises. Every one
+ * Esc clears, F frames where you are, R fits the tree, P practices. Every one
  * of them is a control already on the page, which is the rule the set was
  * chosen by. See hooks/useLatticeKeys, and components/SkillTree/SubjectRail
  * for `/`.
@@ -117,7 +117,8 @@
  * data because it is a reading of the tally rather than a fact about a subject.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Ambient, PageHero } from '@/components';
+import { useSearchParams } from 'react-router-dom';
+import { PageHero } from '@/components';
 import {
   EdgeCard,
   FocusSetup,
@@ -125,7 +126,6 @@ import {
   LatticeNode,
   LatticePanel,
   ModeSwitch,
-  NextUp,
   ProgressIndicator,
   RouteStrip,
   SkillTree as SkillTreeCanvas,
@@ -133,6 +133,7 @@ import {
   TreeFamily,
   type FocusStanding,
   TilePeek,
+  TreePlan,
   type TreeMode,
 } from '@/components/SkillTree';
 import {
@@ -140,6 +141,7 @@ import {
   useDocumentTitle,
   useLatticeKeys,
   usePageEntrance,
+  useSkillAttempts,
   useSubjects,
 } from '@/hooks';
 import { iconForName } from '@/skills/iconMatch';
@@ -159,6 +161,7 @@ import {
 import { latticeSubjects, treeForSubject } from '@/skills/subjectMap';
 import {
   DEFAULT_TREE,
+  SUBJECT_TREES,
   childrenOf,
   graphFromSubjectTree,
   iconUrl,
@@ -175,9 +178,11 @@ import {
   tallyGraph,
   type GraphNode,
   type GraphTally,
+  type NodeStatus,
   type PlacedEdge,
 } from '@/utils/skillGraph';
 import { FOCUS_COUNT, loadFocus, resolveFocus, saveFocus } from '@/utils/focusTopics';
+import { loadLastTree, saveLastTree } from '@/utils/lastTree';
 import {
   applyProgress,
   loadProgress,
@@ -198,6 +203,13 @@ import {
   type StepPlan,
   type StepPlans,
 } from '@/utils/skillSteps';
+/* Namespaced, because this module and utils/skillSteps both export a
+   `loadSteps` and they are different things: that one reads the programme a
+   reader has edited out of their own browser, this one fetches the written
+   programme the server holds for everybody. */
+import * as writtenSteps from '@/services/skillSteps';
+import * as backgroundService from '@/services/background';
+import type { Programmes } from '@/services/skillSteps';
 import '@/styles/skilltree.css';
 
 /** The drawing, painted through the shared mask. */
@@ -211,6 +223,14 @@ function Ico({ icon, className }: { icon: string; className: string }) {
  * Bands rather than a number, because "Advanced" answers the question a reader
  * is actually asking and "61%" is already printed two inches to the left.
  */
+/** What Progress mode colors a tile by, in the legend's order. */
+const PROGRESS_KEYS: [NodeStatus, string][] = [
+  ['complete', 'Mastered'],
+  ['progress', 'In progress'],
+  ['available', 'Open'],
+  ['locked', 'Locked'],
+];
+
 function skillLevel(tally: GraphTally): string {
   if (tally.total === 0) return 'Unstarted';
   const share = (tally.complete + tally.progress * 0.5) / tally.total;
@@ -291,6 +311,20 @@ export default function SkillTrees() {
   useDocumentTitle('Skill Tree');
 
   const { username } = useAuth();
+  /* What the reader has got right and wrong, per skill — the evidence every
+     measured level on this page is read from. One request for the whole
+     account rather than per tree: a level is a reading of every row up to a
+     date, and the Growth tab asks for the same list. */
+  const practice = useSkillAttempts(username);
+  const evidence = useMemo(
+    () => ({
+      attempts: practice.attempts,
+      levels: practice.levels,
+      onAttempt: practice.add,
+      onUndo: practice.remove,
+    }),
+    [practice.attempts, practice.levels, practice.add, practice.remove],
+  );
   // The account's own catalogue, usage-ordered by the endpoint. Everything at
   // the top of this page is drawn from it: the five focus cards, the rail, and
   // half of what the search can find.
@@ -302,8 +336,45 @@ export default function SkillTrees() {
      one, the rail does not list one and the search cannot reach one. See
      `latticeSubjects` in skills/subjectMap for the whole argument. */
   const subjects = useMemo(() => latticeSubjects(catalogue), [catalogue]);
+
+  /* The subjects the account named at sign-up (About you, filed by
+     backend/tracking/background.py). A new account has no usage to order the
+     catalogue by, so without these the first-visit chooser suggested five
+     subjects picked by a tie-break between zeroes, while the reader had
+     already told Summit what they study. */
+  const [toldIds, setToldIds] = useState<string[]>([]);
+  useEffect(() => {
+    let live = true;
+    backgroundService
+      .read()
+      .then((result) => {
+        if (!live || !result.success) return;
+        const ids = (result.facts ?? []).map((fact) => fact.subject).filter((id): id is string => Boolean(id));
+        setToldIds([...new Set(ids)]);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [username]);
+  const told = useMemo(
+    () => toldIds.filter((id) => subjects.some((subject) => subject.id === id)).slice(0, FOCUS_COUNT),
+    [toldIds, subjects],
+  );
   const [treeId, setTreeId] = useState<string>(DEFAULT_TREE.id);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  /* Back to the tree the reader left off on. Read before the save below runs
+     for this account, so the default tree never overwrites what was stored. */
+  const [treeRead, setTreeRead] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    const last = loadLastTree(username);
+    if (last && subjectTreeById(last)) setTreeId(last);
+    setTreeRead(username);
+  }, [username]);
+  useEffect(() => {
+    if (treeRead === username) saveLastTree(username, treeId);
+  }, [treeId, treeRead, username]);
 
   /* Practice done on top of what the trees seed — see utils/skillProgress for
      why it lives in the browser. Loaded once per account, and written back on
@@ -370,6 +441,35 @@ export default function SkillTrees() {
     () => applyNames(applyProgress(designed, progress, plans), names),
     [designed, progress, plans, names],
   );
+  /* The written programmes for this tree, fetched once when it opens.
+     A whole tree rather than the selected node, because a reader clicks tiles
+     and a spinner inside the panel on every click is worse than one request on
+     arrival — see the note in services/skillSteps. A tree whose nodes have
+     nothing written simply leaves this empty and the panel derives, exactly as
+     it did before the table existed. */
+  const [written, setWritten] = useState<Programmes>({});
+  /* Whether the panel has taken the section over. The panel owns the decision
+     and this owns the grid, because the widening is a change to the *layout*
+     — see `.stx-layout.is-wide` in styles/skilltree.css. Kept as a callback
+     identity that never changes, or the effect in the panel that reports it
+     would fire on every render of this page. */
+  const [wide, setWide] = useState(false);
+  const onExpand = useCallback((open: boolean) => setWide(open), []);
+  useEffect(() => {
+    let live = true;
+    const ids = designed.nodes.map((node) => node.id);
+    writtenSteps.loadSteps(ids).then((programmes) => {
+      if (live) setWritten(programmes);
+    });
+    // Cleared on the way out rather than merged: a stale programme drawn under
+    // a node of the same id on a different tree is the one wrong thing this
+    // could do, and the cache in the service means refetching costs nothing.
+    return () => {
+      live = false;
+      setWritten({});
+    };
+  }, [designed]);
+
   const nav = useMemo(() => navTargets(tree), [tree]);
   /* The doorways, as a set. Every reading of "where is this reader" and
      "what is worth doing" leaves them out: a diamond carries a status like any
@@ -377,7 +477,7 @@ export default function SkillTrees() {
      thing a filter meant. Declared with the graph rather than beside its first
      use, because four things below now need it. */
   const navIds = useMemo(() => new Set(nav.keys()), [nav]);
-  const totals = useMemo(() => tallyGraph(graph), [graph]);
+  const totals = useMemo(() => tallyGraph(graph, navIds), [graph, navIds]);
   const chain = useMemo(() => parentChain(tree.id), [tree.id]);
   // The three ways out of this tree, so walking the hierarchy never depends on
   // finding the right diamond on the canvas.
@@ -504,6 +604,58 @@ export default function SkillTrees() {
     [username],
   );
 
+  /*
+   * Arriving from somewhere else, pointed at a subject.
+   *
+   * `?subject=<catalogue id>` opens that subject's lattice at its landing node
+   * — the same route `openSubject` takes from the rail, reached from a link
+   * instead of a click. The analytics page's goal limiters are what needed it:
+   * naming geometry as what is holding a goal up and then dropping the reader
+   * on whichever tree the page happened to open on is most of a broken promise.
+   * See components/Analytics/Limiter, which builds the link.
+   *
+   * It waits on `subjects`, because `openSubject` routes through the account's
+   * own catalogue and that arrives a moment after mount — running early would
+   * fall through to the group default for a subject the map knows perfectly
+   * well. And it runs once per id: the reader may walk somewhere else from
+   * here, and a link that kept dragging them back would be a cage.
+   */
+  const [params, setParams] = useSearchParams();
+  const linkedSubject = params.get('subject');
+  const followed = useRef<string | null>(null);
+  useEffect(() => {
+    if (!linkedSubject || subjects.length === 0 || followed.current === linkedSubject) return;
+    followed.current = linkedSubject;
+    openSubject(linkedSubject);
+    /* The address bar goes back to the plain page. What is on screen is now
+       the reader's position rather than the link's instruction, and leaving
+       the parameter there would re-fire this on every reload of a tree they
+       may have long since navigated away from. */
+    setParams({}, { replace: true });
+  }, [linkedSubject, openSubject, setParams, subjects]);
+
+  /* `?node=<id>`: a skill named from elsewhere (the plan's skill row, the
+     review list), opened on its own tree with the canvas brought to it. Same
+     rules as `?subject=` above: once per id, then the address goes back to
+     the plain page. */
+  const linkedNode = params.get('node');
+  const followedNode = useRef<string | null>(null);
+  useEffect(() => {
+    /* Not until this account's own last tree and first-visit answer have been
+       read, or restoring those would undo the link a moment later. */
+    if (!linkedNode || !username || treeRead !== username || !focusRead) return;
+    if (followedNode.current === linkedNode) return;
+    followedNode.current = linkedNode;
+    const home = SUBJECT_TREES.find((entry) => entry.nodes.some((node) => node.id === linkedNode));
+    if (home) {
+      openTree(home.id, linkedNode);
+      /* They came for this skill, so the first-visit question waits for
+         next time, the same as "Decide later". */
+      setSkippedSetup(true);
+    }
+    setParams({}, { replace: true });
+  }, [linkedNode, openTree, setParams, username, treeRead, focusRead]);
+
   /** Back to the question, from the band. Clears the stored answer so the
    *  screen's own gate — "has this account ever chosen" — is true again. */
   const reopenSetup = useCallback(() => {
@@ -593,15 +745,6 @@ export default function SkillTrees() {
     [graph, hereId],
   );
 
-  /* What to do next, with where the reader already is left off it: "next up:
-     the node you are standing on" is not a next step. The *computed* standing
-     rather than the selection, so clicking around the tree does not keep
-     rewriting the list. */
-  const chances = useMemo(
-    () => opportunities(graph, standing ? new Set([...navIds, standing.id]) : navIds),
-    [graph, navIds, standing],
-  );
-
   /* How far through its prerequisites each gated node is, so a locked tile can
      print `2/3` where every other tile prints a percentage. See skills/route. */
   const gates = useMemo(() => gatesOf(graph), [graph]);
@@ -644,8 +787,8 @@ export default function SkillTrees() {
       if (!source) continue;
 
       const built = applyProgress(graphFromSubjectTree(source), progress, plans);
-      const tally = tallyGraph(built);
       const doors = new Set(navTargets(source).keys());
+      const tally = tallyGraph(built, doors);
       const [chance] = opportunities(built, doors);
 
       rows.set(id, {
@@ -743,12 +886,15 @@ export default function SkillTrees() {
   );
 
   /** What the canvas is showing, in the line under the switch. */
+  const onPath = shown.nodes.filter((node) => !navIds.has(node.id)).length;
   const say =
     mode === 'map'
       ? `Every skill in ${tree.title}, arranged the way the subject is built.`
       : mode === 'path'
-        ? `${shown.nodes.length} of ${graph.nodes.length} skills — what is behind you, what you are on, and what opens next.`
-        : 'The same lattice, coloured by where you stand rather than by how hard each skill is.';
+        ? `${onPath} of ${totals.total} skills: what got you here, what you're on, and what opens next.`
+        : `${totals.complete} mastered, ${totals.progress} in progress, ${
+            totals.available ? `${totals.available} open, ` : ''
+          }${totals.locked} locked. Each tile fills as you go.`;
 
   /* The "+250 XP" that appears for a moment after a click. Held with its node
      id so switching selection mid-flash cannot show one node's gain on
@@ -800,7 +946,7 @@ export default function SkillTrees() {
   );
 
   /*
-   * Practising means one of two things, and which one depends on whether this
+   * Practicing means one of two things, and which one depends on whether this
    * account has written the node's programme.
    *
    * An untouched node is counted in XP, so a session adds XP. A node whose
@@ -809,7 +955,7 @@ export default function SkillTrees() {
    * would be adding to a figure that is no longer read, which is the same as
    * the button doing nothing.
    */
-  const practise = useCallback(
+  const startPractice = useCallback(
     (node: GraphNode) => {
       const plan = plans[node.id];
       if (plan) {
@@ -840,7 +986,7 @@ export default function SkillTrees() {
     onClear: () => (asked ? setAsked(null) : select(null)),
     onHere: () => hereId && frameOn([hereId]),
     onFit: () => frameOn(graph.nodes.map((node) => node.id)),
-    onPractise: selected ? () => practise(selected) : undefined,
+    onPractice: selected ? () => startPractice(selected) : undefined,
     onSearch: revealDrawer,
   });
 
@@ -860,14 +1006,14 @@ export default function SkillTrees() {
   if (focusRead && chosenFocus === null && !skippedSetup && subjects.length > 0) {
     return (
       <div className="stx-page stx-page--lattice">
-        <Ambient />
         <div className={`stx-shell page-shell${entering ? ' pg-enter' : ''}`}>
           <FocusSetup
             subjects={subjects}
             /* What the band would have shown on its own — the account's own
                usage order, which is what `resolveFocus` tops an empty choice
                up from. Offered as a button inside the screen. */
-            suggested={resolveFocus(null, subjects.map((subject) => subject.id))}
+            suggested={resolveFocus(null, [...told, ...subjects.map((subject) => subject.id)])}
+            told={told}
             onDone={chooseFocus}
             onSkip={() => setSkippedSetup(true)}
           />
@@ -878,7 +1024,6 @@ export default function SkillTrees() {
 
   return (
     <div className="stx-page stx-page--lattice">
-      <Ambient />
       <div className={`stx-shell page-shell${entering ? ' pg-enter' : ''}`}>
         {/* Green, which is what growth is coloured everywhere else here. The
             breadcrumb and the title stay centred inside it — this is the one
@@ -978,12 +1123,6 @@ export default function SkillTrees() {
           <Figure label="Skill Level" value={skillLevel(totals)} icon="gem" tone="level" />
         </section>
 
-        {/* ---- what to do next ----
-            Above the route, because "where am I" is only worth answering as a
-            preamble to "so what now". Every figure on it is already on the
-            lattice as colour and lines; see skills/route. */}
-        <NextUp chances={chances} onOpen={open} />
-
         {/* ---- where the reader is, in one line ----
             Above the canvas rather than inside it, because it is the sentence
             the drawing is a picture of. See components/SkillTree/RouteStrip. */}
@@ -996,13 +1135,24 @@ export default function SkillTrees() {
           />
         )}
 
+        {/* ---- what to do next here ----
+            The open tree's next session, read from your answers. One line
+            until it's opened, so the canvas stays above the fold. See
+            components/SkillTree/TreePlan. */}
+        <TreePlan
+          tree={tree.id}
+          username={username}
+          version={practice.attempts.length}
+          onPick={(nodeId) => openTree(tree.id, nodeId)}
+        />
+
         {/* ---- how to read the tree ----
             Directly above the canvas, because it decides what the canvas is
             rather than what is emphasised on it. */}
         <ModeSwitch mode={mode} onMode={setMode} say={say} />
 
         {/* ---- the lattice and what a node is ---- */}
-        <div className={`stx-layout mode-${mode}`}>
+        <div className={`stx-layout mode-${mode}${wide ? ' is-wide' : ''}`}>
           <SkillTreeCanvas
             graph={shown}
             selectedId={selectedId}
@@ -1023,7 +1173,7 @@ export default function SkillTrees() {
                   <button
                     type="button"
                     className="stx-zoom-view"
-                    title="Fit the branch you are in"
+                    title="Fit the branch you're in"
                     onClick={() => frameOn(branchIds(position))}
                   >
                     Branch
@@ -1063,25 +1213,28 @@ export default function SkillTrees() {
           />
 
           <LatticePanel
+            brief
             graph={graph}
             node={selected}
             onSelect={select}
-            onPractice={practise}
+            onPractice={startPractice}
             gain={selected ? practiceGain(selected) : 0}
             steps={selected ? plans[selected.id] ?? null : null}
+            written={selected ? written[selected.id] ?? null : null}
             onSteps={selected ? (plan) => writePlans(selected.id, plan) : undefined}
             onResetSteps={selected ? () => writePlans(selected.id, null) : undefined}
             onRename={selected ? (name) => rename(selected.id, name) : undefined}
             renamed={Boolean(selected && names[selected.id])}
             onResetName={selected ? () => rename(selected.id, null) : undefined}
+            onExpand={onExpand}
+            evidence={evidence}
             flash={flash && selected && flash.id === selected.id ? flash.gain : null}
             placeholder={
               <>
                 <Ico icon="target" className="stx-ico stx-lp-blank-ico" />
                 <strong>Pick a skill</strong>
                 <span>
-                  Every tile on the lattice opens here — what it is, how far along you are, and what
-                  it leads to. The diamonds open a subject of their own.
+                  Click any tile to see what it is, how far along you are and what it leads to. Diamonds open a new subject.
                 </span>
               </>
             }
@@ -1089,17 +1242,23 @@ export default function SkillTrees() {
         </div>
 
         {/* ---- legend ---- */}
-        {/* The tiles are coloured by difficulty, so that is what the legend has
-            to explain. Status is on every tile already, in the percentage badge
-            beside the tier and in the fill of a finished one. */}
+        {/* The legend explains whatever the tiles are colored by: difficulty
+            in Map and Path, where you stand in Progress. */}
         <footer className="stx-legend">
           <ul className="stx-legend-keys">
-            {DIFFICULTIES.map((tier) => (
-              <li key={tier}>
-                <i className={`stx-legend-dot tier-${tier}`} aria-hidden="true" />
-                {DIFFICULTY_LABEL[tier]}
-              </li>
-            ))}
+            {mode === 'progress'
+              ? PROGRESS_KEYS.map(([state, label]) => (
+                  <li key={state}>
+                    <i className={`stx-legend-dot state-${state}`} aria-hidden="true" />
+                    {label}
+                  </li>
+                ))
+              : DIFFICULTIES.map((tier) => (
+                  <li key={tier}>
+                    <i className={`stx-legend-dot tier-${tier}`} aria-hidden="true" />
+                    {DIFFICULTY_LABEL[tier]}
+                  </li>
+                ))}
             <li className="stx-legend-line">
               <svg viewBox="0 0 28 6" aria-hidden="true">
                 <path d="M1 3h26" />
@@ -1127,7 +1286,7 @@ export default function SkillTrees() {
             <kbd>↑</kbd>
             <kbd>↓</kbd>
             <kbd>←</kbd>
-            <kbd>→</kbd> move · <kbd>Enter</kbd> open · <kbd>P</kbd> practise · <kbd>F</kbd> frame
+            <kbd>→</kbd> move · <kbd>Enter</kbd> open · <kbd>P</kbd> practice · <kbd>F</kbd> frame
             where you are · <kbd>R</kbd> fit · <kbd>/</kbd> search · <kbd>Esc</kbd> clear
           </p>
         </footer>

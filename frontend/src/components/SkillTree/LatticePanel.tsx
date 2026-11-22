@@ -87,7 +87,7 @@
  * A list with no rows, an XP line on a node worth zero: each is absent rather
  * than drawn as a dash. A panel of dashes reads as a form that failed to load.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { improvePlan } from '@/skills/improve';
 import { nearestBlocker, optionalIds } from '@/skills/route';
 import { groupOf, iconUrl } from '@/skills/subjectTrees';
@@ -109,9 +109,37 @@ import {
   removeStep,
   type StepPlan,
 } from '@/utils/skillSteps';
+import type { Problem as ProblemRow, WrittenStep } from '@/services/skillSteps';
+import {
+  WEIGHT_BLURB,
+  WEIGHT_LABEL,
+  bandsFor,
+  type PracticeStep,
+} from '@/utils/problemSet';
+import { Icon } from '@/components/Icon';
 import { ProgressIndicator } from './ProgressIndicator';
+import { LevelCard, LevelChain, LevelChip, LogPractice, ProblemMark } from './SkillLevel';
+import { lastAt, stepLevels as levelsOf, type Attempt, type Levels, type SkillLevel, type Tier } from '@/utils/skillLevel';
+import type { NewAttempt } from '@/services/skillAttempts';
 
 const number = (value: number) => Math.round(value).toLocaleString();
+
+/**
+ * What the panel needs to measure a skill rather than describe it: the
+ * reader's attempts, and the two writes. One object rather than three props,
+ * because they are only ever present together — a panel that could read the
+ * level but not mark a problem would draw buttons that do nothing.
+ */
+export interface StepEvidence {
+  /** Every attempt the reader has. The panel picks out this node's. */
+  attempts: Attempt[];
+  /** Every step's level, read on the server from those attempts. */
+  levels: Levels;
+  /** Store one; the stored row, or null when it was refused. */
+  onAttempt: (attempt: NewAttempt) => Promise<Attempt | null>;
+  /** Take one back. */
+  onUndo: (id: string) => Promise<boolean>;
+}
 
 /** The skill's drawing, painted through the shared mask. */
 function Ico({ icon, className }: { icon?: string; className: string }) {
@@ -156,6 +184,507 @@ function Rows({
 }
 
 /**
+ * Roughly what a step at each tier costs, in minutes.
+ *
+ * Only the derived programme needs this. A written step states its own cost;
+ * a rung of the generic ladder in skills/improve has none, and the number is
+ * what decides how many problems the step is owed — see `countFor` in
+ * utils/problemSet. Tier is the only signal a rung carries, so tier is what it
+ * is read from.
+ */
+const TIER_MINUTES: Record<string, number> = {
+  foundation: 10,
+  beginner: 15,
+  intermediate: 20,
+  advanced: 30,
+  expert: 40,
+  mastery: 45,
+};
+
+/**
+ * A short label for a step that only exists as one sentence.
+ *
+ * The derived ladder is a list of instructions, not a table, so there is no
+ * title to put at the top of the problems screen. This takes the first clause
+ * and caps it, which on a rung like "Make up your own input, work out the
+ * answer by hand, then check the code agrees." gives "Make up your own input"
+ * — the part that names the work.
+ */
+function labelFor(text: string): string {
+  const clause = text.split(/[,.;:]/)[0]!.trim();
+  const words = clause.split(/\s+/).slice(0, 6).join(' ');
+  return (words || text.slice(0, 40)).replace(/\s+$/, '');
+}
+
+/**
+ * One rung of the derived ladder, in the shape the problems screen takes.
+ *
+ * The point of this function is that the feature does not wait for content.
+ * Most of the library still answers from skills/improve, and a link that only
+ * appeared on the nodes a generator had already reached would be a feature
+ * most readers never saw. A derived step is a worse step — it does not name
+ * its object, which is the whole complaint against the ladder — but the
+ * *problems* hanging off it are slots either way, so there is nothing lost by
+ * hanging them off this too.
+ */
+function asPractice(
+  text: string,
+  ordinal: number,
+  node: GraphNode,
+  plan: { proof: string; pitfall: string },
+): PracticeStep {
+  return {
+    ordinal,
+    title: labelFor(text),
+    // The whole instruction is the brief: the title above is a truncation of
+    // it, so the screen would otherwise show only half a sentence.
+    mastery: text,
+    proof: plan.proof,
+    pitfall: plan.pitfall,
+    minutes: TIER_MINUTES[node.difficulty] ?? 20,
+  };
+}
+
+/**
+ * One question, with its answer behind a control.
+ *
+ * The answer is hidden until asked for, and that is the whole design of this
+ * component. A problem whose answer is on screen beside it is not a problem —
+ * a reader's eye reaches it before they have finished reading the question,
+ * and the work of attempting it never happens. The hint sits in front of the
+ * answer for the same reason: it is the cheaper thing to spend first, and
+ * offering both at once means nobody ever takes the cheaper one.
+ */
+function Problem({ problem, mark }: { problem: ProblemRow; mark?: React.ReactNode }) {
+  const [showHint, setShowHint] = useState(false);
+  const [showAnswer, setShowAnswer] = useState(false);
+
+  // A new question is a new attempt: both reveals close.
+  useEffect(() => {
+    setShowHint(false);
+    setShowAnswer(false);
+  }, [problem.prompt]);
+
+  return (
+    <div className="stx-problem">
+      <p className="stx-problem-prompt">{problem.prompt}</p>
+      {showHint && problem.hint && <p className="stx-problem-hint">{problem.hint}</p>}
+      {showAnswer && <p className="stx-problem-answer">{problem.answer}</p>}
+      <p className="stx-problem-acts">
+        {problem.hint && !showHint && !showAnswer && (
+          <button type="button" className="stx-problem-act" onClick={() => setShowHint(true)}>
+            Hint
+          </button>
+        )}
+        <button
+          type="button"
+          className="stx-problem-act is-answer"
+          aria-expanded={showAnswer}
+          onClick={() => setShowAnswer((was) => !was)}
+        >
+          {showAnswer ? 'Hide answer' : 'Show answer'}
+        </button>
+      </p>
+      {/* Marking is checking, and there is nothing to check against until the
+          answer is out — so the question only appears with it. */}
+      {showAnswer && mark}
+    </div>
+  );
+}
+
+/**
+ * One step, with everything else gone.
+ *
+ * ## Why this is a screen rather than a bigger expansion
+ *
+ * Expanding a row answers "what does this step involve" while the reader is
+ * still choosing between twelve of them, so the other eleven stay on screen —
+ * that is the whole use of it. This answers a different question: the choosing
+ * is over, and what is wanted now is the problems and nothing competing with
+ * them. A reader working through a stretch problem does not benefit from the
+ * step list, the canvas, the prerequisites or the XP bar being in their
+ * peripheral vision, so none of them are.
+ *
+ * Both exist because both questions are real. Adding this did not cost the
+ * expansion anything.
+ *
+ * ## The set is a slope, not a pile
+ *
+ * Problems come in three bands — warm-up, core, stretch — and the first third
+ * are the light ones. See utils/problemSet for why, and for the arithmetic
+ * that decides how many a step is owed. The bands are drawn as headings rather
+ * than inferred from the questions, so a reader who is stuck on the last one
+ * can see that it is supposed to be the hard one.
+ *
+ * The problems themselves are not written yet. What is here is the ladder they
+ * will land in, drawn as dashed slots so it reads as "not yet" rather than
+ * "failed to load".
+ */
+function StepWorkspace({
+  step,
+  node,
+  problems,
+  onBack,
+  onBackToTree,
+  evidence,
+}: {
+  step: PracticeStep;
+  /** The written questions for this step, if any have been. */
+  problems?: ProblemRow[];
+  node: GraphNode;
+  /** Back to the programme this step belongs to. */
+  onBack: () => void;
+  /** Out of the takeover entirely. */
+  onBackToTree: () => void;
+  /**
+   * Marking and the level it feeds. Only for a written step: its ordinal is
+   * the server's and stays put, where a derived rung's is a position in a
+   * list that is allowed to change — and evidence filed under a number that
+   * moves would end up describing a different step.
+   */
+  evidence?: StepEvidence;
+}) {
+  /* Marks made on this visit, by problem, so a second press changes or takes
+     back the first rather than adding to it. Marks from earlier visits stay
+     what they were — they are history, and shown as "last time". */
+  const [mine, setMine] = useState<Record<number, Attempt>>({});
+  const [busy, setBusy] = useState<number | null>(null);
+  useEffect(() => setMine({}), [step.ordinal, node.id]);
+
+  const mark = async (slot: number, weight: Tier, right: boolean) => {
+    if (!evidence) return;
+    setBusy(slot);
+    try {
+      const before = mine[slot];
+      if (before && !(await evidence.onUndo(before.id))) return;
+      const made = await evidence.onAttempt({
+        node_id: node.id, ordinal: step.ordinal, slot, weight,
+        attempted: 1, correct: right ? 1 : 0, source: 'problem',
+      });
+      setMine((was) => {
+        const next = { ...was };
+        if (made) next[slot] = made;
+        else delete next[slot];
+        return next;
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const undo = async (slot: number) => {
+    const before = mine[slot];
+    if (!evidence || !before) return;
+    setBusy(slot);
+    try {
+      if (await evidence.onUndo(before.id)) {
+        setMine((was) => {
+          const next = { ...was };
+          delete next[slot];
+          return next;
+        });
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const stepAttempts = useMemo(
+    () => (evidence?.attempts ?? []).filter(
+      (row) => row.node_id === node.id && row.ordinal === step.ordinal,
+    ),
+    [evidence?.attempts, node.id, step.ordinal],
+  );
+
+  /* Written problems where there are any, and the default ladder of empty
+     slots where there are not. Both are grouped the same way, so everything
+     below draws one shape — the only difference a reader sees is whether a
+     row holds a question or says one is coming. */
+  const written = problems ?? [];
+  const bands = written.length > 0
+    ? (['warmup', 'core', 'stretch'] as const)
+        .map((weight) => ({
+          weight,
+          slots: written
+            .filter((one) => one.weight === weight)
+            .map((one) => ({ index: one.slot, weight: one.weight, problem: one })),
+        }))
+        .filter((band) => band.slots.length > 0)
+    : bandsFor(step).map((band) => ({
+        weight: band.weight,
+        slots: band.slots.map((slot) => ({ ...slot, problem: undefined })),
+      }));
+  const total = bands.reduce((sum, band) => sum + band.slots.length, 0);
+
+  return (
+    <aside className={`stx-lp is-steps is-work tier-${node.difficulty}`}>
+      <header className="stx-lp-steps-head">
+        <button type="button" className="stx-lp-back" onClick={onBack}>
+          <span aria-hidden="true">←</span> Back to steps
+        </button>
+        <div>
+          <h2>{step.title}</h2>
+          <p className="stx-lp-steps-count">
+            {node.name} · step {step.ordinal} · {total} problems
+          </p>
+        </div>
+        {/* The second way out. A reader two levels deep should not have to
+            climb back through a screen they are finished with. */}
+        <button type="button" className="stx-lp-back is-far" onClick={onBackToTree}>
+          Back to tree
+        </button>
+      </header>
+
+      <div className="stx-lp-body stx-lp-programme">
+        {/* The step itself, restated in one line. Without it the problems are
+            a list of questions with no statement of what they are for. */}
+        <p className="stx-work-brief">{step.mastery}</p>
+
+        {/* Where the reader stands on this step, above the problems that move
+            it — so a mark below is seen to change the card above. */}
+        {evidence && <LevelCard levels={levelsOf(evidence.levels, node.id, step.ordinal)} />}
+
+        {bands.map((band) => (
+          <section key={band.weight} className={`stx-work-band is-${band.weight}`}>
+            <h3 className="stx-work-band-name">
+              {WEIGHT_LABEL[band.weight]}
+              <span>{WEIGHT_BLURB[band.weight]}</span>
+            </h3>
+            <ol className="stx-work-list">
+              {band.slots.map((slot) => (
+                <li
+                  key={slot.index}
+                  className={`stx-work-slot${slot.problem ? ' is-written' : ''}`}
+                >
+                  <span className="stx-work-num" aria-hidden="true">
+                    {slot.index}
+                  </span>
+                  {slot.problem ? (
+                    <Problem
+                      problem={slot.problem}
+                      mark={
+                        evidence && (
+                          <ProblemMark
+                            mine={mine[slot.index] ?? null}
+                            previous={lastAt(stepAttempts, node.id, step.ordinal, slot.index)}
+                            busy={busy === slot.index}
+                            onMark={(right) => mark(slot.index, band.weight, right)}
+                            onUndo={() => undo(slot.index)}
+                          />
+                        )
+                      }
+                    />
+                  ) : (
+                    <span className="stx-work-slot-text">
+                      A {WEIGHT_LABEL[band.weight].toLowerCase()} problem for{' '}
+                      <b>{step.title}</b> will appear here.
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </section>
+        ))}
+
+        {/* What the step already says about finishing, kept because it is the
+            only thing on this screen that answers "am I done". */}
+        <dl className="stx-ws-facts stx-work-facts">
+          <div>
+            <dt>Done when</dt>
+            <dd>{step.proof}</dd>
+          </div>
+          <div>
+            <dt>Watch for</dt>
+            <dd>{step.pitfall}</dd>
+          </div>
+        </dl>
+
+        {evidence && (
+          <LogPractice
+            busy={busy !== null}
+            onLog={async (weight, attempted, correct) =>
+              Boolean(
+                await evidence.onAttempt({
+                  node_id: node.id, ordinal: step.ordinal, weight,
+                  attempted, correct, source: 'log',
+                }),
+              )
+            }
+          />
+        )}
+      </div>
+    </aside>
+  );
+}
+
+/**
+ * The written programme: a row per step, and the row opens.
+ *
+ * ## Why this is a separate component from `Programme` below
+ *
+ * They draw different things. `Programme` draws a list of sentences the reader
+ * owns and can edit; this draws a table the server wrote and nobody edits — a
+ * name, what mastering it means, and one concrete thing to try. The two have
+ * different shapes, different affordances and different rules about who may
+ * change them, and merging them would mean a component branching on which of
+ * two data models it holds at every line.
+ *
+ * ## Clicking a step opens it rather than navigating
+ *
+ * Everything a reader needs in order to *decide* is on the closed row: the
+ * title, the one-line definition, and the thing to try. Everything they need in
+ * order to *do it* — how to go about it, how to know it worked, the mistake
+ * people make — is three or four more lines, and putting all of it on screen at
+ * once turns a seven-step programme into a page of prose nobody reads.
+ *
+ * More than one may be open at a time. A reader comparing step three with step
+ * six is doing something reasonable, and an accordion that closes the first
+ * when the second opens is a component being tidy at the reader's expense.
+ */
+function WrittenProgramme({
+  steps,
+  at,
+  onOpenChange,
+  onWork,
+  levels,
+}: {
+  steps: WrittenStep[];
+  /** Each step's measured level, by ordinal, where there is evidence to read. */
+  levels?: Record<number, SkillLevel>;
+  /** Which step the reader is on, 0-based. Opens expanded. */
+  at: number;
+  /** Told when a step opens, so a parent can scroll or measure. Optional. */
+  onOpenChange?: (ordinal: number, open: boolean) => void;
+  /** Take the page over with this step's problems. Absent hides the link. */
+  onWork?: (step: WrittenStep) => void;
+}) {
+  // The current step starts open, because it is the one the reader came for.
+  const [open, setOpen] = useState<Set<number>>(
+    () => new Set(steps[at] ? [steps[at]!.ordinal] : []),
+  );
+  const current = steps[at]?.ordinal;
+
+  // A different node has been picked: the set of open rows belonged to the last
+  // one, and its ordinals mean something else here.
+  useEffect(() => {
+    setOpen(new Set(steps[at] ? [steps[at]!.ordinal] : []));
+    // Keyed on the programme itself rather than on a node id the component is
+    // not given — a new array is a new programme.
+  }, [steps, at]);
+
+  const toggle = (ordinal: number) => {
+    setOpen((was) => {
+      const next = new Set(was);
+      if (next.has(ordinal)) next.delete(ordinal);
+      else next.add(ordinal);
+      onOpenChange?.(ordinal, next.has(ordinal));
+      return next;
+    });
+  };
+
+  return (
+    <ol className="stx-ws">
+      {steps.map((step, index) => {
+        const isOpen = open.has(step.ordinal);
+        const state = index < at ? 'is-done' : step.ordinal === current ? 'is-now' : '';
+        const panelId = `stx-ws-body-${step.ordinal}`;
+        return (
+          <li key={step.ordinal} className={`stx-ws-step ${state} ${isOpen ? 'is-open' : ''}`}>
+            {/* The whole row is the control, not a chevron in the corner: the
+                target is the thing a reader is already pointing at.
+
+                The link beside it is a second, different verb and has to stay
+                outside the row's own button — a button inside a button is
+                invalid, and the browser resolves it by swallowing one of the
+                two clicks. */}
+            <button
+              type="button"
+              className="stx-ws-head"
+              aria-expanded={isOpen}
+              aria-controls={panelId}
+              onClick={() => toggle(step.ordinal)}
+            >
+              <span className="stx-ws-num" aria-hidden="true">
+                {step.ordinal}
+              </span>
+              <span className="stx-ws-lines">
+                <span className="stx-ws-title">
+                  {step.title}
+                  {levels?.[step.ordinal] && <LevelChip read={levels[step.ordinal]!} />}
+                </span>
+                <span className="stx-ws-mastery">{step.mastery}</span>
+                <span className="stx-ws-try">
+                  <b>Try:</b> {step.practice}
+                </span>
+              </span>
+              <span className="stx-ws-mark" aria-hidden="true">
+                {isOpen ? '−' : '+'}
+              </span>
+            </button>
+
+            {/* Two ways into a step, on purpose, because they answer different
+                questions. Expanding keeps the programme on screen and is for
+                "what does this one involve" — you are still choosing. This is
+                for "I am doing this one now": it clears the page down to the
+                problems and nothing else, because a reader who has committed
+                to a step should not be looking at the other eleven. */}
+            {onWork && (
+              <button
+                type="button"
+                className="stx-ws-work"
+                onClick={() => onWork(step)}
+              >
+                <Icon name="target" />
+                Problems for {step.title}
+                <span aria-hidden="true">→</span>
+              </button>
+            )}
+
+            {isOpen && (
+              <div className="stx-ws-body" id={panelId}>
+                {/* The target problem is the point of opening a step: the
+                    practice line on the closed row says what kind of thing to
+                    do, and this is the actual worked item to sit down with.
+                    It leads the body rather than following the method, because
+                    a reader who already knows how does not want to scroll past
+                    an explanation to reach the question. */}
+                <div className="stx-ws-target">
+                  <p className="stx-ws-target-label">Target problem to solve</p>
+                  <p className="stx-ws-target-slot">
+                    A problem for <b>{step.title}</b> will appear here.
+                  </p>
+                </div>
+                <p className="stx-ws-detail">{step.detail}</p>
+                <dl className="stx-ws-facts">
+                  <div>
+                    <dt>Done when</dt>
+                    <dd>{step.proof}</dd>
+                  </div>
+                  <div>
+                    <dt>Watch for</dt>
+                    <dd>{step.pitfall}</dd>
+                  </div>
+                  <div>
+                    <dt>Roughly</dt>
+                    <dd>{step.minutes} minutes</dd>
+                  </div>
+                </dl>
+                {/* The row's own evidence. Small, and at the bottom, because a
+                    reader is not here for it — but a table that claims every
+                    step was checked should be able to say what checked it. */}
+                <p className="stx-ws-verified" title={`Checks: ${step.verified.checks.join(', ')}`}>
+                  Checked before it was added
+                </p>
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/**
  * The full programme, editable.
  *
  * One row is in exactly one of four states — reading, being edited, asking
@@ -172,6 +701,7 @@ function Programme({
   onReset,
   editable,
   edited,
+  onWork,
 }: {
   plan: StepPlan;
   at: number;
@@ -180,6 +710,8 @@ function Programme({
   editable: boolean;
   /** Whether this programme is the reader's or still the suggested one. */
   edited: boolean;
+  /** Take the page over with this step's problems, by 0-based position. */
+  onWork?: (index: number) => void;
 }) {
   const [editingAt, setEditingAt] = useState<number | null>(null);
   const [confirmAt, setConfirmAt] = useState<number | null>(null);
@@ -290,6 +822,21 @@ function Programme({
               >
                 {step}
               </button>
+              {onWork && (
+                /* The same link the written programme carries, on the derived
+                   one too. Most of the library still answers from the ladder,
+                   and a way into the problems that only existed on generated
+                   nodes would be a feature almost nobody found. */
+                <button
+                  type="button"
+                  className="stx-ws-work is-derived"
+                  onClick={() => onWork(index)}
+                >
+                  <Icon name="target" />
+                  Problems for {labelFor(step)}
+                  <span aria-hidden="true">→</span>
+                </button>
+              )}
               {editable && plan.steps.length > 1 && (
                 <button
                   type="button"
@@ -316,7 +863,7 @@ function Programme({
                 className="stx-lp-step-field"
                 value={fresh}
                 maxLength={STEP_MAX}
-                placeholder="What to actually do…"
+                placeholder="What to do…"
                 autoFocus
                 onChange={(event) => setFresh(event.target.value)}
                 onKeyDown={(event) => {
@@ -365,6 +912,12 @@ function Programme({
 }
 
 export interface LatticePanelProps {
+  /**
+   * Open each node short: progress, mastery and the steps, with the rest
+   * behind "Show details". The skill tree page asks for this; left off, the
+   * panel shows everything, which is what the component tests read.
+   */
+  brief?: boolean;
   graph: SkillGraph;
   node: GraphNode | null;
   onSelect: (node: GraphNode | null) => void;
@@ -378,6 +931,14 @@ export interface LatticePanelProps {
   flash?: number | null;
   /** The reader's own programme for this node, where they have written one. */
   steps?: StepPlan | null;
+  /**
+   * The written programme the server holds for this node.
+   *
+   * Absent means nothing has been generated for it yet, and the panel falls
+   * back to the derived advice in skills/improve — see the note on
+   * `WrittenProgramme` below for why the two coexist.
+   */
+  written?: WrittenStep[] | null;
   /** Store a programme for this node. Absent leaves the list read-only. */
   onSteps?: (plan: StepPlan) => void;
   /** Throw the reader's programme away and go back to the suggested one. */
@@ -388,6 +949,20 @@ export interface LatticePanelProps {
   renamed?: boolean;
   /** Put the designed name back. */
   onResetName?: () => void;
+  /**
+   * Told when the step list takes the screen over.
+   *
+   * The panel owns whether it is expanded; the *page* owns the grid it sits
+   * in, and widening that grid is what makes the list cover the canvas rather
+   * than sit in a 340px column beside it. So the state stays here and the fact
+   * of it is announced — see `is-wide` in styles/skilltree.css.
+   */
+  onExpand?: (open: boolean) => void;
+  /**
+   * The reader's marked problems and the writes that add to them. Absent
+   * leaves the panel as it was — describing the skill, not measuring it.
+   */
+  evidence?: StepEvidence;
 }
 
 export function LatticePanel({
@@ -399,22 +974,65 @@ export function LatticePanel({
   gain = 0,
   flash = null,
   steps = null,
+  written = null,
   onSteps,
   onResetSteps,
   onRename,
   renamed = false,
   onResetName,
+  onExpand,
+  evidence,
+  brief = false,
 }: LatticePanelProps) {
   // The step list opens over the whole panel rather than beside it, so this is
   // panel-wide state rather than the section's. Reset on every change of node:
   // a reader who clicks a new tile wants that tile, not the steps of the last.
   const [allSteps, setAllSteps] = useState(false);
+  /* Which step has the page to itself. Separate from `allSteps` rather than a
+     third value of it, because the two are independent: the problems screen
+     can be opened from the panel's three-step window without the reader ever
+     having opened the full list, and going back has to land wherever they came
+     from.
+
+     The step itself rather than an index, because the two programmes number
+     differently — a written step knows its own ordinal and a ladder rung is
+     only a position in an array — and the screen needs the same shape from
+     both. */
+  const [workingOn, setWorkingOn] = useState<PracticeStep | null>(null);
   const [naming, setNaming] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
+  /* The panel opens short: where you stand, your mastery and the steps. The
+     rest (problem stats, logging, what to learn, traps, what's next) waits
+     behind "Show details", so a click on a tile isn't a wall of text. */
+  const [detailed, setDetailed] = useState(!brief);
   useEffect(() => {
     setAllSteps(false);
+    setWorkingOn(null);
     setNaming(false);
-  }, [node?.id]);
+    setDetailed(!brief);
+  }, [node?.id, brief]);
+
+  // Kept in an effect rather than called from the two setters, so the page
+  // hears about the reset above as well as about a click. A panel that closed
+  // itself on a new node and left the grid wide would leave the canvas hidden
+  // behind an empty column.
+  useEffect(() => {
+    onExpand?.(allSteps || workingOn !== null);
+  }, [allSteps, workingOn, onExpand]);
+
+  // Leaving the page entirely — unmounting mid-expansion — has to put the grid
+  // back too.
+  useEffect(() => () => onExpand?.(false), [onExpand]);
+
+  /* Each written step's level, for the chip on its row. Only when there is
+     evidence to read — without it every row would say "Not started", which is
+     a claim about the reader the panel has no grounds for. */
+  const stepLevels = useMemo(() => {
+    if (!evidence || !written || !node) return undefined;
+    return Object.fromEntries(
+      written.map((step) => [step.ordinal, levelsOf(evidence.levels, node.id, step.ordinal).now]),
+    ) as Record<number, SkillLevel>;
+  }, [evidence, written, node]);
 
   if (!node) {
     return (
@@ -447,7 +1065,24 @@ export function LatticePanel({
   // and the suggested one otherwise. Everything below reads `programme`, so the
   // panel never has to ask which of the two it is looking at — only the reset
   // control does, and only to know whether there is anything to reset.
-  const programme: StepPlan = steps ?? { steps: plan.steps, at: plan.at };
+  /*
+   * Three programmes can exist for a node, and they rank in this order:
+   *
+   *   1. one the reader has written      `steps`    theirs, never overwritten
+   *   2. the written one from the server `written`  checked, subject-specific
+   *   3. the derived ladder              `plan`     generic, always available
+   *
+   * The reader's own comes first because editing a programme is a statement
+   * that the suggestion was wrong for them, and a server that quietly replaced
+   * it next week would be taking that back. The written one comes before the
+   * ladder for the reason the whole table exists — see data/sql/skillsteps.sql.
+   * The ladder is the floor: a node nobody has generated for still answers.
+   */
+  const useWritten = !steps && written !== null && written.length > 0;
+  const programme: StepPlan = steps ?? {
+    steps: useWritten ? written!.map((step) => step.title) : plan.steps,
+    at: plan.at,
+  };
   const at = Math.min(programme.at, Math.max(0, programme.steps.length - 1));
 
   // Three at a time: the one the reader is on and the two after it. A panel
@@ -511,14 +1146,12 @@ export function LatticePanel({
         ? `Mastered on ${node.on}.`
         : 'Mastered.'
       : blockers.length > 0
-        ? `${blockers.length} ${blockers.length === 1 ? 'prerequisite' : 'prerequisites'} away — ${
-            blockers.length === 1 ? 'one thing' : 'those'
-          } to finish before this opens.`
+        ? `${blockers.length} ${blockers.length === 1 ? 'prerequisite' : 'prerequisites'} away. Finish ${blockers.length === 1 ? 'it' : 'them'} to open this.`
         : steps
-          ? `Step ${at + 1} of ${programme.steps.length} of your own programme.`
+          ? `Step ${at + 1} of ${programme.steps.length} of your plan.`
           : node.status === 'progress'
             ? `${Math.round(node.percent)}% of the way through.`
-            : 'Open now — nothing is in the way of starting it.';
+            : 'Open now. Nothing in the way.';
 
   /*
    * Why the reader is being shown this, in the panel's own words.
@@ -552,6 +1185,34 @@ export function LatticePanel({
     if (next && next !== node!.name) onRename?.(next);
   }
 
+  /* The problems screen wins over both other layouts. It is the deepest thing
+     the panel can be showing and the reader got to it deliberately, so nothing
+     above it in this function may pre-empt it. */
+  if (workingOn) {
+    /* The written step this is, matched on title as well as number: a rung of
+       the reader's own programme can share an ordinal with a written step and
+       be about something else entirely. Only a match gets problems — and only
+       a match can be marked, because its number is the server's and stays. */
+    const writtenStep = written?.find(
+      (one) => one.ordinal === workingOn.ordinal && one.title === workingOn.title,
+    );
+    return (
+      <StepWorkspace
+        step={workingOn}
+        problems={writtenStep?.problems}
+        evidence={writtenStep ? evidence : undefined}
+        node={node}
+        // Back lands where they came from: the full list if it was open behind
+        // this, the panel if the link was clicked from the three-step window.
+        onBack={() => setWorkingOn(null)}
+        onBackToTree={() => {
+          setWorkingOn(null);
+          setAllSteps(false);
+        }}
+      />
+    );
+  }
+
   // The whole panel, given over to the programme. Not a section that grew a
   // scrollbar — the steps are what the reader asked for, so everything else
   // gets out of the way and the list has the full height to itself.
@@ -560,7 +1221,7 @@ export function LatticePanel({
       <aside className={`stx-lp is-steps tier-${node.difficulty}`}>
         <header className="stx-lp-steps-head">
           <button type="button" className="stx-lp-back" onClick={() => setAllSteps(false)}>
-            ← Back
+            <span aria-hidden="true">←</span> Back to tree
           </button>
           <div>
             <h2>{node.name}</h2>
@@ -570,20 +1231,34 @@ export function LatticePanel({
             </p>
           </div>
         </header>
-        <Programme
-          plan={programme}
-          at={at}
-          onChange={changeSteps}
-          onReset={onResetSteps}
-          editable={Boolean(changeSteps)}
-          edited={Boolean(steps)}
-        />
+        {useWritten ? (
+          <div className="stx-lp-body stx-lp-programme">
+            <WrittenProgramme
+              steps={written!}
+              at={at}
+              levels={stepLevels}
+              onWork={(step) => setWorkingOn(step)}
+            />
+          </div>
+        ) : (
+          <Programme
+            plan={programme}
+            at={at}
+            onChange={changeSteps}
+            onReset={onResetSteps}
+            editable={Boolean(changeSteps)}
+            edited={Boolean(steps)}
+            onWork={(index) =>
+              setWorkingOn(asPractice(programme.steps[index]!, index + 1, node, plan))
+            }
+          />
+        )}
       </aside>
     );
   }
 
   return (
-    <aside className={`stx-lp tier-${node.difficulty}`}>
+    <aside className={`stx-lp tier-${node.difficulty}${detailed ? ' is-detailed' : ' is-brief'}`}>
       <header className="stx-lp-head">
         <span className={`stx-lp-avatar is-${node.status}`}>
           <Ico icon={node.icon} className="stx-ico stx-lp-avatar-ico" />
@@ -633,7 +1308,7 @@ export function LatticePanel({
                 the two answer different questions and the first one a reader
                 asks is still "can I start this". */}
             {optionalIds(graph).has(node.id) && (
-              <span className="stx-lp-badge is-optional" title="Nothing on this tree waits on it">
+              <span className="stx-lp-badge is-optional" title="Nothing on this tree needs it first">
                 Optional
               </span>
             )}
@@ -661,7 +1336,7 @@ export function LatticePanel({
             is asking where *they* are on it, and because everything under
             "Next move" only means anything once that is on the table. */}
         <section className="stx-lp-truth is-mine">
-          <h3 className="stx-lp-truth-name">Your progress</h3>
+          <h3 className="stx-lp-truth-name">Progress</h3>
 
           {/* The state in a sentence rather than in a percentage. "72%" is
               four states' worth of arithmetic flattened into one number: it
@@ -682,9 +1357,9 @@ export function LatticePanel({
               </b>
             </p>
             <ProgressIndicator percent={node.percent} shape="bar" />
-            {node.need > 0 && (
+            {detailed && node.need > 0 && (
               <p className="stx-lp-line stx-lp-xp">
-                <span>XP Earned</span>
+                <span>XP earned</span>
                 <b>
                   {number(node.have)} / {number(node.need)} XP
                 </b>
@@ -693,13 +1368,55 @@ export function LatticePanel({
           </div>
         </section>
 
+        {/* ---- 2b. Your level, measured ----
+            The figure above is the tree's own and the same on every account.
+            This one is read from problems the reader marked right or wrong,
+            per step — so it gets its own heading, and says so. */}
+        {evidence && (
+          <section className="stx-lp-truth is-mine is-measured">
+            <h3 className="stx-lp-truth-name">Mastery</h3>
+            {written && written.length > 0 ? (
+              <LevelChain
+                brief={!detailed}
+                nodeId={node.id}
+                steps={written.map((step) => ({ ordinal: step.ordinal, title: step.title }))}
+                levels={evidence.levels}
+                onOpen={(ordinal) => {
+                  const step = written.find((one) => one.ordinal === ordinal);
+                  if (step) setWorkingOn(step);
+                }}
+              />
+            ) : (
+              /* Nothing written for this node yet, so there are no steps to
+                 split it into and no problems to mark. Work done elsewhere
+                 can still be logged against the skill as a whole. */
+              <>
+                <LevelCard levels={levelsOf(evidence.levels, node.id, 0)} brief={!detailed} />
+                {detailed && <LogPractice
+                  busy={false}
+                  label="No practice problems here yet. Log ones you did elsewhere."
+                  onLog={async (weight, attempted, correct) =>
+                    Boolean(
+                      await evidence.onAttempt({
+                        node_id: node.id, ordinal: 0, weight,
+                        attempted, correct, source: 'log',
+                      }),
+                    )
+                  }
+                />}
+              </>
+            )}
+          </section>
+        )}
+
         {/* ---- 3. The curriculum ----
             What the subject says, which is the same on every account. The
             heading is doing real work: everything under it is authored and
             nothing under it is about the reader, which is the distinction the
             whole page is arranged around and had never been said out loud. */}
+        {detailed && (
         <section className="stx-lp-truth is-authored">
-          <h3 className="stx-lp-truth-name">The curriculum</h3>
+          <h3 className="stx-lp-truth-name">What to learn</h3>
 
           {node.blurb && <p className="stx-lp-blurb">{node.blurb}</p>}
 
@@ -712,7 +1429,7 @@ export function LatticePanel({
           {needs.length > 0 ? (
             <>
               <p className="stx-lp-why">{why}</p>
-              <ul className="stx-lp-needs" aria-label="What this skill sits on">
+              <ul className="stx-lp-needs" aria-label="What you need first">
                 {needs.map((need) => {
                   const done = need.status === 'complete';
                   return (
@@ -730,9 +1447,10 @@ export function LatticePanel({
               </ul>
             </>
           ) : (
-            <p className="stx-lp-why">A foundation of this subject — nothing comes before it.</p>
+            <p className="stx-lp-why">A starting point. Nothing comes before it.</p>
           )}
         </section>
+        )}
 
         {/* ---- 4. Your next move ----
             The centre of the panel and the only part that says what to do with
@@ -740,18 +1458,50 @@ export function LatticePanel({
             navigates. All four pieces are one call into skills/improve, which
             is what stops the steps and the proof asking for different things. */}
         <section className="stx-lp-truth is-move">
-          <h3 className="stx-lp-truth-name">Your next move</h3>
+          <h3 className="stx-lp-truth-name">Steps</h3>
 
           <p className={`stx-lp-headline is-${node.status}`}>{plan.headline}</p>
-          {/* `start` rather than a re-numbered list: step seven has to read as
-              step seven, or the count under it is describing something else. */}
-          <ol className="stx-lp-steps is-window" start={at + 1} onClick={openSteps}>
-            {window.map((step, index) => (
-              <li key={step} className={index === 0 ? 'is-now' : ''}>
-                {step}
-              </li>
-            ))}
-          </ol>
+          {useWritten ? (
+            /* The written steps open where they stand. The reader's next three
+               are the ones worth room in the panel, and any of them expands in
+               place — "All N steps" is still there for the whole list, but it
+               is no longer the only way to read what a step actually asks. */
+            <WrittenProgramme
+              steps={written!.slice(at, at + 3)}
+              at={detailed ? 0 : -1}
+              levels={stepLevels}
+              onWork={detailed ? (step) => setWorkingOn(step) : undefined}
+            />
+          ) : (
+            /* `start` rather than a re-numbered list: step seven has to read as
+               step seven, or the count under it is describing something else. */
+            /* `start` rather than a re-numbered list: step seven has to read
+               as step seven, or the count under it is describing something
+               else. The row still opens the full list; the link under it goes
+               straight to that step's problems. */
+            <ol className="stx-lp-steps is-window" start={at + 1}>
+              {window.map((step, index) => (
+                <li key={step} className={index === 0 ? 'is-now' : ''}>
+                  <button type="button" className="stx-lp-window-text" onClick={openSteps}>
+                    {step}
+                  </button>
+                  {detailed && (
+                    <button
+                      type="button"
+                      className="stx-ws-work is-derived"
+                      onClick={() =>
+                        setWorkingOn(asPractice(step, at + index + 1, node, plan))
+                      }
+                    >
+                      <Icon name="target" />
+                      Problems for {labelFor(step)}
+                      <span aria-hidden="true">→</span>
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
           <button type="button" className="stx-lp-more" onClick={openSteps}>
             All {programme.steps.length} steps
           </button>
@@ -760,21 +1510,25 @@ export function LatticePanel({
               I know I am done" is the question a set of steps raises and the
               one a percentage answers worst — it deserves the weight the
               other two do not. */}
-          <p className="stx-lp-proof">
-            <b>Done when</b>
-            {plan.proof}
-          </p>
+          {detailed && (
+            <>
+              <p className="stx-lp-proof">
+                <b>Done when</b>
+                {plan.proof}
+              </p>
 
-          <dl className="stx-lp-notes">
-            <div className="stx-lp-note is-pitfall">
-              <dt>Common trap</dt>
-              <dd>{plan.pitfall}</dd>
-            </div>
-            <div className="stx-lp-note is-effort">
-              <dt>Time</dt>
-              <dd>{plan.effort}</dd>
-            </div>
-          </dl>
+              <dl className="stx-lp-notes">
+                <div className="stx-lp-note is-pitfall">
+                  <dt>Common trap</dt>
+                  <dd>{plan.pitfall}</dd>
+                </div>
+                <div className="stx-lp-note is-effort">
+                  <dt>Time</dt>
+                  <dd>{plan.effort}</dd>
+                </div>
+              </dl>
+            </>
+          )}
         </section>
 
         {/* ---- 5. What comes next ----
@@ -783,13 +1537,22 @@ export function LatticePanel({
             heading — and the prerequisites have their own section above now.
             What is left is the pair a reader actually chooses between: what
             this opens, and what is merely worth a look. */}
-        {(opens.length > 0 || suggested.length > 0) && (
+        {detailed && (opens.length > 0 || suggested.length > 0) && (
           <section className="stx-lp-truth is-next">
             <h3 className="stx-lp-truth-name">What comes next</h3>
             <Rows title={`Finishing this opens ${opens.length === 1 ? 'a skill' : `${opens.length} skills`}`} nodes={opens} onSelect={onSelect} />
             <Rows title="Worth exploring" nodes={suggested} onSelect={onSelect} showPercent />
           </section>
         )}
+
+        <button
+          type="button"
+          className="stx-lp-detail"
+          aria-expanded={detailed}
+          onClick={() => setDetailed((was) => !was)}
+        >
+          {detailed ? 'Show less' : 'Show details'}
+        </button>
       </div>
 
       {/* The one control, and it says what pressing it does here rather than

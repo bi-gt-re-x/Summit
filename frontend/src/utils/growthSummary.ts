@@ -12,7 +12,7 @@
  * wrong:
  *
  * - **A range is a slice of the tail.** "Last 30 days" is the last 30 rows,
- *   not the last 30 days that had something on them — a fortnight off is part
+ *   not the last 30 days that had something on them — two weeks off is part
  *   of the story a growth page is telling, and dropping empty days would make
  *   every gap invisible and every average flattering.
  * - **A comparison is against the slice before it, and only a whole one.** The
@@ -42,10 +42,10 @@ export interface RangeOption {
 }
 
 export const RANGES: RangeOption[] = [
-  { key: '7', label: 'Last 7 Days', days: 7 },
-  { key: '30', label: 'Last 30 Days', days: 30 },
-  { key: '90', label: 'Last 90 Days', days: 90 },
-  { key: 'all', label: 'All Time', days: null },
+  { key: '7', label: 'Last 7 days', days: 7 },
+  { key: '30', label: 'Last 30 days', days: 30 },
+  { key: '90', label: 'Last 90 days', days: 90 },
+  { key: 'all', label: 'All time', days: null },
 ];
 
 export interface RangeSlice {
@@ -79,7 +79,7 @@ export function sliceRange(all: GrowthDay[], range: RangeKey): RangeSlice {
 export function rangeLabel(days: GrowthDay[]): string {
   const first = days[0]?.date;
   const last = days[days.length - 1]?.date;
-  if (!first || !last) return '—';
+  if (!first || !last) return '-';
 
   const at = (iso: string) => new Date(`${iso}T00:00:00`);
   const short = (iso: string) =>
@@ -87,7 +87,7 @@ export function rangeLabel(days: GrowthDay[]): string {
   const year = at(last).getFullYear();
   return first === last
     ? `${short(first)}, ${year}`
-    : `${short(first)} – ${short(last)}, ${year}`;
+    : `${short(first)} to ${short(last)}, ${year}`;
 }
 
 // --------------------------------------------------------------------------
@@ -158,7 +158,7 @@ export interface TileSeries {
  * a sparkline of one is unreadable at 26 pixels high. Rolling it over a week
  * turns the same record into the thing the tile is actually claiming: whether
  * showing up is becoming more or less usual. The window is short enough that a
- * fortnight off still shows as a trough rather than a dip.
+ * two weeks off still shows as a trough rather than a dip.
  */
 function rollingRate(days: GrowthDay[], window = 7): number[] {
   return days.map((_, index) => {
@@ -234,7 +234,7 @@ export function summaryFigures(slice: RangeSlice): GrowthSummaryFigures {
   const perDayWas = before.length ? xpWas / before.length : 0;
 
   // Showing up, as a share of the window. Same rule as the rate above — over
-  // days in the range, not over days that had something on them, or a fortnight
+  // days in the range, not over days that had something on them, or two weeks
   // off would raise the figure it ought to lower.
   const rate = (days: GrowthDay[]) =>
     days.length
@@ -488,10 +488,10 @@ export function chartStats(slice: RangeSlice): ChartStat[] {
   const weekXp = total(week, (day) => day.xp_earned);
 
   return [
-    { key: 'total', label: 'Total XP Earned', value: Math.round(xp), unit: 'XP', delta: null, note: null },
+    { key: 'total', label: 'Total XP earned', value: Math.round(xp), unit: 'XP', delta: null, note: null },
     {
       key: 'average',
-      label: 'Daily Average',
+      label: 'Daily average',
       value: Math.round(perDay),
       unit: 'XP',
       delta: change(perDay, perDayWas),
@@ -499,7 +499,7 @@ export function chartStats(slice: RangeSlice): ChartStat[] {
     },
     {
       key: 'best',
-      label: 'Best Day',
+      label: 'Best day',
       value: Math.round(Number(peak?.xp_earned) || 0),
       unit: 'XP',
       delta: null,
@@ -512,7 +512,7 @@ export function chartStats(slice: RangeSlice): ChartStat[] {
     },
     {
       key: 'streak',
-      label: 'Longest Streak',
+      label: 'Longest streak',
       value: longestStreak(current),
       unit: 'Days',
       delta: null,
@@ -520,7 +520,7 @@ export function chartStats(slice: RangeSlice): ChartStat[] {
     },
     {
       key: 'week',
-      label: 'XP This Week',
+      label: 'XP this week',
       value: Math.round(weekXp),
       unit: 'XP',
       delta: change(weekXp, total(weekBefore, (day) => day.xp_earned)),
@@ -554,7 +554,7 @@ export interface GrowthTrend {
  *
  * The tiles say what the range came to; this says how it arrived, as the share
  * of the range's total banked by each day. A straight diagonal is an even
- * fortnight. A curve that hugs the floor and then leaps is a month where
+ * two weeks. A curve that hugs the floor and then leaps is a month where
  * nothing happened until the last week — which is the single most useful thing
  * a summary panel can tell someone, and the one thing four totals cannot.
  *
@@ -626,7 +626,7 @@ export interface LongTermWindow {
 export const LONG_TERM_WINDOWS: LongTermWindow[] = [
   { key: '6m', label: '6M', days: 183 },
   { key: '1y', label: '1Y', days: 365 },
-  { key: 'all', label: 'All Time', days: null },
+  { key: 'all', label: 'All time', days: null },
 ];
 
 export interface LongTermLine {
@@ -659,7 +659,7 @@ export function compact(value: number): string {
  * It used to be one per calendar month, which on a young account is three
  * points and two straight lines — a chart with nothing in it to read. Buckets
  * are a fixed number of days instead, chosen so any window lands near this
- * figure: about a fortnight each over a year, about four days each over six
+ * figure: about two weeks each over a year, about four days each over six
  * months of a new account. Twenty-six is what the panel has room for at a
  * third of a row — enough that the shape of a climb is visible, few enough
  * that the dots do not run into each other.
@@ -759,13 +759,13 @@ export function longTermProgress(
     ticks,
     lines: [
       line('xp', 'Total XP', (bucket) => bucket.xp, compact),
-      line('tasks', 'Tasks Completed', (bucket) => bucket.tasks, (value) =>
+      line('tasks', 'Tasks done', (bucket) => bucket.tasks, (value) =>
         Math.round(value).toLocaleString(),
       ),
-      line('focus', 'Focus Hours', (bucket) => bucket.focusHours, (value) =>
+      line('focus', 'Focus hours', (bucket) => bucket.focusHours, (value) =>
         value.toFixed(1),
       ),
-      line('active', 'Active Days', (bucket) => bucket.activeDays, (value) =>
+      line('active', 'Active days', (bucket) => bucket.activeDays, (value) =>
         String(Math.round(value)),
       ),
     ],
@@ -862,7 +862,7 @@ export function milestones(all: GrowthDay[], currentStreak = 0): Milestone[] {
   return [
     {
       kind: 'xp',
-      name: `Reach ${xpTarget.toLocaleString()} Total XP`,
+      name: `Reach ${xpTarget.toLocaleString()} total XP`,
       sub: `${Math.round(lifetimeXp).toLocaleString()} / ${xpTarget.toLocaleString()} XP`,
       target: xpTarget,
       progress: lifetimeXp,
@@ -871,8 +871,8 @@ export function milestones(all: GrowthDay[], currentStreak = 0): Milestone[] {
     },
     {
       kind: 'focus',
-      name: `${focusTarget} Focus Hours`,
-      sub: `${lifetimeFocus.toFixed(1)} / ${focusTarget} Hours`,
+      name: `${focusTarget} focus hours`,
+      sub: `${lifetimeFocus.toFixed(1)} / ${focusTarget} hours`,
       target: focusTarget,
       progress: lifetimeFocus,
       reward: focusReward,
@@ -883,8 +883,8 @@ export function milestones(all: GrowthDay[], currentStreak = 0): Milestone[] {
     },
     {
       kind: 'streak',
-      name: `${streakTarget} Day Streak`,
-      sub: `${currentStreak} / ${streakTarget} Days`,
+      name: `${streakTarget}-day streak`,
+      sub: `${currentStreak} / ${streakTarget} days`,
       target: streakTarget,
       progress: currentStreak,
       reward: streakReward,
@@ -937,13 +937,13 @@ export function milestoneHistory(all: GrowthDay[]): ReachedMilestone[] {
   walk(
     XP_TIERS,
     (day) => day.cumulative_xp,
-    (target) => `Reached ${target.toLocaleString()} Total XP`,
+    (target) => `Reached ${target.toLocaleString()} total XP`,
     'xp',
   );
   walk(
     FOCUS_TIERS,
     (day) => day.cumulative_focus_minutes / 60,
-    (target) => `${target} Hours Focused`,
+    (target) => `${target} hours focused`,
     'focus',
   );
 
@@ -1050,8 +1050,8 @@ export function growthInsights(slice: RangeSlice): Insight[] {
         headline: `You're most productive on ${listOf(names)}.`,
         hint:
           names.length === 1
-            ? 'Worth protecting that day from everything else.'
-            : 'Keep up the great work!',
+            ? 'Keep that day clear for work.'
+            : 'Put your hardest tasks on those days.',
       });
     }
   }
@@ -1081,8 +1081,8 @@ export function growthInsights(slice: RangeSlice): Insight[] {
             }
           : {
               tone: 'good',
-              headline: 'Weekends are carrying you',
-              hint: `You earn ${gap}% more per day at weekends than on weekdays.`,
+              headline: 'Weekends are your best days',
+              hint: `You earn ${gap}% more XP per day on weekends.`,
             },
       );
     }
@@ -1100,8 +1100,8 @@ export function growthInsights(slice: RangeSlice): Insight[] {
     const up = swing > 0;
     out.push({
       tone: up ? 'good' : 'watch',
-      headline: `Your average XP per day has ${up ? 'increased' : 'fallen'} by ${Math.abs(swing)}%`,
-      hint: `compared to the previous ${previous.length} days.`,
+      headline: `Your daily XP is ${up ? 'up' : 'down'} ${Math.abs(swing)}%`,
+      hint: `vs. the ${previous.length} days before.`,
     });
   }
 
@@ -1115,13 +1115,13 @@ export function growthInsights(slice: RangeSlice): Insight[] {
       share >= 70
         ? {
             tone: 'good',
-            headline: 'Consistency is your superpower',
-            hint: `You showed up on ${share}% of the days in this range.`,
+            headline: 'Very consistent',
+            hint: `You worked on ${share}% of days in this period.`,
           }
         : {
             tone: 'note',
-            headline: `You earned XP on ${active} of these ${current.length} days.`,
-            hint: 'Consistency moves the line more than any single big day.',
+            headline: `You worked on ${active} of ${current.length} days.`,
+            hint: 'Working more often beats one big day.',
           },
     );
   }
@@ -1146,7 +1146,7 @@ export function growthInsights(slice: RangeSlice): Insight[] {
       out.push({
         tone: 'good',
         headline: `Your best day was ${peakXp.toLocaleString()} XP, on ${dayName(peak.date)}.`,
-        hint: `That is ${times.toFixed(1)}× your average working day — worth knowing what was different about it.`,
+        hint: `${times.toFixed(1)}× your average day.`,
       });
     }
   }
@@ -1163,11 +1163,11 @@ export function growthInsights(slice: RangeSlice): Insight[] {
   if (longest >= 2) {
     out.push({
       tone: longest >= 7 ? 'good' : 'note',
-      headline: `Your longest unbroken run here was ${longest} days.`,
+      headline: `Your longest streak here was ${longest} days.`,
       hint:
         longest >= 7
-          ? 'A week without a gap is the hardest part of any streak to rebuild.'
-          : 'Runs are worth more than single days — the line moves on the days either side of a good one.',
+          ? 'A week or more in a row. Try to beat it.'
+          : 'Try working on back-to-back days.',
     });
   }
 
@@ -1178,8 +1178,8 @@ export function growthInsights(slice: RangeSlice): Insight[] {
     const perDay = tasksDone / active;
     out.push({
       tone: 'note',
-      headline: `${tasksDone.toLocaleString()} task${tasksDone === 1 ? '' : 's'} finished across this range.`,
-      hint: `About ${perDay.toFixed(1)} on each day you worked.`,
+      headline: `${tasksDone.toLocaleString()} task${tasksDone === 1 ? '' : 's'} finished.`,
+      hint: `About ${perDay.toFixed(1)} per day worked.`,
     });
   }
 
@@ -1189,8 +1189,8 @@ export function growthInsights(slice: RangeSlice): Insight[] {
     const perDay = Math.round(focusMinutes / active);
     out.push({
       tone: 'note',
-      headline: `${hours >= 10 ? Math.round(hours).toLocaleString() : hours.toFixed(1)} hours of focus in this range.`,
-      hint: `Around ${perDay} minutes on a day you worked.`,
+      headline: `${hours >= 10 ? Math.round(hours).toLocaleString() : hours.toFixed(1)} hours of focus.`,
+      hint: `About ${perDay} minutes per day worked.`,
     });
   }
 
@@ -1221,35 +1221,35 @@ function quietRows(days: GrowthDay[], active: number, have: number): Insight[] {
     days.length === 0
       ? {
           tone: 'note',
-          headline: 'There are no days in this range yet.',
-          hint: 'Your record starts on the day you signed up — this panel fills in from there.',
+          headline: 'No data yet.',
+          hint: 'This fills in as you go.',
         }
       : active === 0
       ? {
           tone: 'note',
-          headline: `No XP recorded on any of these ${days.length} days.`,
-          hint: 'This panel reads the range in the header — a longer one may well have something in it.',
+          headline: `No XP in the last ${days.length} days.`,
+          hint: 'Try a longer time range.',
         }
       : {
           tone: 'note',
           headline: `${banked.toLocaleString()} XP over ${active} working day${active === 1 ? '' : 's'}.`,
-          hint: 'Too few days here for a pattern; the readings below sharpen as the range fills.',
+          hint: 'Not enough days for patterns yet.',
         },
     last
       ? {
           tone: 'note',
-          headline: `The last day with anything on it was ${dayName(last.date)}.`,
-          hint: `It was worth ${Math.round(Number(last.xp_earned) || 0).toLocaleString()} XP.`,
+          headline: `You last worked on ${dayName(last.date)}.`,
+          hint: `You earned ${Math.round(Number(last.xp_earned) || 0).toLocaleString()} XP.`,
         }
       : {
           tone: 'note',
-          headline: 'Nothing has happened here yet.',
-          hint: 'Finish a task and this panel will have something to say.',
+          headline: 'Nothing here yet.',
+          hint: 'Finish a task to get started.',
         },
     {
       tone: 'note',
-      headline: 'Every row here is counted, never estimated.',
-      hint: 'A finding appears when the figures support it and stays away when they do not, which is why this range is quiet.',
+      headline: 'Nothing new.',
+      hint: 'This updates when something changes.',
     },
   ];
 

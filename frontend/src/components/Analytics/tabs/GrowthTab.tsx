@@ -47,7 +47,6 @@ import { YearOnYear } from '../GrowthYears';
 import {
   METRIC_META,
   METRIC_ORDER,
-  MetricStrip,
   MilestoneFeed,
   MoverPanel,
   PeriodCards,
@@ -57,9 +56,15 @@ import {
   movers,
   whatChanged,
 } from '../GrowthPeriod';
-import { Locked } from '../Locked';
+import { Building } from '../Building';
+import { SkillGrowthPanel, TimeProgressPanel } from '../SkillGrowth';
+import { SkillLevelsPanel } from '../SkillLevels';
+import { skillTrajectory, timeToProgress } from '@/utils/skillGrowth';
 import { hourLabel } from '@/utils/behaviour';
 import { useGrowthPeriods } from '../useGrowthPeriods';
+import { useSkillAttempts, useStats } from '@/hooks';
+import type { PeriodKey } from '@/services/analytics';
+import { SkillShapePanel } from '../SkillView';
 import type { AnalyticsModel } from '../useAnalyticsModel';
 import type { PeriodMetric } from '@/services/analytics';
 
@@ -104,9 +109,107 @@ const OVERALL_COLOR = 'var(--ax-gp-overall)';
 /** The tone a series falls back to when it has no colour of its own. */
 const OVERALL_TONE: Tone = 'pink';
 
+/**
+ * How long each period is, for the two panels computed in the browser.
+ *
+ * The five graded measures are scored server-side over these same windows —
+ * see ../useGrowthPeriods — and these two are not, because they are functions
+ * of the task list the page already holds. The numbers are written here rather
+ * than parsed off the key so a period added on one side and not the other
+ * fails to compile rather than silently drawing a month.
+ *
+ * `all` is null, meaning "from the first finished task", which the trajectory
+ * works out for itself.
+ */
+const PERIOD_DAYS: Record<PeriodKey, number | null> = {
+  '7d': 7,
+  '30d': 30,
+  '90d': 90,
+  '365d': 365,
+  '730d': 730,
+  all: null,
+};
+
+/** How the period reads inside a sentence. */
+const PERIOD_TEXT: Record<PeriodKey, string> = {
+  '7d': 'the last week',
+  '30d': 'the last 30 days',
+  '90d': 'the last 3 months',
+  '365d': 'the last year',
+  '730d': 'the last 2 years',
+  all: 'all your work',
+};
+
 export function GrowthTab({ model }: { model: AnalyticsModel }) {
-  const { clock, heatRows, rhythmRate } = model;
-  const { period, setPeriod, periods } = useGrowthPeriods();
+  const { all: dayRows, clock, detail, heatRows, nameOf, skills, tasks, liveGoals } = model;
+  /* The page's window picker drives the period — see ../useGrowthPeriods. */
+  const { period, setPeriod, periods } = useGrowthPeriods(model.span, model.chooseSpan);
+  /* The reader's marked skill-tree problems, once for the tab: the subject
+     cards read them for the tree tile and "Skills by level" reads them whole.
+     `useStats` for the name, for the reason ../useGrowthPeriods gives. */
+  const { username } = useStats();
+  const practice = useSkillAttempts(username);
+
+  /* `Record<PeriodKey, …>` is total, so the lookup cannot miss — the
+     assertions are for TypeScript's index signature rather than for a case
+     that can happen. */
+  const windowDays = PERIOD_DAYS[period] ?? null;
+  const periodText = PERIOD_TEXT[period] ?? 'this period';
+  const toIso = dayRows[dayRows.length - 1]?.date ?? '';
+
+  /**
+   * Every subject's level across the chosen period.
+   *
+   * Computed here rather than fetched: `skillScores` is a pure function of the
+   * reader's finished, rated tasks, and this page already holds them. A second
+   * request for a number the browser can work out would also be a second
+   * scoring implementation the moment the two drifted.
+   */
+  const tracks = useMemo(
+    () => skillTrajectory({ tasks, nameOf, days: windowDays, toIso }),
+    [tasks, nameOf, windowDays, toIso],
+  );
+
+  /**
+   * The tasks finished inside the period, for the output half.
+   *
+   * Guarded on `toIso` before any date arithmetic. An account whose series has
+   * not arrived has no last day, and `new Date(NaN).toISOString()` does not
+   * return a bad string — it throws, which takes the whole tab down rather
+   * than drawing an empty panel.
+   */
+  const finishedInPeriod = useMemo(() => {
+    const toMs = Date.parse(`${toIso}T00:00:00Z`);
+    if (!toIso || Number.isNaN(toMs)) return [];
+    const from = windowDays === null
+      ? ''
+      : new Date(toMs - windowDays * 86400000).toISOString().slice(0, 10);
+    return tasks.filter((task) => {
+      if (task.status !== 'done') return false;
+      const done = task.completed_at?.slice(0, 10);
+      return done !== undefined && done <= toIso && (from === '' || done >= from);
+    });
+  }, [tasks, toIso, windowDays]);
+
+  /* Everything the subject cards need beyond the score. One object, memoised,
+     so a card's own memos only rerun when the period or the record moves. */
+  const subjectContext = useMemo(
+    () => ({
+      tasks,
+      goals: liveGoals ?? [],
+      windowDays,
+      toIso,
+      periodText,
+      levels: practice.levels,
+      username,
+    }),
+    [tasks, liveGoals, windowDays, toIso, periodText, practice.levels, username],
+  );
+
+  const progress = useMemo(
+    () => timeToProgress({ days: dayRows, finished: finishedInPeriod, tracks, windowDays }),
+    [dayRows, finishedInPeriod, tracks, windowDays],
+  );
   const [lines, setLines] = useState<Array<PeriodMetric | 'overall'>>(OPENS_WITH);
 
   const data = periods.data;
@@ -166,17 +269,23 @@ export function GrowthTab({ model }: { model: AnalyticsModel }) {
 
   if (periods.error && !data) {
     return (
-      <Locked
+      /* A failed request, not a short record — so `kind` rather than the
+         waiting state this used to borrow with need=1, have=0. That produced
+         a meter reading "0 / 1" and told somebody whose request had errored
+         that they needed one more day of work. See ../Building. */
+      <Building
+        credit={model.maturity.credit ?? 0}
+        headStart={model.headStart}
         title="Growth"
-        remaining={1}
-        need={1}
-        have={0}
-        promise="Growth needs a graded record to read, and this one could not be loaded."
-        brings={[
-          'Every period, side by side',
-          'Which measure moved furthest',
-          'What actually changed underneath it',
-          'Where this month sits in all of it',
+        kind="problem"
+        headline="Summit couldn't load your grades."
+        promise="Your history is safe. This just failed to load. Try again in a moment."
+        asksLead="When it loads, Growth shows you:"
+        asks={[
+          'Which period was your best?',
+          'Which score moved the most, and why?',
+          'What changed behind the score?',
+          'How does this month rank?',
         ]}
         action={
           <Link to="/analytics" className="ax-btn">
@@ -191,16 +300,73 @@ export function GrowthTab({ model }: { model: AnalyticsModel }) {
     <>
       {!data && periods.loading && (
         <section className="ax-section">
-          <p className="ax-empty">Scoring your record…</p>
+          <p className="ax-empty">Loading your scores…</p>
         </section>
       )}
 
       {data && (
         <>
-          {/* The sum and its five terms on one line, so the headline can be
-              checked against the arithmetic without moving. */}
+          {/* Skill growth leads, and the five graded measures no longer do.
+              The tab is called Growth and every one of those five reads
+              *output* — how much got done, how often, how fast, how well it
+              was rated. An account can hold all five steady for a term and
+              have climbed two bands in Mathematics, and this page used to
+              report that as a flat month. The one figure here about the
+              reader rather than their record is the skill score, so it opens
+              the tab. See utils/skillGrowth. */}
           <section className="ax-section">
-            <MetricStrip data={data} />
+            <Panel
+              title="Skill Growth"
+              note={`How your level in each subject moved over ${periodText}`}
+            >
+              <SkillGrowthPanel
+                tracks={tracks}
+                periodText={periodText}
+                limit={detail.rows}
+                context={subjectContext}
+              />
+            </Panel>
+          </section>
+
+          {/* The same question one level down: not Mathematics but Factor
+              Simple Quadratics, read from problems the reader marked right or
+              wrong on the skill tree. The subject panel above cannot go finer
+              than a subject, because that is all a task records. */}
+          <section className="ax-section">
+            <Panel
+              title="Skills by level"
+              note="Each skill tree step, based on problems you got right or wrong"
+            >
+              <SkillLevelsPanel
+                practice={practice}
+                periodText="all your work"
+                limit={detail.rows}
+              />
+            </Panel>
+          </section>
+
+          {/* And what the time bought. The reader already knows how many hours
+              they spent; what they cannot work out for themselves is whether
+              those hours moved anything. */}
+          <section className="ax-section">
+            <Panel
+              title="Time vs. progress"
+              note="Hours in, work out, and whether the level moved with them"
+            >
+              <TimeProgressPanel progress={progress} periodText={periodText} />
+            </Panel>
+          </section>
+
+          {/* The five graded measures and an overall grade were here: a second
+              report card that came out different from Overview's (8.7 against
+              8.1, and B against S for the same measure). Overview keeps the
+              one grade; the timeline below still reads the same periods. */}
+
+          {/* The shape of the strongest subject. It sits under the strip for
+              the same reason it always did: the strip says how the account is
+              doing overall and this says what one skill is made of. */}
+          <section className="ax-section">
+            <SkillShapePanel rows={skills} nameOf={nameOf} />
           </section>
 
           {/* The line. The period control lives in this panel's header because
@@ -210,8 +376,7 @@ export function GrowthTab({ model }: { model: AnalyticsModel }) {
             <Panel
               title="Growth timeline"
               note={
-                `Each point is scored over the ${data.trend_window} days behind it, so the `
-                + 'line is a moving average rather than a daily reading'
+                `Each point covers the ${data.trend_window} days before it, so the line is smooth instead of jumping day to day`
               }
               aside={
                 <PeriodTabs
@@ -272,8 +437,8 @@ export function GrowthTab({ model }: { model: AnalyticsModel }) {
               title="Then and now"
               note={
                 data.previous
-                  ? `${data.label} against the ${data.days} days before it`
-                  : 'Your whole record — there is nothing before it to compare against'
+                  ? `${data.label} vs. the ${data.days} days before`
+                  : "All your work. There's nothing earlier to compare with."
               }
             >
               <ThenNow data={data} />
@@ -299,15 +464,15 @@ export function GrowthTab({ model }: { model: AnalyticsModel }) {
 
           <section className="ax-section">
             <Panel
-              title="What changed underneath"
-              note="Assembled from the same figures the scores were graded on"
+              title="What changed behind the scores"
+              note="From the same numbers your scores use"
             >
               {changes.length === 0 ? (
                 <p className="ax-empty">
                   {data.previous
-                    ? 'Nothing moved far enough to be worth calling a change.'
-                    : 'This period reaches back to the day you started, so there is nothing '
-                      + 'before it to have changed from.'}
+                    ? 'Nothing moved enough to call it a change.'
+                    : "This period starts on your first day, so there's nothing"
+                      + 'earlier to compare with.'}
                 </p>
               ) : (
                 <ul className="ax-gp-changes">
@@ -338,11 +503,11 @@ export function GrowthTab({ model }: { model: AnalyticsModel }) {
           <section className="ax-section">
             <PanelGroup
               title="Your milestones"
-              note="The days the overall score crossed into a new grade"
+              note="Days your score hit a new grade"
             >
               <Panel
                 title="Milestones"
-                note="Found in the record rather than stored, so they cannot go out of date"
+                note="Worked out fresh each time, so they never go stale"
               >
                 <MilestoneFeed entries={feed} format={shortDate} />
               </Panel>
@@ -355,27 +520,22 @@ export function GrowthTab({ model }: { model: AnalyticsModel }) {
                 whatever period is selected — a heatmap of the last seven days
                 is seven squares. */}
             <PanelGroup
-              title="When the work actually happens"
-              note="The shape of your day, from the hours you finish things in"
+              title="When you get work done"
+              note="Your day, by the hours you finish things"
             >
               <WhenPanel clock={clock} />
             </PanelGroup>
 
             <PanelGroup
               title="Every day of the last year"
-              note="The consistency score above, drawn as the days themselves"
+              note="One square for each day"
             >
-              <ConsistencyPanel
-                rate={rhythmRate.rate}
-                previousRate={rhythmRate.previousRate}
-                rows={heatRows}
-                compareLabel="the year before"
-              />
+              <ConsistencyPanel rows={heatRows} />
             </PanelGroup>
 
             <PanelGroup
-              title="The work itself, year by year"
-              note="How hard it was and how well it went, as you rated it"
+              title="Your work, year by year"
+              note="How hard it was and how well it went, by your ratings"
             >
               <YearOnYear model={model} />
             </PanelGroup>
@@ -414,29 +574,27 @@ function WhenPanel({ clock }: { clock: AnalyticsModel['clock'] }) {
   return (
     <Panel
       title="When you work"
-      note="Over your recent record, not the period above"
+      note="Based on your recent work"
       claim={
         core
-          ? `Half of everything you finish lands between ${hourLabel(core.from)} and `
-            + `${hourLabel(core.to)}.`
+          ? `Half your finished work happens between ${hourLabel(core.from)} and ${hourLabel(core.to)}.`
           : undefined
       }
     >
       {core === null ? (
         <p className="ax-empty">
-          A shape needs a few weeks of finished tasks with times on them. This fills in on
-          its own.
+          This needs a few weeks of finished tasks.
         </p>
       ) : (
         <ul className="ax-gy-notes">
           <li>
             <span>Your core hours</span>
             <strong>
-              {hourLabel(core.from)} – {hourLabel(core.to)}
+              {hourLabel(core.from)} to {hourLabel(core.to)}
             </strong>
           </li>
           <li>
-            <span>Share of finished work in them</span>
+            <span>Share of your work in them</span>
             <strong>{Math.round(core.share)}%</strong>
           </li>
           {clock.peak && (

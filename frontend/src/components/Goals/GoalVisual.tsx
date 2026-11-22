@@ -20,10 +20,12 @@
  * how they look — because a card that changed its visual language per goal would
  * be four dialects on one page.
  */
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { formatGoalDate, goalDate, goalNumbers } from './numbers';
 import {
+  CHART_CHOICES,
   VISUALS,
+  chosenChart,
   difficultyBars,
   heatCells,
   subjectBars,
@@ -33,6 +35,7 @@ import {
   type VisualContext,
 } from '@/utils/goalVisuals';
 import type { Goal, Milestone } from '@/types';
+import { stoneShare } from '@/utils/goalProgress';
 
 const DAY = 86_400_000;
 
@@ -42,7 +45,7 @@ const time = (value?: string) => goalDate(value)?.getTime() ?? 0;
 /** "May 2024" — the checkpoint column, where the year is the point. */
 function monthYear(value?: string): string {
   const at = time(value);
-  if (!at) return '—';
+  if (!at) return '-';
   return new Date(at).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
 }
 
@@ -50,8 +53,12 @@ function monthYear(value?: string): string {
 // Primitive 1 — labelled bars
 // ---------------------------------------------------------------------------
 function Bars({ rows }: { rows: Bar[] }) {
+  /* How many rows there are, so the stylesheet can size the list to them —
+     see `--rows` in goals.css. The list takes the panel's leftover, but only
+     as much of it as its rows can use, which is the difference between a chart
+     that fills the space and one that merely occupies it. */
   return (
-    <ul className="ag-bars">
+    <ul className="ag-bars" style={{ '--rows': rows.length } as CSSProperties}>
       {rows.map((row) => (
         <li key={row.label} className={row.empty ? 'is-empty' : ''}>
           <span className="ag-bar-label">{row.label}</span>
@@ -73,7 +80,7 @@ function Heat({ context }: { context: VisualContext }) {
   // Twelve columns of seven. Laid out down each column so a week reads
   // vertically, which is the arrangement everybody already knows.
   return (
-    <div className="ag-heat" role="img" aria-label="Days with finished work, last twelve weeks">
+    <div className="ag-heat" role="img" aria-label="Days you finished work, last 12 weeks">
       <ul className="ag-heat-days" aria-hidden="true">
         <li>M</li>
         <li />
@@ -83,17 +90,38 @@ function Heat({ context }: { context: VisualContext }) {
         <li />
         <li>S</li>
       </ul>
-      <div className="ag-heat-grid">
-        {cells.map((cell) => (
-          <i
-            key={cell.day}
-            className={`is-l${cell.level}`}
-            title={`${formatGoalDate(cell.day)} — ${cell.count} finished`}
-          />
-        ))}
+      {/* Four blocks of three weeks, each with its dates under it, so the
+          grid fills the panel and a reader can tell which weeks they are. */}
+      <div className="ag-heat-weeks">
+        {[0, 1, 2, 3].map((block) => {
+          const part = cells.slice(block * 21, block * 21 + 21);
+          if (!part.length) return null;
+          return (
+            <div className="ag-heat-block" key={block}>
+              <div className="ag-heat-grid">
+                {part.map((cell) => (
+                  <i
+                    key={cell.day}
+                    className={`is-l${cell.level}`}
+                    title={`${formatGoalDate(cell.day)}: ${cell.count} finished`}
+                  />
+                ))}
+              </div>
+              <span className="ag-heat-range">
+                {dayMonth(part[0]!.day)} to {dayMonth(part[part.length - 1]!.day)}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
+}
+
+/** "Oct 5" from "2026-10-05", read as a local date. */
+function dayMonth(day: string): string {
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(y!, (m ?? 1) - 1, d ?? 1).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 // ---------------------------------------------------------------------------
@@ -104,7 +132,12 @@ export interface Point {
   percent: number;
 }
 
-export function Sparkline({ points }: { points: Point[] }) {
+/**
+ * `step` draws the same points as a staircase: flat until a checkpoint is
+ * reached, then straight up. That is the truer shape for checkpoints, which
+ * are reached on a day rather than gradually.
+ */
+export function Sparkline({ points, step = false }: { points: Point[]; step?: boolean }) {
   const w = 300;
   const h = 118;
   const padX = 4;
@@ -117,7 +150,15 @@ export function Sparkline({ points }: { points: Point[] }) {
     y: h - (pct(point.percent) / 100) * (h - 8) - 4,
   }));
 
-  const line = placed.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const line = placed
+    .map((p, i) =>
+      i === 0
+        ? `M${p.x.toFixed(1)},${p.y.toFixed(1)}`
+        : step
+          ? `H${p.x.toFixed(1)} V${p.y.toFixed(1)}`
+          : `L${p.x.toFixed(1)},${p.y.toFixed(1)}`,
+    )
+    .join(' ');
   const area = `${line} L${placed[placed.length - 1]!.x.toFixed(1)},${h} L${placed[0]!.x.toFixed(1)},${h} Z`;
 
   // Four month labels across the span, evenly. Not one per point: the points
@@ -213,22 +254,32 @@ export function movement(goal: Goal, range: 'year' | 'all', today: number): numb
 // Roadmap and scale
 // ---------------------------------------------------------------------------
 /**
- * The checkpoints, each row's bar being its state rather than a figure.
+ * The checkpoints, each row's bar how much of it is done.
  *
- * A checkpoint has no percentage, so three lengths meaning three states is the
- * most a bar can honestly say here.
+ * A reached checkpoint is a full bar. An open one is the share of its named
+ * steps that are ticked — the same share the goal's own percentage counts it
+ * for (utils/goalProgress) — so ticking a step moves its row and the goal's
+ * figure together, and the bar eases to its new length (`.ag-road-bar i`).
+ * A sliver stays on an untouched row so the track still reads as one.
  */
 function Roadmap({ goal, onOpen }: { goal: Goal; onOpen: () => void }) {
-  const stones = goal.milestones ?? [];
-  const share = (stone: Milestone) =>
-    stone.status === 'done' ? 100 : stone.status === 'active' ? 45 : 6;
+  const stones = (goal.milestones ?? []).slice(0, 8);
+  const share = (stone: Milestone) => Math.max(6, Math.round(stoneShare(stone) * 100));
+
+  /* The checkpoint being worked: the one marked active, or else the first not
+     yet reached. It gets the goal's colour, so the route shows where you are. */
+  const current = stones.find((stone) => stone.status === 'active') ?? stones.find((stone) => stone.status !== 'done');
 
   return (
-    <ul className="ag-roadmap">
-      {stones.slice(0, 8).map((stone) => (
-        <li key={stone.id} className={`is-${stone.status}`}>
+    <ul className="ag-roadmap" style={{ '--rows': stones.length } as CSSProperties}>
+      {stones.map((stone) => (
+        <li key={stone.id} className={`is-${stone.status}${stone === current ? ' is-current' : ''}`}>
           <button type="button" onClick={onOpen}>
-            <span className="ag-road-name">{stone.title}</span>
+            {/* Green when reached, the goal's colour for the one being worked,
+                hollow for the ones still ahead; a line joins them down the
+                left, so the list reads as a route rather than a table. */}
+            <span className="ag-road-dot" aria-hidden="true" />
+            <span className="ag-road-name" title={stone.title}>{stone.title}</span>
             <span className="ag-road-bar">
               <i style={{ width: `${share(stone)}%` }} />
             </span>
@@ -242,16 +293,64 @@ function Roadmap({ goal, onOpen }: { goal: Goal; onOpen: () => void }) {
   );
 }
 
+/**
+ * How far through the goal's own window today is, as a percentage, or null.
+ *
+ * The same two dates the card's footer prints and `ActiveGoalCard` measures
+ * pace from: the run began at `start_date`, or at creation for a goal that
+ * predates the field. Null when there is no deadline, which is a real answer —
+ * an open-ended goal has no clock to be ahead or behind.
+ *
+ * Deliberately not clamped. Past 100 the window has closed, and that is the one
+ * reading the caller must not confuse with "all of the time has been used".
+ */
+function clockPercent(goal: Goal): number | null {
+  const from = time(goal.start_date || goal.created_at);
+  const to = time(goal.deadline);
+  if (!from || !to || to <= from) return null;
+  return ((Date.now() - from) / (to - from)) * 100;
+}
+
 /** The figure between nothing and the target, on one line. */
 function Scale({ goal }: { goal: Goal }) {
   const n = goalNumbers(goal);
+  if (n.target <= 0) return <p className="ag-empty">No target set yet, so there's nothing to track.</p>;
   const done = pct(n.progress);
   const short = (value: number) => Math.round(value * 10) / 10;
+
+  /* Divided where the goal is actually divided. A target of five checkpoints is
+     five steps, and a bar drawn as one continuous run says the reader is 20% of
+     the way through something smooth when they are one of five of the way
+     through something lumpy. Only for small whole targets: 2,500 problems is
+     not five hundred segments, it is a bar. */
+  const steps = Number.isInteger(n.target) && n.target >= 2 && n.target <= 12 ? n.target : 0;
+
+  /* The other half of "how far along": how far along the *clock* is. The bar
+     alone cannot answer the question anyone looking at it is asking — 20% is
+     good news in year one of six and bad news in month eleven of twelve — and
+     the goal already carries both dates. */
+  const clock = clockPercent(goal);
+  const elapsed = clock === null ? null : pct(clock);
 
   return (
     <div className="ag-scale">
       <div className="ag-scale-track">
         <i style={{ width: `${done}%` }} />
+        {steps > 1 && (
+          <span className="ag-scale-ticks" aria-hidden="true">
+            {Array.from({ length: steps - 1 }, (_, index) => (
+              <i key={index} style={{ left: `${((index + 1) / steps) * 100}%` }} />
+            ))}
+          </span>
+        )}
+        {elapsed !== null && (
+          <span
+            className="ag-scale-clock"
+            style={{ left: `${elapsed}%` }}
+            aria-hidden="true"
+            title={`Today: ${elapsed}% of the way to your date`}
+          />
+        )}
         <b style={{ left: `${done}%` }}>{short(n.current).toLocaleString()}</b>
       </div>
       <div className="ag-scale-ends">
@@ -265,6 +364,17 @@ function Scale({ goal }: { goal: Goal }) {
           ? 'Target reached.'
           : `${short(n.target - n.current).toLocaleString()} ${n.label} to go.`}
       </p>
+      {/* What the mark on the bar is. Said as two figures side by side rather
+          than as a verdict: "behind schedule" is a judgement the app does not
+          have the standing to make about somebody's five-year goal, and the two
+          numbers let the reader make it themselves. */}
+      {clock !== null && (
+        <p className="ag-scale-pace">
+          {clock > 100
+            ? `The date has passed. ${done}% of the work is done.`
+            : `Today you're ${elapsed}% through the time and ${done}% through the work.`}
+        </p>
+      )}
     </div>
   );
 }
@@ -279,9 +389,69 @@ export interface GoalVisualProps {
   /** Turns a subject id into its name. */
   nameOf: (id: string) => string;
   onOpen: () => void;
+  /** Pin a chart to the goal, or '' to let the page pick. Absent hides the menu. */
+  onChart?: (chart: string) => void;
 }
 
-export function GoalVisual({ goal, context, pick, nameOf, onOpen }: GoalVisualProps) {
+/** The ⋯ in the panel's corner: which chart this goal draws. */
+export function ChartMenu({
+  goal,
+  onChart,
+}: {
+  goal: Goal;
+  onChart: (chart: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = chosenChart(goal) ?? '';
+  const choose = (chart: string) => {
+    setOpen(false);
+    if (chart !== current) onChart(chart);
+  };
+
+  return (
+    <div className="ag-menu-wrap">
+      <button
+        type="button"
+        className="ag-kebab"
+        aria-label={`Chart for ${goal.title}`}
+        aria-expanded={open}
+        onClick={() => setOpen((was) => !was)}
+      >
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <circle cx="5" cy="12" r="1.7" />
+          <circle cx="12" cy="12" r="1.7" />
+          <circle cx="19" cy="12" r="1.7" />
+        </svg>
+      </button>
+      {open && (
+        <>
+          <button
+            type="button"
+            className="ag-menu-veil"
+            aria-label="Close menu"
+            onClick={() => setOpen(false)}
+          />
+          <div className="ag-menu ag-chart-menu" role="menu" aria-label="Chart">
+            {[{ id: '', label: 'Automatic' }, ...CHART_CHOICES].map((choice) => (
+              <button
+                key={choice.id || 'auto'}
+                type="button"
+                role="menuitemradio"
+                aria-checked={current === choice.id}
+                className={current === choice.id ? 'is-on' : ''}
+                onClick={() => choose(choice.id)}
+              >
+                {choice.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+export function GoalVisual({ goal, context, pick, nameOf, onOpen, onChart }: GoalVisualProps) {
   const today = Date.now();
   /* Opens on the window that has something in it — see `movement`. Checked once
      on first render rather than watched, so a reader who picks a range keeps it. */
@@ -290,38 +460,58 @@ export function GoalVisual({ goal, context, pick, nameOf, onOpen }: GoalVisualPr
   );
 
   const meta = VISUALS[pick.id];
-  const line = pick.id === 'progress' ? series(goal, range, today) : [];
+  const timed = pick.id === 'progress' || pick.id === 'step';
+  const line = timed ? series(goal, range, today) : [];
+  const stones = goal.milestones ?? [];
 
   return (
     <>
       <header className="ag-panel-head">
         <h4>{meta.title}</h4>
-        {pick.id === 'progress' && (
-          <label className="ag-range">
-            <span className="gx-sr">Range</span>
-            <select value={range} onChange={(event) => setRange(event.target.value as 'year' | 'all')}>
-              <option value="year">This Year</option>
-              <option value="all">All Time</option>
-            </select>
-          </label>
-        )}
+        <div className="ag-panel-tools">
+          {timed && (
+            <label className="ag-range">
+              <span className="gx-sr">Range</span>
+              <select value={range} onChange={(event) => setRange(event.target.value as 'year' | 'all')}>
+                <option value="year">This year</option>
+                <option value="all">All time</option>
+              </select>
+            </label>
+          )}
+          {onChart && <ChartMenu goal={goal} onChart={onChart} />}
+        </div>
       </header>
 
-      {pick.id === 'progress' && line.length > 1 && <Sparkline points={line} />}
-      {pick.id === 'scale' && <Scale goal={goal} />}
+      {timed && line.length > 1 && <Sparkline points={line} step={pick.id === 'step'} />}
+      {/* A chosen chart can land on a goal with nothing behind it yet. Said
+          plainly, rather than drawing an empty frame. */}
+      {timed && line.length <= 1 && (
+        <p className="ag-empty">No checkpoints reached yet, so there's no line to draw.</p>
+      )}
+      {(pick.id === 'scale' || pick.id === 'basic') && <Scale goal={goal} />}
       {pick.id === 'difficulty' && <Bars rows={difficultyBars(context)} />}
       {pick.id === 'skills' && <Bars rows={subjectBars(context, nameOf)} />}
       {pick.id === 'volume' && <Bars rows={weekdayBars(context)} />}
       {pick.id === 'heatmap' && <Heat context={context} />}
-      {pick.id === 'roadmap' && <Roadmap goal={goal} onOpen={onOpen} />}
+      {pick.id === 'roadmap' && stones.length > 0 && <Roadmap goal={goal} onOpen={onOpen} />}
+      {pick.id === 'roadmap' && stones.length === 0 && (
+        <p className="ag-empty">No checkpoints yet.</p>
+      )}
 
-      <p className="ag-caption">{meta.caption}</p>
-      {/* Why this chart and not one of the other six. It was a `title` on the
-          caption above — invisible on a touch screen, and the sentence it held
-          was the same one for every chart of a given category, which made it a
-          tooltip worth nothing. It names the evidence now, so a reader who
-          wants a different chart can see what it would take. */}
-      <p className="ag-why-chart">{pick.why}</p>
+      {/* What the chart shows, and why this chart and not one of the others,
+          in one boxed note under it. The second line names the evidence, so a
+          reader who wants a different chart can see what it would take — or,
+          for a chart they chose, how to hand the choice back. */}
+      <div className="ag-note">
+        <svg className="ag-note-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 11v5M12 7.5v.01" />
+        </svg>
+        <div>
+          <p className="ag-caption">{meta.caption}</p>
+          <p className="ag-why-chart">{pick.why}</p>
+        </div>
+      </div>
     </>
   );
 }

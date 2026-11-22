@@ -22,17 +22,18 @@ So the split is by what the caller actually reads:
   * `/api/get_user_data` — the pages whose subject *is* the task list:
     dashboard, tasks, calendar, goals, records.
 
-## The streak decay lives on `/api/stats`
+## The streak decay lives on `POST /api/stats`
 
-Reading the account decays a streak that went stale overnight, so a streak lost
-at midnight is gone the moment any page asks rather than whenever a task is
-next completed. **Exactly one endpoint may do that**, or two reads on one page
-race to write the same row.
+Asking for the account decays a streak that went stale overnight, so a streak
+lost at midnight is gone the moment any page asks rather than whenever a task
+is next completed. **Exactly one endpoint may write that**, or two requests on
+one page race to write the same row.
 
-It belongs to `/api/stats` because that is now the read every page makes: the
-rail mounts outside the router and never unmounts, so `/api/stats` is fetched
-once per session at exactly the moment `/api/get_user_data` used to be. The
-timing of the decay is unchanged; only the endpoint carrying it moved.
+It is the POST to `/api/stats`, because that is the request every page makes:
+the rail mounts outside the router and never unmounts, so it is made once per
+session at exactly the moment `/api/get_user_data` used to be, and again after
+the numbers move. `GET /api/stats` gives the same decayed numbers and writes
+nothing — no GET in this app writes (tests/test_get_requests_do_not_write.py).
 
 `/api/get_user_data` therefore does *not* decay any more, and must not start
 again — a page that reads both would otherwise write the user row twice.
@@ -46,6 +47,7 @@ from pydantic import BaseModel
 from backend.api.guard import current_username
 from backend.api.reply import fail, ok
 from backend.database import connection as db
+from backend.goal_matcher import store as goal_store
 from backend.tracking import xp as xp_tracking
 from backend.tracking.auth import load_user
 
@@ -64,24 +66,48 @@ class UpdateStats(BaseModel):
 
 
 def _stats_of(user):
-    """The six numbers every screen shows. The whole of the cheap half."""
+    """The numbers every screen shows, and what the streak card draws.
+
+    The streak half is `xp_tracking.streak_fields`: the days the run hangs on
+    (a streak of 12 does not say *which* twelve days — nothing may be finished
+    yet today, a forgiven day or a vacation stretches it), where its grace day
+    stands, and any vacation running or to come.
+    """
     return {
         "level": user.get('level', 1),
         "xp": user.get('xp', 0),
         "tasks_completed": user.get('tasks_completed', 0),
-        "current_streak": user.get('current_streak', 0),
-        "best_streak": user.get('best_streak', 0),
         "charge": user.get('charge', 0),
+        **xp_tracking.streak_fields(user),
     }
 
 
 @router.get('/api/stats')
 def get_stats(username: str = Depends(current_username)):
-    """The account's numbers, and nothing else.
+    """The account's numbers, and nothing else — read only.
 
-    This is the read the rail and the top bar make on every page, and it is the
-    one that decays a stale streak — see the note at the top of this module for
-    why the decay lives here and nowhere else.
+    The streak comes back as it stands today (decayed on a copy, so a streak
+    lost at midnight already reads as lost), but nothing is written: a GET
+    never changes the database (tests/test_get_requests_do_not_write.py).
+    Writing the decay down is the POST below, which the app makes.
+    """
+    users, user = load_user(username)
+    if not user:
+        return fail('User not found')
+
+    live = dict(user)
+    xp_tracking.refresh_streak(live)
+    return ok(stats=_stats_of(live))
+
+
+@router.post('/api/stats')
+def settle_stats(username: str = Depends(current_username)):
+    """The account's numbers, with a stale streak's decay written down.
+
+    The one place the decay is persisted — see the note at the top of this
+    module. The rail and the top bar ask this (frontend/src/services/tasks
+    `getStats`), so the timing is what it always was: once on arrival, and
+    again after the numbers move.
     """
     users, user = load_user(username)
     if not user:
@@ -90,6 +116,41 @@ def get_stats(username: str = Depends(current_username)):
     if xp_tracking.refresh_streak(user):
         db.save_user(user)
 
+    return ok(stats=_stats_of(user))
+
+
+class PlanVacation(BaseModel):
+    #: The last day of the vacation, ISO, included. It always starts today.
+    until: str = ''
+
+
+@router.post('/api/streak/vacation')
+def plan_vacation(body: PlanVacation, username: str = Depends(current_username)):
+    """Pause the streak from today to `until`, or move the end of the one running.
+
+    Replies with the stats block, so the streak card and the settings row both
+    redraw from the answer rather than from what the page asked for. The rules
+    — one at a time, at most VACATION_MAX_DAYS, days already taken stay taken —
+    are `xp_tracking.plan_vacation`'s.
+    """
+    users, user = load_user(username)
+    if not user:
+        return fail('User not found')
+    problem = xp_tracking.plan_vacation(user, body.until)
+    if problem:
+        return fail(problem)
+    db.save_user(user)
+    return ok(stats=_stats_of(user))
+
+
+@router.post('/api/streak/vacation/end')
+def finish_vacation(username: str = Depends(current_username)):
+    """Back early: today counts again. Days already taken stay covered."""
+    users, user = load_user(username)
+    if not user:
+        return fail('User not found')
+    if xp_tracking.end_vacation(user):
+        db.save_user(user)
     return ok(stats=_stats_of(user))
 
 
@@ -136,7 +197,8 @@ def get_user_data(username: str = Depends(current_username)):
     if not user:
         return fail('User not found')
 
-    return ok(stats=_stats_of(user), tasks=db.tasks_for(username))
+    return ok(stats=_stats_of(user),
+              tasks=goal_store.with_goal_ids(username, db.tasks_for(username)))
 
 
 @router.post('/api/track_daily_xp')

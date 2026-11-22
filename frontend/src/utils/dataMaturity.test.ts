@@ -7,7 +7,7 @@
  * weeks of record. Everything else pins the ladder's shape.
  */
 import { describe, expect, it } from 'vitest';
-import { dataMaturity, isActiveDay, stageFor, stageShows, STAGE_FLOOR, STAGES } from './dataMaturity';
+import { dataMaturity, isActiveDay, realDaysTo, stageFor, stageShows, STAGE_FLOOR, STAGES } from './dataMaturity';
 import type { GrowthDay } from '@/types';
 
 /** A row of the series. Zero on every measure unless the test says otherwise. */
@@ -39,11 +39,11 @@ function series(count: number, worked: number): GrowthDay[] {
 
 describe('counting what is actually there', () => {
   it('counts days with work, not days on the calendar', () => {
-    const found = dataMaturity(series(40, 2));
-    // Forty rows, two of them worked. The gap between these two figures is the
+    const found = dataMaturity(series(40, 1));
+    // Forty rows, one of them worked. The gap between these two figures is the
     // whole reason this module exists, and `spanDays` keeps it visible rather
     // than throwing the calendar away.
-    expect(found.activeDays).toBe(2);
+    expect(found.activeDays).toBe(1);
     expect(found.spanDays).toBe(40);
     expect(found.stage).toBe('new');
   });
@@ -87,7 +87,7 @@ describe('what counts as a day', () => {
 describe('the ladder', () => {
   it('starts everyone at new', () => {
     expect(stageFor(0)).toBe('new');
-    expect(stageFor(2)).toBe('new');
+    expect(stageFor(1)).toBe('new');
   });
 
   it('opens each stage on its own floor, not one day after', () => {
@@ -103,15 +103,15 @@ describe('the ladder', () => {
   });
 
   it('counts the distance to the next stage in active days', () => {
-    const found = dataMaturity(series(30, 5));
+    const found = dataMaturity(series(30, 3));
     expect(found.stage).toBe('early');
     expect(found.next).toBe('weekly');
     expect(found.toNext).toBe(2);
   });
 
   it('measures progress through the current stage rather than the whole ladder', () => {
-    // 5 active days: two thirds of the way from `early` (3) to `weekly` (7).
-    expect(dataMaturity(series(30, 5)).progress).toBeCloseTo(0.5, 5);
+    // 7 active days: two fifths of the way from `weekly` (5) to `developing` (10).
+    expect(dataMaturity(series(30, 7)).progress).toBeCloseTo(0.4, 5);
   });
 
   it('is finished at full', () => {
@@ -155,7 +155,7 @@ describe('what each stage draws', () => {
     });
   });
 
-  it('holds judgement back until a fortnight, and trends until a week', () => {
+  it('holds judgment back until two weeks, and trends until a week', () => {
     expect(stageShows('new')).toMatchObject({ trends: false, judgement: false });
     expect(stageShows('early')).toMatchObject({ trends: false, judgement: false });
     expect(stageShows('weekly')).toMatchObject({ trends: true, judgement: false });
@@ -194,5 +194,35 @@ describe('the hand-off to the gated tabs', () => {
         STAGE_FLOOR.full,
       );
     });
+  });
+});
+
+
+describe('the head start from the About you answers', () => {
+  it('counts for no more days than are actually recorded', () => {
+    expect(dataMaturity(series(10, 0), 7).credit).toBe(0);
+    expect(dataMaturity(series(10, 0), 7).stage).toBe('new');
+    expect(dataMaturity(series(10, 3), 7).credit).toBe(3);
+    expect(dataMaturity(series(20, 10), 7).credit).toBe(7);
+  });
+
+  it('moves the stage on by what it counts for', () => {
+    // 4 recorded + 4 counted = 8, past the weekly floor of 7.
+    expect(dataMaturity(series(10, 4)).stage).toBe('early');
+    expect(dataMaturity(series(10, 4), 7).stage).toBe('weekly');
+  });
+
+  it('says how many real days are left, with each one counting twice while it lasts', () => {
+    expect(realDaysTo(14, 0, 0)).toBe(14);
+    expect(realDaysTo(14, 4, 7)).toBe(3);
+    expect(realDaysTo(14, 0, 7)).toBe(7);
+    expect(realDaysTo(28, 0, 7)).toBe(21);
+    expect(realDaysTo(14, 20, 7)).toBe(0);
+  });
+
+  it('leaves an account without answers exactly where it was', () => {
+    const plain = dataMaturity(series(30, 12));
+    const none = dataMaturity(series(30, 12), 0);
+    expect({ ...none, credit: undefined }).toEqual({ ...plain, credit: undefined });
   });
 });

@@ -29,7 +29,7 @@ templates that are left. A path appears in exactly one of the two.
 | `GET /engine` | Hidden; gated client-side by today's unlock | `routes/pages.py` |
 
 A signed-out visitor asking for a gated page is redirected to
-`/home?auth=login&next=<path>` (`middleware/gate.py`).
+`/login?auth=login&next=<path>` (`middleware/gate.py`), the React sign-in page.
 
 ## Account
 
@@ -84,6 +84,8 @@ All in `routes/auth.py`, except the theme (`routes/theme.py`).
 | `POST /api/delete_goal` | Delete |
 | `POST /api/update_goal_progress` | Add to one counter by hand, capped at target |
 | `POST /api/auto_apply_task_xp` | Apply a completed task's XP to active XP goals |
+| `POST /api/goals/verify` | `{id, done}`: yes completes a reached goal and records it in `activity_log`; no reopens a checkpoint goal's last checkpoint |
+| `GET /api/goals/completed` | Every goal confirmed done, newest first, with the figures it finished on (Analytics' Goals finished panel) |
 
 ## Calendar — `api/calendar.py`
 
@@ -107,6 +109,9 @@ All in `routes/auth.py`, except the theme (`routes/theme.py`).
 | --- | --- |
 | `POST /api/focus_sync` | Mirror a day's focus total (never lowers a recorded total) |
 | `GET /api/focus_history?username=&start=&end=` | `{iso: {seconds, goal_hours}}` |
+| `GET /api/focus/sittings` | The newest 120 focus sittings, oldest first, in the browser's `Interval` shape |
+| `POST /api/focus/sittings` | `{sittings: [...]}`; stores the ones not held yet, keyed by the browser's id (safe to resend) |
+| `POST /api/focus/sittings/amend` | `{id, done?, met?}`: what came of one sitting's intention |
 
 ## Growth — `api/growth.py`
 

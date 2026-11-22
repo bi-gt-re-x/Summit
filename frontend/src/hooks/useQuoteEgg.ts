@@ -1,5 +1,5 @@
 /**
- * The hidden quote — what the rail's ten clicks are for.
+ * The hidden quote — what the ten clicks on the Focus card's mark are for.
  *
  * When the chain is unlocked, the day's quote at the foot of the dashboard
  * slips away and is replaced, for the rest of the day, by a cryptic clue. The
@@ -7,14 +7,21 @@
  * glow, the rest of the screen goes dark for a beat, and the whole page shakes.
  *
  * This hook is the *room*, not the door. The counting lives in
- * hooks/useTitleEgg.ts, on the rail's title, because the rail is on every page
- * and this quote is on one — and the note there explains how a click that
- * happens somewhere else still gets its reveal played here. All this file
+ * hooks/useMarkEgg.ts, on the mark in the corner of the Focus card, and the
+ * tenth click there sends `EGG_UNLOCKED`. Both are children of
+ * pages/Dashboard.tsx and are on screen together, so the news arrives the
+ * moment it is sent and there is nothing to hold it over. All this file
  * decides is which of the three states the line is in:
  *
- *   * a reveal is owed  — play the whole thing
- *   * unlocked earlier  — the clue, plainly, no theatrics
- *   * neither           — the day's quote, untouched
+ *   * the tenth click just landed — play the whole thing
+ *   * unlocked earlier          — the clue, plainly, no theatrics
+ *   * neither                   — the day's quote, untouched
+ *
+ * One consequence worth naming: Settings can hide this line (`show_quote` in
+ * pages/Dashboard.tsx), and it can hide the stat cards the door sits on
+ * (`show_stats`). Either switch breaks the chain's first step — one takes away
+ * the door, the other the room it opens — and neither says so, because a
+ * setting that explained itself would be advertising the secret.
  *
  * ## Where the theatre lives
  *
@@ -33,12 +40,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 
 import { useChainAccount } from '@/hooks/useChainAccount';
-import {
-  EGG_UNLOCKED,
-  earnedTitle,
-  takeReveal,
-  unlockedToday,
-} from '@/utils/easterEgg';
+import { EGG_UNLOCKED, unlockedToday } from '@/utils/easterEgg';
 
 /** What the day's quote is replaced by. The pentagon is on the landing page. */
 const CLUE = '"The pentagon is the key, find it" -Mysterious,,';
@@ -145,32 +147,36 @@ export function useQuoteEgg(): UseQuoteEgg {
     });
   }, [after]);
 
-  /* On arrival: play the reveal if one is owed, show the clue if it was found
-     earlier today, and otherwise leave the line alone. The clue is retired for
-     good once the chain has paid out its title.
+  /* On arrival: show the clue if it was found earlier today, and otherwise
+     leave the line alone. No theatrics either way — the reveal plays once,
+     from the tenth click below, and a reader coming back to the dashboard an
+     hour later wants the clue sitting there rather than crashing in again.
 
-     Both of those questions are about an account, so neither can be asked
+     That question is about an account, so it cannot be asked
      until there is one. On a cold load the session check is still in flight
      when this first runs, and answering then means answering about the wrong
      person: a reader who found the clue an hour ago would get the ordinary
      quote back. `null` is hooks/useChainAccount.ts saying "not yet", and it is
      the account and not merely the status, so switching accounts inside one
-     session asks again for the new one. */
+     session asks again for the new one.
+
+     An earned title no longer retires the clue: the door opens for an account
+     that already wears one (hooks/useMarkEgg.ts), so the room has to as well. */
   const account = useChainAccount();
   useEffect(() => {
     if (account === null) return;
-    if (earnedTitle(account)) return;
-    if (takeReveal()) reveal();
-    else if (unlockedToday(account)) setClue(CLUE);
-  }, [reveal, account]);
+    if (unlockedToday(account)) setClue(CLUE);
+  }, [account]);
 
-  /* The other way in: the reader was already on the dashboard when the tenth
-     click landed, so nothing remounted and the effect above has long since
-     run. `takeReveal` is what keeps these two from both firing. */
+  /* The tenth click, from the mark in the Focus card's corner. Nothing is
+     held over between the two: both are on the dashboard, so by the time this
+     is sent the quote is already mounted and listening. The unlock is written
+     by the door before it announces itself, so there is nothing left to ask:
+     every announcement plays the reveal, a second one the same day included. */
   useEffect(() => {
     const onUnlocked = () => {
-      if (account === null || earnedTitle(account)) return;
-      if (takeReveal()) reveal();
+      if (account === null) return;
+      reveal();
     };
     window.addEventListener(EGG_UNLOCKED, onUnlocked);
     return () => window.removeEventListener(EGG_UNLOCKED, onUnlocked);

@@ -16,6 +16,7 @@ import { Range } from '@/components/Range';
 import { RidgeChart } from './RidgeChart';
 import { Trend } from './Trend';
 import type { Theme } from '@/types';
+import { Icon } from '@/components/Icon';
 
 /** The date in the hero's eyebrow — what main.js wrote there. */
 function today(): string {
@@ -55,9 +56,18 @@ function greeting(name: string | null): string {
  * outright that what the reader is looking at is the real component running,
  * and nothing here is presented as somebody's account.
  */
+/*
+ * One made-up term, and every figure on the page is read off it, so no two
+ * cards can disagree about the same student. Six weeks at about 60 XP a day
+ * and six at about 145 is 8,610 XP; level N costs N × 100 (utils/format), so
+ * that is level 13 with 810 of 1,300 in hand — the 62% bar under the chart.
+ * The last thirty days at ~145 a day is ~4,350 XP, or 142 tasks at ~30 each.
+ * The growth score is the Analytics section's five factors averaged: 83, a B.
+ * Change one of these and change the rest with it.
+ */
 const HERO_XP = [
-  { name: 'Weeks 1–6', values: [40, 65, 30, 75, 55, 90, 60] },
-  { name: 'Weeks 7–12', values: [95, 140, 110, 175, 130, 210, 165] },
+  { name: 'Weeks 1-6', values: [40, 65, 30, 75, 55, 90, 60] },
+  { name: 'Weeks 7-12', values: [95, 140, 110, 175, 130, 210, 165] },
 ] as const;
 
 /**
@@ -116,21 +126,19 @@ export function Hero({
                 width={18}
                 height={18}
               />
-              A study tracker that does the arithmetic
+              The study planner that keeps score
             </span>
             <span className="lp-eyebrow hm-rise">
-              Free, all of it · No card · One file you own
+              100% free · No credit card · Your data stays yours
             </span>
           </>
         )}
 
         <h1 className="lp-hero-title">
-          Finish the work. <em>Summit keeps the score.</em>
+          A to-do list <em>that keeps score.</em>
         </h1>
         <p className="lp-hero-sub hm-rise">
-          Tasks, a calendar and a focus timer on one side. Streaks, XP and a growth
-          score on the other — out of the same finished work, so there is nothing to
-          log twice and every figure shows the sum it came from.
+          Tasks, a calendar and a focus timer in one app. Every task you finish earns XP, keeps your streak alive and moves your growth score. Log it once and you're done.
         </p>
         {/* Every call to action on this page is a pitch to a visitor who has no
             account yet. Someone already signed in has nothing left to be sold,
@@ -149,7 +157,7 @@ export function Hero({
                 Go to Dashboard <span className="lp-arrow">→</span>
               </Link>
               <Link to="/calendar" className="lp-btn lp-btn-ghost" id="calendarBtn">
-                <span className="pill-icon">📅</span> Open Calendar
+                <span className="pill-icon"><Icon name="calendar" /></span> Open Calendar
               </Link>
             </>
           ) : (
@@ -160,10 +168,10 @@ export function Hero({
                 className="lp-btn lp-btn-primary"
                 onClick={onGetStarted}
               >
-                Create a free account <span className="lp-chevd">▾</span>
+                Get started free <span className="lp-chevd">▾</span>
               </button>
               <a href="#see-it" className="lp-btn lp-btn-ghost">
-                See it working <span className="lp-arrow lp-arrow-down">↓</span>
+                See how it works <span className="lp-arrow lp-arrow-down">↓</span>
               </a>
             </>
           )}
@@ -176,7 +184,7 @@ export function Hero({
             <span>Daily XP</span>
             <span className="lp-dot" />
           </div>
-          <div className="lp-prev-sub">A term, six weeks against six</div>
+          <div className="lp-prev-sub">First 6 weeks vs. last 6</div>
           {/* Was two anonymous sparklines side by side, which is the chart
               every product page draws and the one nobody reads. The same
               numbers as a range: each day is a summit at its own height, and
@@ -185,10 +193,10 @@ export function Hero({
             className="lp-prev-ridge"
             series={HERO_XP}
             axis={['200', '100', '0']}
-            label="Daily XP over a term: a first half averaging around 60, a second half averaging around 145."
+            label="Daily XP for one term. About 60 a day in the first half and about 145 in the second."
           />
           <div className="lp-prev-row">
-            <span>Level 9</span>
+            <span>Level 13</span>
             <span className="lp-prev-bar">
               <i style={{ width: '62%' }} />
             </span>
@@ -196,7 +204,7 @@ export function Hero({
         </div>
         <div className="lp-preview lp-preview-rating">
           <div className="lp-prev-head">
-            <span>Growth Rating</span>
+            <span>Growth rating</span>
           </div>
           <svg viewBox="0 0 120 120" className="lp-radar">
             <polygon
@@ -209,7 +217,7 @@ export function Hero({
             <polygon points="60,34 90,54 80,92 40,92 30,54" className="lp-radar-fill" />
           </svg>
           <div className="lp-prev-overall">
-            Overall <strong>88</strong>
+            Overall <strong>83</strong>
           </div>
         </div>
         {/* A 📅 floated here at 45% opacity, over nothing, meaning nothing. It
@@ -234,27 +242,27 @@ export function Hero({
 const FEATURES = [
   {
     ico: 'lp-ico-teal',
-    glyph: '📋',
-    title: 'One list, not four',
-    body: 'Everything you have on, in one place — filtered, sorted and searchable, and a dozen of them dealt with at once.',
+    glyph: 'clipboard' as const,
+    title: 'All your tasks in one place',
+    body: 'Sort, filter and search them, then knock out a dozen at once.',
     bits: ['Priorities', 'Due dates', 'Bulk actions'],
     to: '/dashboard',
     label: 'Go to Dashboard',
   },
   {
     ico: 'lp-ico-green',
-    glyph: '🌱',
-    title: 'A score you can audit',
-    body: 'Five measures, one growth score, and the working shown for each — no black box telling you how your week went.',
+    glyph: 'sprout' as const,
+    title: 'See how you\'re really doing',
+    body: "Five stats make one growth score. Tap any of them to see how it's worked out.",
     bits: ['Streaks', 'Growth score', 'Records'],
     to: '/growth',
     label: 'Go to Growth',
   },
   {
     ico: 'lp-ico-gold',
-    glyph: '🎯',
-    title: 'Goals that move themselves',
-    body: 'Name a target in XP, tasks or streak days. It advances as you work — there is no second place to keep score.',
+    glyph: 'target' as const,
+    title: 'Goals that fill themselves in',
+    body: 'Set a target in XP, tasks or streak days. It fills up as you work, so there\'s nothing extra to track.',
     bits: ['XP', 'Milestones', 'Auto-advance'],
     to: '/goals',
     label: 'Go to Goals',
@@ -265,7 +273,7 @@ export function FeatureStrip() {
   const navigate = useNavigate();
 
   return (
-    <section className="lp-strip">
+    <section className="lp-strip" id="features">
       {FEATURES.map((f) => (
         // The whole card is the target, not just the link in it. The link is
         // still a real link — keyboard, middle-click and "open in new tab" all
@@ -278,7 +286,7 @@ export function FeatureStrip() {
             navigate(f.to);
           }}
         >
-          <span className={`lp-feat-ico ${f.ico}`}>{f.glyph}</span>
+          <span className={`lp-feat-ico ${f.ico}`}><Icon name={f.glyph} /></span>
           <h3>{f.title}</h3>
           <p>{f.body}</p>
           <ul className="lp-feat-bits">
@@ -306,20 +314,16 @@ export function FeatureStrip() {
           people it would work on are the ones deciding whether to trust a
           study tool with their year.
 
-          So the card says something true instead. There is no user to quote
-          yet, and saying that plainly is a better argument than a fake quote
-          is. */}
+          So the card says something true instead: why the thing was built,
+          which needs no reviewer to vouch for it. */}
       <article className="lp-card lp-quote">
-        <p className="lp-quote-kicker">Why this exists</p>
+        <p className="lp-quote-kicker">Why I made this</p>
         <p>
-          “Every tracker I tried could tell me what I had planned. None of them could
-          tell me whether the week had actually gone well, or just felt like it.”
+          Every planner I tried could show me my to-do list. None of them could tell
+          me if my week actually went well.
         </p>
         <div className="lp-quote-foot">
-          <span className="lp-quote-by">
-            The reason Summit counts what it counts
-            <small>No reviews yet — this is the first version to be public</small>
-          </span>
+          <span className="lp-quote-by">So I built one that could.</span>
         </div>
       </article>
     </section>
@@ -342,34 +346,34 @@ export function TaskStats() {
       <div className="lp-card lp-stats">
         <div className="lp-card-top">
           <div className="lp-stats-head">
-            <span className="lp-feat-ico lp-ico-teal lp-ico-sm">📊</span> Statistics
+            <span className="lp-feat-ico lp-ico-teal lp-ico-sm"><Icon name="chart" /></span> Statistics
           </div>
           <span className="lp-pill-mini">Last 30 days</span>
         </div>
         <div className="lp-stat">
-          <span>Total tasks created</span>
+          <span>Tasks created</span>
           <span className="lp-stat-v">
-            <b>1,241</b>
+            <b>164</b>
           </span>
         </div>
         <div className="lp-stat">
-          <span>Total completed</span>
+          <span>Tasks completed</span>
           <span className="lp-stat-v">
-            <b>1,105</b>
+            <b>142</b>
             <Trend value={8} suffix="%" />
           </span>
         </div>
         <div className="lp-stat">
           <span>Goals completed</span>
           <span className="lp-stat-v">
-            <b>18</b>
-            <Trend value={3} />
+            <b>3</b>
+            <Trend value={1} />
           </span>
         </div>
         <div className="lp-stat">
           <span>Average XP / day</span>
           <span className="lp-stat-v">
-            <b>200</b>
+            <b>145</b>
           </span>
         </div>
         <div className="lp-stat">
@@ -399,32 +403,32 @@ export function TaskStats() {
           of its own. */}
       <ul className="lp-list">
         <li>
-          <span className="lp-list-ico">⭐</span>
+          <span className="lp-list-ico"><Icon name="star" /></span>
           <div>
             <h4>Priority</h4>
             <p>
-              Low, medium or high. The list sorts by it, so what you flagged stays at the
-              top until it is done.
+              Low, medium or high. The important stuff stays at the top until it's
+              done.
             </p>
           </div>
         </li>
         <li>
-          <span className="lp-list-ico">🗂</span>
+          <span className="lp-list-ico"><Icon name="folder" /></span>
           <div>
             <h4>Subjects</h4>
             <p>
-              File a task under a subject and the XP it earns is tallied there. That tally is
-              the per-subject breakdown on the analytics page.
+              Tag a task with a subject and its XP counts toward that subject. That's
+              where your per-subject stats come from.
             </p>
           </div>
         </li>
         <li>
-          <span className="lp-list-ico">⏱</span>
+          <span className="lp-list-ico"><Icon name="timer" /></span>
           <div>
             <h4>Due dates and timers</h4>
             <p>
-              A date puts a task on a day in the calendar. A timer runs the session, and a
-              task whose timer runs out is marked expired rather than left open.
+              Add a date and the task shows up on your calendar. Start a timer to focus.
+              If time runs out, the task gets marked expired.
             </p>
           </div>
         </li>
@@ -437,8 +441,8 @@ const PHILOSOPHY = [
   {
     ico: 'lp-ico-teal',
     path: <path d="M3 12h4l3 8 4-16 3 8h4" />,
-    title: 'Consistency over intensity',
-    body: 'A streak counts days you turned up, not hours you sat down. Once it is a week old it survives one missed day a month.',
+    title: 'Show up every day',
+    body: 'Your streak goes up every day you show up. After a week, you get one free miss a month.',
   },
   {
     ico: 'lp-ico-green',
@@ -448,8 +452,8 @@ const PHILOSOPHY = [
         <path d="M16 7h5v5" />
       </>
     ),
-    title: 'Measurable progress',
-    body: 'Everything you finish becomes a figure, and every figure names what it was counted from.',
+    title: 'Progress you can see',
+    body: 'Everything you finish turns into a number, and you can always see where it came from.',
   },
   {
     ico: 'lp-ico-gold',
@@ -460,14 +464,14 @@ const PHILOSOPHY = [
         <path d="M12 13v4M9 20h6" />
       </>
     ),
-    title: 'Finishing should feel like something',
-    body: 'XP, levels and a title on the rail. Small rewards for the part that is genuinely hard.',
+    title: 'Make it fun',
+    body: 'XP, levels and a title to show off. A little reward for the hard part.',
   },
   {
     ico: 'lp-ico-purple',
     path: <path d="M12 3l2.2 6.8L21 12l-6.8 2.2L12 21l-2.2-6.8L3 12l6.8-2.2z" />,
-    title: 'Simplicity first',
-    body: 'The few tools that change what you do tomorrow, and nothing else competing for the screen.',
+    title: 'Keep it simple',
+    body: 'Just the tools that help you get stuff done. No clutter.',
   },
 ];
 
@@ -475,8 +479,8 @@ export function Philosophy() {
   return (
     <section className="lp-section">
       <SectionHead
-        title="Four decisions, kept"
-        blurb="The rules the rest of the app is built to. Each one costs something, and each one is why a feature you might expect is not here."
+        title="What Summit is about"
+        blurb="Four ideas the whole app is built around. They're also why some features you might expect aren't here."
       />
       {/* Line icons rather than emoji, so each one can draw itself in. */}
       <div className="lp-philo" id="philoGrid">
@@ -543,19 +547,19 @@ export function Pricing({
   };
 
   return (
-    <section className="lp-section">
+    <section className="lp-section" id="pricing">
       {/* Was "Features Comparison and Pricing". There is nothing to compare —
           one plan, everything in it, no paid tier to hold anything back — so
           the heading was promising a table the section does not have and
           cannot have. The blurb underneath was already saying the true and
           shorter version of it. */}
       <SectionHead
-        title="What it costs"
-        blurb="Nothing. There is one plan, everything is in it, and there is no tier above it holding anything back."
+        title="It's free. Really."
+        blurb="One plan with everything in it. No paid tier and no locked features."
       />
       <div className="lp-split">
         <div className="lp-card lp-themes">
-          <div className="lp-stats-head">Theme</div>
+          <div className="lp-stats-head">Pick a theme</div>
           <div className="lp-swatches">
             {SWATCHES.map((swatch, i) => (
               <span
@@ -575,7 +579,7 @@ export function Pricing({
             ))}
           </div>
           <p className="lp-muted-p">
-            Light &amp; dark themes follow you across every page and persist to your account.
+            Light or dark. Whatever you choose follows you to every page and sticks to your account.
           </p>
         </div>
         <div className="lp-card lp-price">
@@ -599,7 +603,7 @@ export function Pricing({
               className="lp-btn lp-btn-primary lp-btn-full"
               onClick={onGetStarted}
             >
-              Create a free account
+              Get started free
             </button>
           )}
         </div>
@@ -631,24 +635,24 @@ export function Pricing({
  * rest.
  */
 const TECH = [
-  { ico: 'lp-ico-teal', glyph: '🖥', title: 'Frontend', bits: ['React 19', 'TypeScript', 'Vite'] },
-  { ico: 'lp-ico-green', glyph: '🔧', title: 'Backend', bits: ['Python', 'FastAPI', 'Uvicorn'] },
-  { ico: 'lp-ico-gold', glyph: '💾', title: 'Database', bits: ['SQLite'] },
-  { ico: 'lp-ico-purple', glyph: '📊', title: 'Visualization', bits: ['SVG', 'Canvas'] },
+  { ico: 'lp-ico-teal', glyph: 'monitor' as const, title: 'Frontend', bits: ['React 19', 'TypeScript', 'Vite'] },
+  { ico: 'lp-ico-green', glyph: 'wrench' as const, title: 'Backend', bits: ['Python', 'FastAPI', 'Uvicorn'] },
+  { ico: 'lp-ico-gold', glyph: 'database' as const, title: 'Database', bits: ['PostgreSQL', 'SQLite'] },
+  { ico: 'lp-ico-purple', glyph: 'chart' as const, title: 'Visualization', bits: ['SVG', 'Canvas'] },
 ];
 
 export function TechStack() {
   return (
     <section className="lp-section">
       <SectionHead
-        title="What it is built on"
-        blurb="A typed frontend, a typed API, and one SQLite file you can copy to a USB stick and take with you."
+        title="Under the hood"
+        blurb="React up front, Python in back, and your data in a database on the server. You can export all of it from Settings anytime."
       />
       <div className="lp-tech" id="techGrid">
         <svg className="tech-wires" id="techWires" aria-hidden="true" />
         {TECH.map((t) => (
           <div className="lp-card lp-techitem" key={t.title}>
-            <span className={`lp-feat-ico ${t.ico}`}>{t.glyph}</span>
+            <span className={`lp-feat-ico ${t.ico}`}><Icon name={t.glyph} /></span>
             <div>
               <h4>{t.title}</h4>
               <p>
@@ -677,9 +681,9 @@ export function TechStack() {
  * the part of a landing page readers have learned to skip.
  */
 const REASSURANCE = [
-  'Free forever — everything included',
-  'No card, no trial clock',
-  'One SQLite file, on your own server',
+  'Free forever, everything included',
+  'No credit card needed',
+  'Your data stays on your own server',
 ];
 
 export function FinalCta({
@@ -697,7 +701,7 @@ export function FinalCta({
           different seed, so the page closes somewhere it has not already
           been. */}
       <Range variant="summit" className="lp-final-scene" />
-      <h2>Everything above is free. Start tonight.</h2>
+      <h2>Start your streak today.</h2>
       {/* The second sentence used to be "Everything on this page is the real
           app — nothing here is a screenshot." The dashboard section up the page
           already says it, at the moment the reader is looking at the thing
@@ -705,7 +709,7 @@ export function FinalCta({
           later and next to the button, argues a point nobody is still
           disputing and takes the last line of the page away from the one
           thing it is for. */}
-      <p>Finish one task today and the numbers start moving.</p>
+      <p>Finish one task and watch the numbers move.</p>
       {/* It was a <Link> to /dashboard for both readers, and for a stranger
           that is the worst button on the page: the dashboard is gated, so
           "Get Started Today" walked them into a bounce and dropped them back
@@ -714,11 +718,11 @@ export function FinalCta({
           one. It opens the same popup the hero's button does now. */}
       {signedIn ? (
         <Link to="/dashboard" className="lp-btn lp-btn-primary lp-btn-lg">
-          Go to Your Dashboard <span className="lp-arrow">→</span>
+          Go to your dashboard <span className="lp-arrow">→</span>
         </Link>
       ) : (
         <button type="button" className="lp-btn lp-btn-primary lp-btn-lg" onClick={onGetStarted}>
-          Create a free account <span className="lp-arrow">→</span>
+          Get started free <span className="lp-arrow">→</span>
         </button>
       )}
       {/* The last thing a signed-out reader wants to know is what it costs and

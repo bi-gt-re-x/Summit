@@ -17,6 +17,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { goalHealth as reading } from '@/test/factories';
 import type { Goal, Task } from '@/types';
 
 const writeGoalPlan = vi.fn();
@@ -51,6 +52,10 @@ function goal(over: Partial<Goal> = {}): Goal {
     created_at: '2026-07-01T09:00:00',
     deadline: '2026-12-01',
     milestones: [],
+    // What the server attaches; the rule is tested in tests/test_goal_health.py.
+    health: reading('behind', '25 points behind where the calendar says it should be, with 59 days left.', {
+      progress: 0.4, expected: 0.65, ahead: -0.25, daysLeft: 59,
+    }),
     ...over,
   } as unknown as Goal;
 }
@@ -87,7 +92,7 @@ describe('the evidence gate', () => {
   it('refuses a read with nothing behind it, and says what would unlock it', () => {
     show(linked(1));
 
-    expect(screen.getByText(/Not enough evidence yet/)).toBeInTheDocument();
+    expect(screen.getByText(/Not enough to go on yet/)).toBeInTheDocument();
     expect(screen.getByText(new RegExp(`${EVIDENCE - 1} more tasks`))).toBeInTheDocument();
     // And there is nothing to press, so the call cannot be made at all.
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
@@ -104,7 +109,7 @@ describe('the evidence gate', () => {
     const open = linked(EVIDENCE).map((task) => ({ ...task, status: 'todo', completed_at: undefined }));
     show(open as Task[]);
 
-    expect(screen.getByText(/Not enough evidence yet/)).toBeInTheDocument();
+    expect(screen.getByText(/Not enough to go on yet/)).toBeInTheDocument();
   });
 
   /* An account can be busy every day and have done nothing about the goal it
@@ -113,14 +118,14 @@ describe('the evidence gate', () => {
     const elsewhere = linked(EVIDENCE).map((task) => ({ ...task, goal_id: 'other' }));
     show(elsewhere as Task[]);
 
-    expect(screen.getByText(/Not enough evidence yet/)).toBeInTheDocument();
+    expect(screen.getByText(/Not enough to go on yet/)).toBeInTheDocument();
   });
 
   it('offers the read once there is enough', () => {
     show(linked(EVIDENCE));
 
-    expect(screen.queryByText(/Not enough evidence yet/)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Read this goal' })).toBeInTheDocument();
+    expect(screen.queryByText(/Not enough to go on yet/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Get AI advice' })).toBeInTheDocument();
   });
 });
 
@@ -130,7 +135,7 @@ describe('asking for one', () => {
     writeGoalPlan.mockResolvedValue({ success: true, plan: PLAN });
     show(linked(EVIDENCE));
 
-    await user.click(screen.getByRole('button', { name: 'Read this goal' }));
+    await user.click(screen.getByRole('button', { name: 'Get AI advice' }));
 
     await waitFor(() => expect(writeGoalPlan).toHaveBeenCalledTimes(1));
     const sent = writeGoalPlan.mock.calls[0]![0];
@@ -149,7 +154,7 @@ describe('asking for one', () => {
     writeGoalPlan.mockResolvedValue({ success: true, plan: PLAN });
     show(linked(EVIDENCE));
 
-    await user.click(screen.getByRole('button', { name: 'Read this goal' }));
+    await user.click(screen.getByRole('button', { name: 'Get AI advice' }));
     await waitFor(() => expect(writeGoalPlan).toHaveBeenCalled());
 
     expect(writeGoalPlan.mock.calls[0]![0].levers.length).toBeGreaterThan(0);
@@ -160,7 +165,7 @@ describe('asking for one', () => {
     writeGoalPlan.mockResolvedValue({ success: true, plan: PLAN });
     show(linked(EVIDENCE));
 
-    await user.click(screen.getByRole('button', { name: 'Read this goal' }));
+    await user.click(screen.getByRole('button', { name: 'Get AI advice' }));
 
     expect(await screen.findByText(PLAN.route)).toBeInTheDocument();
     expect(screen.getByText(PLAN.week[0]!)).toBeInTheDocument();
@@ -174,10 +179,10 @@ describe('asking for one', () => {
     writeGoalPlan.mockResolvedValue({ success: true, plan: PLAN });
     show(linked(EVIDENCE));
 
-    await user.click(screen.getByRole('button', { name: 'Read this goal' }));
+    await user.click(screen.getByRole('button', { name: 'Get AI advice' }));
 
-    expect(await screen.findByText('Written by a model')).toBeInTheDocument();
-    expect(screen.getByText(/this paragraph is a reading of them/)).toBeInTheDocument();
+    expect(await screen.findByText('Written by AI')).toBeInTheDocument();
+    expect(screen.getByText(/Written by AI from the numbers on this page/)).toBeInTheDocument();
   });
 
   it('says what went wrong rather than nothing', async () => {
@@ -185,11 +190,11 @@ describe('asking for one', () => {
     writeGoalPlan.mockResolvedValue({ success: false, message: 'Reading a goal needs an Anthropic key.' });
     show(linked(EVIDENCE));
 
-    await user.click(screen.getByRole('button', { name: 'Read this goal' }));
+    await user.click(screen.getByRole('button', { name: 'Get AI advice' }));
 
     expect(await screen.findByText(/needs an Anthropic key/)).toBeInTheDocument();
     // And the offer is still there, because the failure may be fixable.
-    expect(screen.getByRole('button', { name: 'Read this goal' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Get AI advice' })).toBeInTheDocument();
   });
 
   /* The other failure shape — the call never completing — is handled by the

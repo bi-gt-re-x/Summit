@@ -71,7 +71,17 @@ CREATE TABLE IF NOT EXISTS goals (
     -- Comma-separated subject ids. A list rather than JSON because it is only
     -- ever read whole and split, and a TEXT column that a human can read in a
     -- database browser is worth more here than a structure nothing nests.
-    subject_ids             TEXT DEFAULT ''
+    subject_ids             TEXT DEFAULT '',
+    -- Which chart the goal card draws. Empty lets the page pick one from the
+    -- goal's data; see frontend/src/utils/goalVisuals.ts.
+    chart                   TEXT DEFAULT '',
+    -- Reached by its own arithmetic and waiting for the reader to say it is
+    -- really done. Set when the status turns 'completed' by itself, cleared
+    -- by the answer (backend/api/goals.py, `verify_goal`) or by reopening.
+    needs_verify            BOOLEAN DEFAULT FALSE,
+    -- When the reader confirmed it done. The record of it, with the figures
+    -- it finished on, is a `goal_completed` row in activity_log.
+    verified_at             TEXT
 );
 
 CREATE INDEX IF NOT EXISTS goals_user_status_idx ON goals (user_id, status);
@@ -121,6 +131,56 @@ CREATE TABLE IF NOT EXISTS goal_milestones (
 
 CREATE INDEX IF NOT EXISTS goal_milestones_goal_idx
     ON goal_milestones (goal_id, position);
+
+-- task_goal_matches — which goals a task counts toward, worked out when the
+-- task is written and read back by everything else. See backend/goal_matcher.
+--
+-- Derived, not authored: the task is the source of truth and this is a cache
+-- of one conclusion about it. References only — a goal's title, description
+-- and figures stay on the goal, so renaming a goal changes nothing here.
+--
+-- One row per task-goal pair, so a goal cannot be listed twice for a task and
+-- "how many tasks count toward this goal" is one indexed count. Both ends
+-- cascade: a deleted goal or task takes its rows with it rather than leaving
+-- an id that names nothing. `write_table` swaps rows with foreign keys off, so
+-- the settings page's bulk deletes clear this table by hand first, and readers
+-- join against `goals` so a link that slipped through anyway is ignored.
+--
+-- A task with no rows here has no goals, which is a valid answer. What the
+-- matcher concluded — matched, ambiguous, unmatched, pending — and which
+-- version of it concluded that are on the task (`goal_match_status`,
+-- `goal_match_version`), since both are about the task and not any one goal.
+CREATE TABLE IF NOT EXISTS task_goal_matches (
+    task_id  TEXT NOT NULL REFERENCES tasks (id) ON DELETE CASCADE,
+    goal_id  TEXT NOT NULL REFERENCES goals (id) ON DELETE CASCADE,
+    user_id  TEXT NOT NULL,
+    score    REAL NOT NULL DEFAULT 0 CHECK (score BETWEEN 0 AND 1),
+    source   TEXT NOT NULL DEFAULT 'rule'
+             CHECK (source IN ('explicit', 'rule', 'ai')),
+    PRIMARY KEY (task_id, goal_id)
+);
+
+CREATE INDEX IF NOT EXISTS task_goal_matches_goal_idx
+    ON task_goal_matches (user_id, goal_id);
+
+-- goal_ai_answers — what the model said, keyed on what it was asked.
+--
+-- Only ambiguous tasks are ever asked about (backend/goal_matcher/ai.py), and
+-- the question is one task title, its subject and a shortlist of goals. The
+-- key is a hash of exactly that, so eighty-five tasks with the same title are
+-- one question, and a restart does not buy the answer again.
+--
+-- Ids only, comma-separated, the same as `subject_ids` on a goal: the answer
+-- is which of the goals offered, and a goal that has since been deleted is
+-- dropped when the row is read.
+CREATE TABLE IF NOT EXISTS goal_ai_answers (
+    user_id     TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    ask_key     TEXT NOT NULL,
+    goal_ids    TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, ask_key)
+);
+
 
 -- ---- rows: goals ----
 INSERT INTO goals (id, user_id, title, description, goal_type, target_xp, current_xp, target_streak, current_streak, target_tasks, current_tasks, target_focus, current_focus, focus_baseline_seconds, target_value, progress, priority, deadline, status, created_at) VALUES ('1783024779328', 'demo', '1', '1', 'xp', 1111, 1111, 0, 0, 0, 0, NULL, NULL, NULL, 1111, 100, NULL, '', 'completed', '2026-07-02T15:39:39.328509');

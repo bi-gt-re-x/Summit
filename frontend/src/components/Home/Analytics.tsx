@@ -1,5 +1,5 @@
 /**
- * Analytics — the Growth Score, the five measures under it, and the seven tabs.
+ * Analytics — the Growth Score, the five measures under it, and the six tabs.
  *
  * The one section on this page with no home-*.js behind it: the analytics page
  * post-dates the landing page, so there was nothing to port. It is written to
@@ -8,7 +8,7 @@
  *
  * ## Nothing here is typed in
  *
- * The temptation in a landing-page mock is to type "8.3" and "Top 2%" into the
+ * The temptation in a landing-page mock is to type "8.3" into the
  * markup and move on. Every figure is derived instead, and each from the thing
  * beside it, so none of them can drift apart as the sample numbers are edited:
  *
@@ -17,9 +17,6 @@
  *     around — a panel that prints five factors and a total the reader cannot
  *     add up is a panel nobody trusts — and it matters more here than there,
  *     because this is the version a stranger sees first.
- *   * the standing is `percentileLabel`, the real placement model, imported
- *     rather than guessed. A hardcoded "Top 2%" beside a score that no longer
- *     implies it is exactly the unmodelled figure that function replaced.
  *   * the ring's sweep is the score over the scale, the sparkline's points are
  *     `TREND` mapped into the viewBox, and the rise printed beside it is that
  *     series' own two ends subtracted. The series ends *at* the score rather
@@ -30,8 +27,8 @@
  * chunk. `score` imports nothing but types, so the landing bundle gains an
  * arithmetic function and no components.
  *
- * The five names and the seven tabs are the real ones — `backend/tracking/analytics.py`
- * scores those five metrics, and `pages/Analytics.tsx` has those seven tabs in
+ * The five names and the six tabs are the real ones — `backend/tracking/analytics.py`
+ * scores those five metrics, and `pages/Analytics.tsx` has those six tabs in
  * that order. A tour of features the app does not have is worse than no tour.
  *
  * ## The motion
@@ -57,7 +54,6 @@
  */
 import { useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { percentileLabel } from '@/components/Analytics/score';
 import {
   afterPaint,
   countThrough,
@@ -91,9 +87,6 @@ const SCORE =
 
 /** One decimal, the way the analytics page states it. */
 const scoreText = (value: number) => value.toFixed(1);
-
-/** Where that score places, by the same model the real badge uses. */
-const STANDING = percentileLabel(SCORE);
 
 /**
  * Six weeks of the score, ending where the score actually is.
@@ -159,8 +152,6 @@ const RING_END = round2(RING_LEN * (1 - SCORE / SCORE_SCALE));
 const TABS = [
   { label: 'Recommendations', to: '/recommendations' },
   { label: 'Overview', to: '/analytics' },
-  { label: 'Goals', to: '/analytics/goals' },
-  { label: 'Habits', to: '/habits' },
   { label: 'Insights', to: '/insights' },
   { label: 'Subjects', to: '/subjects' },
   { label: 'Growth', to: '/analytics/growth' },
@@ -247,8 +238,7 @@ export function Analytics() {
       <div className="lp-ax">
         <div className="lp-card lp-ax-score">
           <div className="lp-card-top">
-            <span className="lp-metric-label">Growth Score</span>
-            {STANDING ? <span className="lp-pill-mini lp-ax-rank">{STANDING}</span> : null}
+            <span className="lp-metric-label">Growth score</span>
           </div>
 
           <div className="lp-ax-dial">
@@ -292,7 +282,7 @@ export function Analytics() {
           </div>
 
           <p className="lp-ax-note">
-            The mean of the five measures beside it — add them up yourself.
+            The average of your five stats.
           </p>
 
           <div className="lp-ax-trend">
@@ -313,8 +303,8 @@ export function Analytics() {
 
         <div className="lp-card lp-ax-factors">
           <div className="lp-card-top">
-            <span className="lp-metric-label">What it is made of</span>
-            <span className="lp-pill-mini">A fifth each</span>
+            <span className="lp-metric-label">What goes into it</span>
+            <span className="lp-pill-mini">20% each</span>
           </div>
 
           <ul className="lp-ax-list">

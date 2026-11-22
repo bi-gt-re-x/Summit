@@ -19,6 +19,7 @@ import { subjectOf } from '@/hooks/useSubjects';
 import type { TaskBuckets } from './summary';
 import type { Subject } from '@/services/subjects';
 import type { Task } from '@/types';
+import { Card } from '@/components/ui';
 
 /**
  * How many rows a tab shows before it defers to the tasks page.
@@ -124,7 +125,7 @@ export function TaskPanel({
   const hidden = all.length - shown.length;
 
   return (
-    <section className="card dash-panel dash-tasks">
+    <Card className="dash-panel dash-tasks">
       <header className="dash-panel-head">
         <h2 className="dash-panel-title">Tasks</h2>
 
@@ -143,8 +144,8 @@ export function TaskPanel({
           ))}
         </div>
 
-        <button type="button" className="dash-add" onClick={onAdd}>
-          + Add Task
+        <button type="button" className="dash-add" data-tour="add-task" onClick={onAdd}>
+          + Add task
         </button>
       </header>
 
@@ -153,7 +154,7 @@ export function TaskPanel({
             once per empty section — see the note on `Section`. */}
         {tab === 'completed' ? (
           <Section
-            heading="Completed Tasks"
+            heading="Done today"
             items={shown}
             done
             busyId={busyId}
@@ -165,20 +166,20 @@ export function TaskPanel({
           /* One list, because the filter above already made it one kind. The
              Todo / Calendar split below is Today's, where both kinds land. */
           <Section
-            heading="Calendar Tasks"
+            heading="Scheduled"
             items={shown}
             done={false}
             busyId={busyId}
             subjects={subjects}
             onComplete={onComplete}
-            empty="Nothing scheduled ahead."
+            empty="Nothing scheduled."
           />
         ) : shown.length === 0 ? (
-          <p className="dash-task-empty">Nothing on today&rsquo;s plate.</p>
+          <p className="dash-task-empty">Nothing on today&apos;s plate.</p>
         ) : (
           <>
             <Section
-              heading="Todo Tasks"
+              heading="To do"
               items={shown.filter((task) => !isCalendarTask(task))}
               done={false}
               busyId={busyId}
@@ -186,7 +187,7 @@ export function TaskPanel({
               onComplete={onComplete}
             />
             <Section
-              heading="Calendar Tasks"
+              heading="Scheduled"
               items={shown.filter(isCalendarTask)}
               done={false}
               busyId={busyId}
@@ -216,6 +217,6 @@ export function TaskPanel({
         {hidden > 0 ? `View all tasks (${hidden} more)` : 'View all tasks'}
         <span aria-hidden="true"> →</span>
       </Link>
-    </section>
+    </Card>
   );
 }

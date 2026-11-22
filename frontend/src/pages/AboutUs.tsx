@@ -35,15 +35,15 @@ const VALUES = [
   },
   {
     title: 'Measurable progress',
-    body: 'Every action turns into a number you can see and improve.',
+    body: 'Everything you do turns into a number you can see and improve.',
   },
   {
-    title: 'Rewarding productivity',
-    body: 'XP, levels and grades make finishing work feel genuinely good.',
+    title: 'Make it rewarding',
+    body: 'XP, levels and grades make finishing work feel good.',
   },
   {
     title: 'Simplicity first',
-    body: 'No clutter. Just the few tools that actually move the needle.',
+    body: "No clutter. Just the tools you'll actually use.",
   },
 ];
 
@@ -65,13 +65,10 @@ export default function AboutUs() {
 
       <h2>Where it came from</h2>
       <p>
-        A student&apos;s answer to working hard all day and still wondering whether anything
-        got done. Spreadsheets were tedious and the big suites were bloated, so this is the
-        smaller thing: tasks, a calendar, focus sessions and goals, feeding streaks, XP and
-        a growth rating.
+        I kept working hard all day and still wondering if anything got done. Spreadsheets were a pain and the big apps were bloated. So I built something smaller: tasks, a calendar, focus sessions and goals that feed your streak, XP and growth score.
       </p>
 
-      <h2>What it is built on</h2>
+      <h2>What it's built on</h2>
       <div className="values-grid">
         {VALUES.map((value) => (
           <div className="value-card" key={value.title}>
@@ -81,16 +78,14 @@ export default function AboutUs() {
         ))}
       </div>
 
-      <h2>How it is built</h2>
+      <h2>How it's built</h2>
       <p>
-        Python and FastAPI on the backend, React and TypeScript on the front, SQLite
-        underneath, and every chart drawn by hand in SVG. Your data stays on the machine
-        running the app. No accounts on distant servers, no subscriptions, no ads.
+        Python and FastAPI on the back end. React and TypeScript on the front. Every chart is hand-drawn in SVG. Your data stays on the machine running the app. No subscriptions. No ads.
       </p>
 
-      <h2>Where it is going</h2>
+      <h2>Where it's going</h2>
       <p>
-        Still being built, and tested the way it was written — in real study sessions.
+        Still being built, and tested in real study sessions.
       </p>
 
       <p>

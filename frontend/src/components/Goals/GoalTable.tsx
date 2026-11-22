@@ -26,8 +26,9 @@
 import { useMemo } from 'react';
 import { categoryOf } from './Outcome';
 import { formatGoalDate, goalNumbers, isOverdue } from './numbers';
-import { goalHealth, healthFactors } from '@/utils/goalHealth';
+import { goalHealth } from '@/utils/goalHealth';
 import type { Goal, Task } from '@/types';
+import { countsToward } from '@/utils/goalLinks';
 
 const DAY = 86_400_000;
 
@@ -48,9 +49,9 @@ const DAY = 86_400_000;
  * Completed went with them: it was a tab holding one band, and that band is a
  * button in the header that reveals it wherever you are. */
 export const TABS = [
-  { id: 'active', label: 'Active Goals' },
+  { id: 'active', label: 'Active' },
   { id: 'timeline', label: 'Timeline' },
-  { id: 'system', label: 'System Goals' },
+  { id: 'system', label: 'Counters' },
   { id: 'stats', label: 'Stats' },
 ] as const;
 
@@ -83,7 +84,7 @@ function lastActivity(goal: Goal, tasks: Task[], today: Date): string {
 
   for (const task of tasks) {
     if (task.status !== 'done' || !task.completed_at) continue;
-    const mine = task.goal_id === goal.id || (task.milestone_id && ids.has(task.milestone_id));
+    const mine = countsToward(task, goal.id) || (task.milestone_id && ids.has(task.milestone_id));
     if (!mine) continue;
     const at = new Date(task.completed_at).getTime();
     if (!Number.isNaN(at) && at > newest) newest = at;
@@ -99,10 +100,9 @@ function lastActivity(goal: Goal, tasks: Task[], today: Date): string {
 }
 
 const HEALTH_LABEL: Record<string, string> = {
-  'on-track': 'On Track',
-  'at-risk': 'At Risk',
-  'off-track': 'Off Track',
-  'not-started': 'Not Started',
+  'on-track': 'On track',
+  behind: 'Behind',
+  'not-started': 'Not started',
 };
 
 export interface GoalTableProps {
@@ -118,7 +118,7 @@ export function GoalTable({ goals, tasks, onOpen, onEdit, today = new Date() }: 
     () =>
       goals.map((goal) => {
         const numbers = goalNumbers(goal);
-        const health = goalHealth(goal, tasks, today);
+        const health = goalHealth(goal);
         const next = (goal.milestones ?? []).find((row) => row.status !== 'done');
         const deadline = goal.deadline
           ? Math.round(
@@ -145,8 +145,8 @@ export function GoalTable({ goals, tasks, onOpen, onEdit, today = new Date() }: 
             <th>Progress</th>
             <th>Health</th>
             <th>Target</th>
-            <th>Next milestone</th>
-            <th>Last activity</th>
+            <th>Next checkpoint</th>
+            <th>Last worked on</th>
             <th aria-label="Actions" />
           </tr>
         </thead>
@@ -248,7 +248,7 @@ export function GoalTable({ goals, tasks, onOpen, onEdit, today = new Date() }: 
  * exists because the ring is a short card sitting in a two-column row beside a
  * tall one, and the empty half-column under it was the page's largest patch of
  * nothing — but a filler would have been worse than the gap. A reader who sees
- * "3 off track" immediately wants to know which three, and `goalHealth`
+ * "3 behind" immediately wants to know which three, and `goalHealth`
  * already computes the one-line reason for each, so the answer was sitting
  * there uncollected.
  *
@@ -256,10 +256,9 @@ export function GoalTable({ goals, tasks, onOpen, onEdit, today = new Date() }: 
  * that do not is a list nobody reads to the end of.
  */
 const ORDER: Record<string, number> = {
-  'off-track': 0,
-  'at-risk': 1,
-  'not-started': 2,
-  'on-track': 3,
+  behind: 0,
+  'not-started': 1,
+  'on-track': 2,
 };
 
 export function HealthBreakdown({
@@ -279,11 +278,11 @@ export function HealthBreakdown({
     () =>
       goals
         .filter((goal) => goal.status !== 'completed')
-        .map((goal) => ({ goal, health: goalHealth(goal, tasks, today) }))
+        .map((goal) => ({ goal, health: goalHealth(goal) }))
         .sort(
           (a, b) =>
             (ORDER[a.health.state] ?? 9) - (ORDER[b.health.state] ?? 9) ||
-            a.health.score - b.health.score,
+            a.health.signals.progress - b.health.signals.progress,
         )
         .slice(0, limit),
     [goals, limit, tasks, today],
@@ -294,53 +293,18 @@ export function HealthBreakdown({
   return (
     <ul className="gx-health-list">
       {rows.map(({ goal, health }) => {
-        /* Two of each at most. The blend has four signals and a goal in real
-           trouble fails most of them, so an uncapped list turns a diagnosis
-           into a wall — and the two heaviest are the two worth acting on,
-           which is what the ordering in `healthFactors` is for. */
-        const found = healthFactors(health);
-        const helping = found.filter((one) => one.good).slice(0, 2);
-        const holding = found.filter((one) => !one.good).slice(0, 2);
-
         return (
           <li key={goal.id} className={`gx-health-row is-${health.state}`}>
             <button type="button" onClick={() => onOpen(goal)}>
               <i aria-hidden="true" />
               <span className="gx-health-name">{goal.title}</span>
               <span className="gx-health-score">
-                {health.score}
                 <em>{health.label}</em>
               </span>
             </button>
 
-            {/* The working, not a second opinion. Everything here went into
-                the score printed above it — a reader who has come this far has
-                come to ask why, and one sentence about the weakest signal
-                leaves them guessing which of four things to change. */}
-            {(helping.length > 0 || holding.length > 0) && (
-              <div className="gx-health-why">
-                {holding.length > 0 && (
-                  <div className="gx-health-side is-bad">
-                    <h5>Holding it back</h5>
-                    <ul>
-                      {holding.map((one) => (
-                        <li key={one.key}>{one.note}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {helping.length > 0 && (
-                  <div className="gx-health-side is-good">
-                    <h5>Helping</h5>
-                    <ul>
-                      {helping.map((one) => (
-                        <li key={one.key}>{one.note}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
+            {/* The rule that decided it, in one sentence. */}
+            <p className="gx-health-why">{health.reason}</p>
           </li>
         );
       })}

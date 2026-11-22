@@ -3,7 +3,7 @@
  *
  * The health model next door says *whether* a goal is going to happen. This
  * says *why it is going the way it is*, which is a different job and the one
- * the Goals page cannot do without: a chip that says "At Risk" and stops has
+ * the Goals page cannot do without: a chip that says "Behind" and stops has
  * told the reader something they mostly already felt.
  *
  * Everything here is counted off two things and nothing else: the tasks linked
@@ -21,8 +21,9 @@
  * figure with nothing behind it is worse than a smaller true one.
  */
 import { goalNumbers } from '@/components/Goals/numbers';
-import { evidenceFor, goalHealth, goalPace, type GoalHealth } from './goalHealth';
+import { atMidnight, evidenceFor, goalHealth, goalPace, type GoalHealth, type HealthState } from './goalHealth';
 import type { Goal, Milestone, Task } from '@/types';
+import { isoDate } from './dates';
 
 const DAY = 86_400_000;
 
@@ -41,7 +42,7 @@ export interface GoalReading {
   /** Tasks finished toward it in the recent window, and the one before. */
   now: number;
   before: number;
-  /** Days out of the last fortnight with work on it. */
+  /** Days out of the last two weeks with work on it. */
   activeDays: number;
   /** Every linked task, and the finished ones. */
   linked: number;
@@ -60,15 +61,40 @@ export interface GoalReading {
  * `today` is a parameter for the same reason it is in goalHealth: the whole
  * file is then a pure function of its inputs and can be checked.
  */
+/**
+ * Readings remembered per evidence list and per day.
+ *
+ * A reading depends on the goal only through `evidenceFor`, and every counter
+ * goal's evidence is the same whole-account array — so five counter goals
+ * were five identical passes over every task, in each place the page asked.
+ * Keyed by the day rather than the instant: every window below is a whole
+ * number of days back from today, and a completion date is a midnight, so
+ * the answer cannot change until the date does.
+ */
+const readingCache = new WeakMap<Task[], Map<string, GoalReading>>();
+
 export function goalReading(goal: Goal, tasks: Task[], today: Date = new Date()): GoalReading {
   const linked = evidenceFor(goal, tasks);
+  const dayKey = isoDate(today);
+  const cached = readingCache.get(linked)?.get(dayKey);
+  // A copy, so a caller that adjusts its reading cannot reach the next one's.
+  if (cached) return { ...cached };
+  const reading = readEvidence(linked, today);
+  let byDay = readingCache.get(linked);
+  if (!byDay) {
+    byDay = new Map();
+    readingCache.set(linked, byDay);
+  }
+  byDay.set(dayKey, reading);
+  return { ...reading };
+}
+
+function readEvidence(linked: Task[], today: Date): GoalReading {
   const finished = linked.filter((task) => task.status === 'done' && task.completed_at);
   const now = today.getTime();
 
-  const at = (task: Task) => {
-    const time = new Date(`${String(task.completed_at).slice(0, 10)}T00:00:00`).getTime();
-    return Number.isNaN(time) ? null : time;
-  };
+  // The shared, remembered parse — see `atMidnight` in ./goalHealth.
+  const at = (task: Task) => atMidnight(String(task.completed_at));
 
   const inWindow = (task: Task, from: number, to: number) => {
     const time = at(task);
@@ -197,6 +223,34 @@ export interface GoalAction {
 }
 
 /**
+ * A gap, in the largest unit that is still honest about it.
+ *
+ * It was always days, which is right up to a point and absurd past it: a goal
+ * abandoned three years ago reported "Nothing finished in 1116 days", and a
+ * four-digit number is something a reader has to do arithmetic on before it
+ * means anything. Nobody converts 1116 into "about three years" in their head
+ * while scanning a page; they read it as "a big number" and move on, which is
+ * the same as not having been told.
+ *
+ * Months above eight weeks, years above eighteen months, and "days" below
+ * that, where the exact count is the useful part — the difference between
+ * eleven days and nineteen is a thing to act on, the difference between 1116
+ * and 1124 is not.
+ */
+export function sinceWhen(days: number): string {
+  if (days < 56) return `${days} day${days === 1 ? '' : 's'}`;
+  if (days < 550) {
+    const months = Math.round(days / 30.4);
+    return `about ${months} month${months === 1 ? '' : 's'}`;
+  }
+  // Rounded to the half year: "over 3 years" and "over 3.5 years" are both
+  // readings somebody can hold, and the half is the difference between a goal
+  // abandoned last spring and one abandoned the spring before.
+  const years = Math.round((days / 365.25) * 2) / 2;
+  return `over ${years} years`;
+}
+
+/**
  * What this goal's own figures suggest doing, if anything.
  *
  * Every one is guarded by the numbers behind it, and the list is empty when
@@ -210,7 +264,7 @@ export function goalActions(
   tasks: Task[],
   today: Date = new Date(),
 ): GoalAction[] {
-  const health = goalHealth(goal, tasks, today);
+  const health = goalHealth(goal);
   const reading = goalReading(goal, tasks, today);
   const pace = goalPace(goal, today);
   const numbers = goalNumbers(goal);
@@ -227,7 +281,7 @@ export function goalActions(
       because:
         daysSinceWork === null
           ? 'No task linked to this goal has ever been finished.'
-          : `Nothing finished in ${daysSinceWork} days, though ${reading.linked} task${reading.linked === 1 ? ' is' : 's are'} linked.`,
+          : `Nothing done in ${sinceWhen(daysSinceWork)}, even with ${reading.linked} linked task${reading.linked === 1 ? '' : 's'}.`,
       title: 'Put one of its tasks on this week',
       effect: 'Opens the calendar on the next free block.',
       tone: 'urgent',
@@ -261,7 +315,7 @@ export function goalActions(
     const unit = numbers.label || 'units';
     out.push({
       id: 'pace',
-      because: `You are at ${round(pace.have)} ${unit} a day; the date needs ${round(pace.need)}.`,
+      because: `You're at ${round(pace.have)} ${unit} a day. Your date needs ${round(pace.need)}.`,
       title: `Raise the pace to ${round(pace.need)} ${unit} a day`,
       effect: null,
       tone: daysLeft !== null && daysLeft < 30 ? 'urgent' : 'nudge',
@@ -273,9 +327,9 @@ export function goalActions(
   if (pace.drift !== null && pace.drift > 7) {
     out.push({
       id: 'drift',
-      because: `At this rate it lands about ${pace.drift} days late.`,
+      because: `At this rate you'll finish about ${pace.drift} days late.`,
       title: 'Move the target date, or cut the target',
-      effect: 'Changes the goal. You confirm which, and by how much.',
+      effect: 'This changes the goal. You pick how.',
       tone: 'nudge',
     });
   }
@@ -284,7 +338,7 @@ export function goalActions(
   if (stuck && stuck.waitingDays !== null && stuck.waitingDays >= 21) {
     out.push({
       id: 'bottleneck',
-      because: `"${stuck.milestone.title}" has been the next checkpoint for ${stuck.waitingDays} days${stuck.tasks ? ` and ${stuck.done} of its ${stuck.tasks} tasks are done` : ' and has no tasks against it'}.`,
+      because: `You've been on "${stuck.milestone.title}" for ${stuck.waitingDays} days${stuck.tasks ? `. ${stuck.done} of its ${stuck.tasks} tasks are done` : ', and it has no tasks yet'}.`,
       title: 'Break this checkpoint into smaller ones',
       effect: 'Adds checkpoints. You write them.',
       tone: 'nudge',
@@ -294,8 +348,8 @@ export function goalActions(
   if (out.length === 0 && health.state === 'on-track' && reading.now > 0) {
     out.push({
       id: 'keep',
-      because: `${reading.now} task${reading.now === 1 ? '' : 's'} finished toward this in the last fortnight, across ${reading.activeDays} day${reading.activeDays === 1 ? '' : 's'}.`,
-      title: 'Nothing to change — keep going',
+      because: `${reading.now} task${reading.now === 1 ? '' : 's'} finished toward this in the last two weeks, across ${reading.activeDays} day${reading.activeDays === 1 ? '' : 's'}.`,
+      title: 'Nothing to change. Keep going',
       effect: null,
       tone: 'good',
     });
@@ -316,28 +370,23 @@ function round(value: number): string {
 export interface GoalsOverview {
   active: number;
   onTrack: number;
-  atRisk: number;
-  offTrack: number;
+  behind: number;
   notStarted: number;
   /** Weighted mean progress across active goals, 0-100. */
   overall: number;
-  /** Active goals with a date inside the next fortnight, soonest first. */
+  /** Active goals with a date inside the next two weeks, soonest first. */
   dueSoon: Goal[];
   completed: number;
 }
 
-export function goalsOverview(
-  goals: Goal[],
-  tasks: Task[],
-  today: Date = new Date(),
-): GoalsOverview {
+export function goalsOverview(goals: Goal[], today: Date = new Date()): GoalsOverview {
   const active = goals.filter((goal) => goal.status !== 'completed');
-  const counts = { 'on-track': 0, 'at-risk': 0, 'off-track': 0, 'not-started': 0 };
+  const counts: Record<HealthState, number> = { 'on-track': 0, behind: 0, 'not-started': 0 };
   let weighted = 0;
   let weight = 0;
 
   active.forEach((goal) => {
-    counts[goalHealth(goal, tasks, today).state] += 1;
+    counts[goalHealth(goal).state] += 1;
     const w = Math.max(1, Math.min(10, Math.trunc(Number(goal.priority)) || 5));
     weighted += goalNumbers(goal).progress * w;
     weight += w;
@@ -355,8 +404,7 @@ export function goalsOverview(
   return {
     active: active.length,
     onTrack: counts['on-track'],
-    atRisk: counts['at-risk'],
-    offTrack: counts['off-track'],
+    behind: counts.behind,
     notStarted: counts['not-started'],
     overall: weight ? weighted / weight : 0,
     dueSoon: soon,
@@ -390,7 +438,7 @@ export function goalNotes(
   const readings = active.map((goal) => ({
     goal,
     reading: goalReading(goal, tasks, today),
-    health: goalHealth(goal, tasks, today),
+    health: goalHealth(goal),
   }));
   const out: GoalNote[] = [];
 
@@ -399,7 +447,7 @@ export function goalNotes(
     out.push({
       tone: 'good',
       goalId: strongest.goal.id,
-      headline: `Strongest this fortnight: ${strongest.goal.title}`,
+      headline: `Strongest in the last two weeks: ${strongest.goal.title}`,
       hint: `${strongest.reading.now} task${strongest.reading.now === 1 ? '' : 's'} across ${strongest.reading.activeDays} day${strongest.reading.activeDays === 1 ? '' : 's'}`,
     });
   }
@@ -412,7 +460,7 @@ export function goalNotes(
       tone: 'watch',
       goalId: quiet.goal.id,
       headline: `Nothing on ${quiet.goal.title} for ${quiet.health.signals.daysSinceWork} days`,
-      hint: 'Not behind yet. This is where goals go quiet for good.',
+      hint: "You're not behind yet. Do one thing for it today.",
     });
   }
 

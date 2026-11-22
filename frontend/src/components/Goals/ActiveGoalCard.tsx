@@ -41,10 +41,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { GoalTile, HealthChip, categoryOf } from './Outcome';
 import { AskModel, Spark } from './AskModel';
-import { GoalVisual } from './GoalVisual';
+import { SmartPlan } from './SmartPlan';
+import { ChartMenu, GoalVisual } from './GoalVisual';
 import { formatGoalDate, goalDate, goalNumbers, goalWeight, isOverdue } from './numbers';
 import { goalHealth } from '@/utils/goalHealth';
 import { pickVisual, visualContext } from '@/utils/goalVisuals';
+import { currentStone } from '@/utils/goalStage';
 import {
   MAX_STEPS,
   addStep,
@@ -58,6 +60,9 @@ import {
   toggleStep,
 } from '@/utils/milestoneSteps';
 import type { Goal, Milestone, MilestoneStatus, MilestoneStep, Task } from '@/types';
+import { useCountUp } from '@/hooks/useCountUp';
+import { awaitingVerify } from '@/utils/goalProgress';
+import { secondsSpent } from '@/utils/timeSpent';
 
 const DAY = 86_400_000;
 
@@ -85,7 +90,7 @@ function shortDate(value?: string): string {
 /** "May 2024" — where the year is the point rather than the day. */
 function monthYear(value?: string): string {
   const at = time(value);
-  if (!at) return '—';
+  if (!at) return '-';
   return new Date(at).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
 }
 
@@ -150,6 +155,13 @@ export interface ActiveGoalCardProps {
    */
   onRedraftStones: (goal: Goal) => void;
   /**
+   * Draft a checklist for every checkpoint that has none.
+   *
+   * Additive, so unlike the redraft it needs no confirmation — see
+   * ./SmartPlan, which is the row both of these now appear in.
+   */
+  onFillSteps: (goal: Goal) => void;
+  /**
    * Ask the model for this checkpoint's five steps, and save them.
    *
    * Offered only on a checkpoint whose checklist is *empty*, which is the
@@ -178,10 +190,15 @@ export interface ActiveGoalCardProps {
   onMilestoneSteps: (milestone: Milestone, steps: MilestoneStep[]) => void;
   /** Mark the focus checkpoint reached, once its checklist is clear. */
   onMilestoneStatus: (milestone: Milestone, status: MilestoneStatus) => void;
-  /** Call the goal finished, once every checkpoint is. */
-  onCompleteGoal: (goal: Goal) => void;
+  /**
+   * The answer to "is this goal really done?", asked once its numbers say it
+   * is (or, on a goal with no target, once every checkpoint is behind it).
+   */
+  onVerify: (goal: Goal, done: boolean) => void;
   /** Turns a subject id into its name, for the charts that group by subject. */
   nameOf: (id: string) => string;
+  /** Pin a chart to the left panel, or '' to let the page pick. */
+  onChart?: (goal: Goal, chart: string) => void;
   /**
    * Print the health reason instead of hiding it in the chip's tooltip.
    *
@@ -204,21 +221,23 @@ export function ActiveGoalCard({
   onLinkTask,
   onSuggest,
   onRedraftStones,
+  onFillSteps,
   onSuggestSteps,
   planning = false,
   onSaveStones,
   onFocusMilestone,
   onMilestoneSteps,
   onMilestoneStatus,
-  onCompleteGoal,
+  onVerify,
   nameOf,
+  onChart,
   explain = false,
 }: ActiveGoalCardProps) {
   /** Midnight today, so a step due today is not drawn as late. */
   const todayStart = new Date(new Date().toDateString()).getTime();
   const category = categoryOf(goal);
   const numbers = goalNumbers(goal);
-  const health = goalHealth(goal, tasks);
+  const health = goalHealth(goal);
   const stones = goal.milestones ?? [];
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -232,7 +251,7 @@ export function ActiveGoalCard({
   /** Which step is choosing a task to link, or null. */
   const [linkAt, setLinkAt] = useState<number | null>(null);
   /** The card's own celebration, cleared by a timer. See `.ag-cheer`. */
-  const [cheer, setCheer] = useState<'milestone' | 'goal' | null>(null);
+  const [cheer, setCheer] = useState<'milestone' | null>(null);
   /**
    * The step ticked a moment ago, or null. Drives the tick animation only.
    *
@@ -254,17 +273,6 @@ export function ActiveGoalCard({
     const timer = window.setTimeout(() => setTicked(null), 600);
     return () => window.clearTimeout(timer);
   }, [ticked]);
-  /**
-   * The reader has pressed "Mark complete" and is being asked to mean it.
-   *
-   * In the card rather than the page's `ConfirmModal`, which is what deleting
-   * uses. A modal is the right weight for a destructive action arriving from
-   * anywhere; this one is reversible, is offered only on a goal whose every
-   * checkpoint is already reached, and is answered in the same panel that
-   * raised it — throwing a dialog over the page to ask "did you mean to finish
-   * the thing you just finished" is a heavier interruption than the action.
-   */
-  const [finishing, setFinishing] = useState(false);
 
   /* It lets go on its own. The click that starts it is also a write, and the
      card re-renders under the reader when the reply lands — a banner that
@@ -323,14 +331,8 @@ export function ActiveGoalCard({
   /** Every task that is work toward this goal, by either route. */
   const mine = context.linked;
 
-  /** The checkpoint being worked on: the active one, else the first unfinished. */
-  const focus = useMemo(
-    () =>
-      stones.find((stone) => stone.status === 'active') ??
-      stones.find((stone) => stone.status !== 'done') ??
-      null,
-    [stones],
-  );
+  /** The checkpoint being worked on. The rule is utils/goalStage's. */
+  const focus = useMemo(() => currentStone(goal), [goal]);
 
   /** The checkpoints the focus could be moved to — everything not yet reached. */
   const switchable = useMemo(() => stones.filter((stone) => stone.status !== 'done'), [stones]);
@@ -371,6 +373,16 @@ export function ActiveGoalCard({
     stones.length > 0 &&
     stones.every((stone) => stone.status === 'done');
 
+  /* The question the card asks when the goal is reached. Its own numbers
+     finished it (the server flagged it), or it has no target and every
+     checkpoint is behind it, which only the reader can call. */
+  const asking = awaitingVerify(goal) || readyToFinish;
+
+  /* The figure counts to its new value rather than jumping, so a ticked step
+     is something you watch land. The ring beside it eases the same distance
+     over the same time (`.ag-ring-arc` in styles/goals.css). */
+  const shownProgress = useCountUp(numbers.progress);
+
   /**
    * The tasks already on the account that the draft could be naming.
    *
@@ -406,7 +418,7 @@ export function ActiveGoalCard({
   const invested = useMemo(
     () =>
       mine.reduce(
-        (sum, task) => sum + (task.status === 'done' ? Number(task.completion_seconds) || 0 : 0),
+        (sum, task) => sum + (task.status === 'done' ? secondsSpent(task) ?? 0 : 0),
         0,
       ),
     [mine],
@@ -467,13 +479,13 @@ export function ActiveGoalCard({
         <div className="ag-top-text">
           <div className="ag-title-row">
             <h3 title={goal.title}>{goal.title}</h3>
-            {priority >= HIGH_PRIORITY && <span className="ag-badge">Primary Goal</span>}
+            {priority >= HIGH_PRIORITY && <span className="ag-badge">Main goal</span>}
           </div>
           {(goal.why || goal.description) && (
             <p className="ag-why">{goal.why || goal.description}</p>
           )}
           <ul className="ag-tags">
-            <li>{longTerm ? 'Long Term' : 'Short Term'}</li>
+            <li>{longTerm ? 'Long term' : 'Short term'}</li>
             <li className={priority >= HIGH_PRIORITY ? 'is-hot' : ''}>
               {priority >= HIGH_PRIORITY ? 'High' : priority >= 4 ? 'Medium' : 'Low'} Priority
             </li>
@@ -483,7 +495,7 @@ export function ActiveGoalCard({
 
         <div className="ag-top-right">
           <div className="ag-progress">
-            <strong>{pct(numbers.progress)}%</strong>
+            <strong>{pct(shownProgress)}%</strong>
             <span>Progress</span>
           </div>
           <Ring percent={numbers.progress} tone={category.tone} />
@@ -552,6 +564,42 @@ export function ActiveGoalCard({
         </div>
       </header>
 
+      {/* ---- the question ---------------------------------------------- */}
+      {/* Above the body, full width, because it is the one thing on the card
+          that wants an answer. The goal stays in the active list until it has
+          one. Yes is the big button: by the time this shows, the work is done
+          and the reader is only being asked to say so. */}
+      {asking && (
+        <section className="ag-verify" role="group" aria-labelledby={`ag-verify-${goal.id}`}>
+          <div className="ag-verify-text">
+            <strong id={`ag-verify-${goal.id}`}>You reached it. Is this goal done?</strong>
+            <span>
+              {stones.length > 0
+                ? 'Every checkpoint is done. Say yes and it moves to your finished goals.'
+                : 'You hit the target. Say yes and it moves to your finished goals.'}
+            </span>
+          </div>
+          <div className="ag-verify-do">
+            <button
+              type="button"
+              className="ag-verify-yes"
+              disabled={busy}
+              onClick={() => onVerify(goal, true)}
+            >
+              Yes, it&apos;s done
+            </button>
+            <button
+              type="button"
+              className="ag-verify-no"
+              disabled={busy}
+              onClick={() => onVerify(goal, false)}
+            >
+              Not yet
+            </button>
+          </div>
+        </section>
+      )}
+
       {/* ---- body ------------------------------------------------------ */}
       <div className="ag-body">
         <section className="ag-panel">
@@ -562,6 +610,7 @@ export function ActiveGoalCard({
               pick={visual}
               nameOf={nameOf}
               onOpen={() => onOpen(goal)}
+              onChart={onChart && ((chart) => onChart(goal, chart))}
             />
           ) : (
             /* Nothing fits, which on this page means one thing: no checkpoints
@@ -571,9 +620,10 @@ export function ActiveGoalCard({
             <>
               <header className="ag-panel-head">
                 <h4>Nothing to chart yet</h4>
+                {onChart && <ChartMenu goal={goal} onChart={(chart) => onChart(goal, chart)} />}
               </header>
               <p className="ag-empty">
-                Break this into checkpoints and the percentage starts to mean something.
+                Add checkpoints so the percentage means something.
               </p>
               <div className="ag-empty-tools">
                 <AskModel label="Suggest checkpoints" busy={drafting} onAsk={askStones} primary />
@@ -583,6 +633,14 @@ export function ActiveGoalCard({
               </div>
             </>
           )}
+          <div className="ag-panel-foot">
+            <button type="button" className="ag-details" onClick={() => onOpen(goal)}>
+              Details
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+                <path d="M5 12h13M13 6l6 6-6 6" />
+              </svg>
+            </button>
+          </div>
         </section>
 
         <section className="ag-panel">
@@ -633,7 +691,12 @@ export function ActiveGoalCard({
                     {focus.note ? ` · ${focus.note}` : ''}
                   </span>
                 </div>
-                <span className="ag-focus-when">{monthYear(focus.target_date)}</span>
+                <span className="ag-focus-when">
+                  {monthYear(focus.target_date)}
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M9 6l6 6-6 6" />
+                  </svg>
+                </span>
               </button>
 
               {picking && (
@@ -777,7 +840,7 @@ export function ActiveGoalCard({
                         }
                         title={
                           step.task_id
-                            ? `Linked to "${linked?.title ?? 'a task'}" — click to unlink`
+                            ? `Linked to "${linked?.title ?? 'a task'}". Click to unlink.`
                             : 'Link an existing task to this step'
                         }
                         onClick={() => {
@@ -802,9 +865,9 @@ export function ActiveGoalCard({
 
               {focus.steps.length > shown.steps.length && (
                 <p className="ag-steps-rest ag-quiet">
-                  {focus.steps.length - shown.steps.length} more —{' '}
+                  {focus.steps.length - shown.steps.length} more.{' '}
                   <button type="button" className="ag-link-btn" onClick={() => onOpen(goal)}>
-                    open the details
+                    Open the details
                   </button>
                 </p>
               )}
@@ -839,7 +902,7 @@ export function ActiveGoalCard({
                     autoFocus
                     value={stepDraft.text}
                     maxLength={120}
-                    placeholder="Name a small piece of work"
+                    placeholder="Name a small step"
                     onChange={(event) => setStepDraft({ ...stepDraft, text: event.target.value })}
                     onBlur={commitStep}
                     onKeyDown={(event) => {
@@ -881,7 +944,7 @@ export function ActiveGoalCard({
                     disabled={busy || focus.steps.length >= MAX_STEPS}
                     title={
                       focus.steps.length >= MAX_STEPS
-                        ? `A checkpoint needing more than ${MAX_STEPS} steps is two checkpoints`
+                        ? `More than ${MAX_STEPS} steps? Split it into two checkpoints.`
                         : undefined
                     }
                     onClick={() => setStepDraft({ index: -1, text: '' })}
@@ -946,8 +1009,7 @@ export function ActiveGoalCard({
                     </ul>
                   ) : (
                     <p className="ag-quiet ag-found-none">
-                      No open task matches. Steps do not need one — a link is for work you
-                      had already written down.
+                      No matching open tasks. That's fine. Steps don't need one.
                     </p>
                   )}
                 </div>
@@ -974,13 +1036,12 @@ export function ActiveGoalCard({
                It used to be one sentence pointing at the other panel — "the
                panel on the left is where they start" — and on most goals that
                was a pointer at nothing. The left panel only shows the button
-               when it has no chart to draw, so a number goal with a fortnight
+               when it has no chart to draw, so a number goal with two weeks
                of work behind it got a chart there and this instruction here,
                and the thing it named did not exist on the card. */
             <>
               <p className="ag-empty">
-                No checkpoints yet, so the percentage above has nothing to
-                measure. Five of them is usually the whole plan.
+                No checkpoints yet. Add some to track progress.
               </p>
               {/* The offer, unless the panel opposite is already making it.
  
@@ -1001,61 +1062,54 @@ export function ActiveGoalCard({
             </>
           ) : (
             <p className="ag-empty">
-              Every checkpoint is behind you. What is left is the goal itself.
+              Every checkpoint is done. Now finish the goal itself.
             </p>
           )}
 
-          {/* Every checkpoint reached and the goal still open. For a milestone
-              goal the backend has already called it finished and this is the
-              confirmation; for the rest it is the one thing arithmetic cannot
-              decide. See `completeGoal` in pages/Goals.
+          {/* The model's offers, on the card and not only behind the ⋯ menu.
 
-              Two steps, and quiet until the second. The card's own primary
-              action is View Details — a reader looking at a goal is usually
-              reading it, not finishing it — so a filled green full-width
-              button sitting under the checkpoint list was the loudest thing on
-              the card asking for the one action with a consequence. It is a
-              plain secondary control now, and the weight appears only after
-              the reader has asked for it. */}
-          {readyToFinish &&
-            (finishing ? (
-              <div className="ag-confirm" role="group" aria-label="Mark this goal complete">
-                <p>
-                  Mark <strong>{goal.title}</strong> complete? It moves out of your active
-                  goals and into Recently Completed. You can reopen it by editing it.
-                </p>
-                <div className="ag-confirm-do">
-                  <button
-                    type="button"
-                    className="ag-confirm-no"
-                    onClick={() => setFinishing(false)}
-                  >
-                    Not yet
-                  </button>
-                  <button
-                    type="button"
-                    className="ag-confirm-yes"
-                    disabled={busy}
-                    onClick={() => {
-                      setFinishing(false);
-                      setCheer('goal');
-                      onCompleteGoal(goal);
-                    }}
-                  >
-                    Mark complete
-                  </button>
-                </div>
+              The menu item stays — it is the right home for "redraft this
+              ladder" on a goal in good order, and it is where a per-goal
+              action belongs. What it could not do is be *found*: a reader who
+              has never opened that menu has no way to learn the app will fill
+              in the checklists they have not written. The compact row says so
+              on the card, and it disappears on a goal with a complete plan
+              rather than nagging. See ./SmartPlan. */}
+          {/* The model's offer and the goal's dates share the panel's last
+              row: what the plan could do next on the left, the facts about
+              the goal on the right. */}
+          <div className="ag-panel-foot ag-panel-foot-split">
+            <SmartPlan
+              goal={goal}
+              busy={drafting}
+              onRedraftStones={onRedraftStones}
+              onFillSteps={onFillSteps}
+              compact
+            />
+            <dl className="ag-facts">
+              <div>
+                <dt>Start date</dt>
+                <dd>{formatGoalDate(started) || '-'}</dd>
               </div>
-            ) : (
-              <button
-                type="button"
-                className="ag-finish is-goal"
-                disabled={busy}
-                onClick={() => setFinishing(true)}
-              >
-                Mark complete
-              </button>
-            ))}
+              <div>
+                <dt>Target date</dt>
+                <dd className={overdue ? 'is-late' : undefined}>{formatGoalDate(goal.deadline) || '-'}</dd>
+              </div>
+              <div>
+                <dt>Time invested</dt>
+                {/* Off the clock finished tasks recorded, never estimated. A goal
+                    whose work was never timed says so rather than guessing. */}
+                <dd>{invested > 0 ? hoursMinutes(invested) : '-'}</dd>
+              </div>
+              <div>
+                <dt>Category</dt>
+                <dd>
+                  <span className="ag-dot" aria-hidden="true" />
+                  {category.label}
+                </dd>
+              </div>
+            </dl>
+          </div>
         </section>
       </div>
 
@@ -1063,8 +1117,8 @@ export function ActiveGoalCard({
         <div className="ag-cheer" role="status">
           <div className="ag-cheer-card">
             <span className="ag-cheer-mark" aria-hidden="true">✓</span>
-            <strong>{cheer === 'goal' ? 'Goal complete' : 'Checkpoint reached'}</strong>
-            <span>{cheer === 'goal' ? goal.title : 'On to the next one.'}</span>
+            <strong>Checkpoint reached</strong>
+            <span>On to the next one.</span>
           </div>
           {/* Twelve pieces, placed by nth-child in the stylesheet rather than
               by script — the burst is decoration and does not need a random
@@ -1077,39 +1131,6 @@ export function ActiveGoalCard({
         </div>
       )}
 
-      {/* ---- footer ---------------------------------------------------- */}
-      <footer className="ag-foot">
-        <button type="button" className="ag-details" onClick={() => onOpen(goal)}>
-          View Details
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
-            <path d="M5 12h13M13 6l6 6-6 6" />
-          </svg>
-        </button>
-
-        <dl className="ag-facts">
-          <div>
-            <dt>Start date</dt>
-            <dd>{formatGoalDate(started) || '—'}</dd>
-          </div>
-          <div>
-            <dt>Target date</dt>
-            <dd className={overdue ? 'is-late' : undefined}>{formatGoalDate(goal.deadline) || '—'}</dd>
-          </div>
-          <div>
-            <dt>Time invested</dt>
-            {/* Off the clock finished tasks recorded, never estimated. A goal
-                whose work was never timed says so rather than guessing. */}
-            <dd>{invested > 0 ? hoursMinutes(invested) : '—'}</dd>
-          </div>
-          <div>
-            <dt>Category</dt>
-            <dd>
-              <span className="ag-dot" aria-hidden="true" />
-              {category.label}
-            </dd>
-          </div>
-        </dl>
-      </footer>
     </article>
   );
 }

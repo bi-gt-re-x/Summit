@@ -20,6 +20,7 @@ import { Link } from 'react-router-dom';
 import { useCountUp } from '@/hooks';
 import { format } from '@/utils';
 import type { Activity, WeekSummary } from './summary';
+import { Card } from '@/components/ui';
 
 // --------------------------------------------------------------------------
 // Weekly Overview
@@ -60,7 +61,7 @@ function Against({ now, was, unit }: { now: number; was?: number; unit?: string 
   return (
     <span
       className={`dash-week-vs${change > 0 ? ' is-up' : ' is-down'}`}
-      title={`${change > 0 ? 'Up' : 'Down'} ${Math.abs(change)}${unit ?? ''} on the same days last week`}
+      title={`${change > 0 ? 'Up' : 'Down'} ${Math.abs(change)}${unit ?? ''} vs. the same days last week`}
     >
       {change > 0 ? '+' : '−'}
       {Math.abs(change)}
@@ -92,21 +93,21 @@ export function WeeklyOverview({
      worth reporting against the one before it. A cell with nothing to compare
      to shows the figure alone rather than "up ∞%". */
   const figures = [
-    { value: format.number(total), label: 'Total Tasks', now: week.total, was: before?.total },
+    { value: format.number(total), label: 'Tasks', now: week.total, was: before?.total },
     { value: format.number(done), label: 'Completed', now: week.done, was: before?.done },
-    { value: `${Math.round(rate)}%`, label: 'Completion Rate', now: week.rate, was: before?.rate, unit: 'pt' },
-    { value: format.number(xp), label: 'XP Earned', now: week.xp, was: before?.xp },
+    { value: `${Math.round(rate)}%`, label: 'Done', now: week.rate, was: before?.rate, unit: 'pt' },
+    { value: format.number(xp), label: 'XP earned', now: week.xp, was: before?.xp },
   ];
 
   return (
-    <section className="card dash-panel dash-insight">
+    <Card className="dash-panel dash-insight">
       <h2 className="dash-panel-title dash-insight-title">
         <span className="dash-stat-ico dash-ico-week" aria-hidden="true">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
             <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
           </svg>
         </span>
-        Weekly Overview
+        This week
       </h2>
 
       <dl className="dash-week-grid">
@@ -122,12 +123,22 @@ export function WeeklyOverview({
       {/* Said once for all four, and only when there is a comparison to
           explain. "the same days" is the honest part: three days of this week
           are held against three of last, never against seven. */}
-      {before && <p className="dash-week-vs-note">against the same days last week</p>}
+      {before && <p className="dash-week-vs-note">vs. the same days last week</p>}
 
+      {/* A promise rather than a destination label.
+          "View full analytics" names a page; it does not say why anybody would
+          open it, and this card has just answered the question most readers
+          came with. What is through the link is the part this card cannot do —
+          the comparison, the pattern, the thing to change — and a reader who
+          is never told that has no reason to find out. It is the only place
+          outside the analytics page itself that says analytics exist. */}
       <Link className="dash-panel-link" to="/analytics">
-        View full analytics<span aria-hidden="true"> →</span>
+        See what changed<span aria-hidden="true"> →</span>
       </Link>
-    </section>
+      <p className="dash-panel-lede">
+        Your trends and what to do next
+      </p>
+    </Card>
   );
 }
 
@@ -145,14 +156,14 @@ export function WeeklyOverview({
 // --------------------------------------------------------------------------
 export function RecentActivity({ entries }: { entries: Activity[] }) {
   return (
-    <section className="card dash-panel dash-insight">
+    <Card className="dash-panel dash-insight">
       <h2 className="dash-panel-title dash-insight-title">
         <span className="dash-stat-ico dash-ico-pulse" aria-hidden="true">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M2 12h4l3 8 4-16 3 8h6" />
           </svg>
         </span>
-        Recent Activity
+        Recently done
       </h2>
 
       {entries.length === 0 ? (
@@ -166,7 +177,7 @@ export function RecentActivity({ entries }: { entries: Activity[] }) {
                 <path d="m8.5 12 2.5 2.5 4.5-5" />
               </svg>
               <span className="dash-activity-name">
-                Completed <strong>&ldquo;{entry.title}&rdquo;</strong>
+                Completed <strong>&quot;{entry.title}&quot;</strong>
               </span>
               <span className="dash-activity-xp">+{format.number(entry.xp)} XP</span>
               <span className="dash-activity-at">
@@ -178,8 +189,8 @@ export function RecentActivity({ entries }: { entries: Activity[] }) {
       )}
 
       <Link className="dash-panel-link" to="/history">
-        View all activity<span aria-hidden="true"> →</span>
+        See all<span aria-hidden="true"> →</span>
       </Link>
-    </section>
+    </Card>
   );
 }

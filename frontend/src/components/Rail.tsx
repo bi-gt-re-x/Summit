@@ -26,6 +26,14 @@
  * answer arrives a moment after the first paint, and without something to open
  * on, a collapsed rail would swing open and shut on every load.
  *
+ * **Three sections, each folding under its heading.** Core is every page of
+ * the app; Personal is the reader's three spaces (pages/Space.tsx), each
+ * renamable; Team is three more of the same, each with a member list whose
+ * invites are a placeholder for now. Search lives in the top bar (and ⌘K),
+ * not here. Which
+ * sections are folded is kept per device (`SECTIONS_KEY`). None of this is
+ * drawn on a phone, where the rail is a bottom bar.
+ *
  * The rank and XP in the foot are the one thing here that reads account data,
  * and it reads `/api/stats` — six integers — rather than the account's whole
  * task list, which is what it used to arrive attached to. The rail is mounted
@@ -36,30 +44,56 @@
  * listens. A custom event rather than shared state because that is the whole of
  * the dependency: one number, one direction, no reply.
  *
- * **The foot says what you are, not who you are.** It used to be an avatar and
- * a username — the name you already typed to get in, over a picture, above the
- * same level the bar below it was drawing. Now it is the rank the level earns
- * you and the bar that gets you to the next one, which is the only thing on
- * this screen that changes when you finish something. Who is signed in belongs
- * to the top bar's account menu, which is also where the avatar picker went
- * when the plate that used to open it stopped existing.
+ * **The foot is the nametag**, the same one the top bar's account button
+ * wears: the account's picture, then "<title> <name>", then the level and the
+ * bar to the next one. Both read hooks/useNametag, so the two corners cannot
+ * say different things about the same person. The three dots beside the name
+ * choose the title (utils/rankTitle); the avatar picker is in the top bar's
+ * account menu.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
-import { useAuth, useMediaQuery, useSettings, useStats, useSubjectIndex } from '@/hooks';
+import { useAuth, useMediaQuery, useSettings, useSpaces, useStats, useSubjectIndex } from '@/hooks';
 import { followedSubjects } from '@/utils/analyticsPrefs';
-import { useChainAccount } from '@/hooks/useChainAccount';
-import { useTitleEgg } from '@/hooks/useTitleEgg';
 import { format } from '@/utils';
-import { rankFor } from '@/utils/mastery';
-import { earnedTitle } from '@/utils/easterEgg';
-import { AUTOMATIC, chooseTitle, chosenTitle, titlesFor } from '@/utils/rankTitle';
+import { rankFor } from '@/utils/rank';
+import { useNametag } from '@/hooks/useNametag';
+import { NametagText, TitleChoices } from '@/components/Nametag';
+import { STATS_CHANGED } from '@/utils/statsBus';
+import { featureForPath } from '@/utils/starter';
+import { useStarter } from '@/hooks/useStarter';
+import '@/styles/starter.css';
 import '@/styles/rail.css';
 
 const COLLAPSE_KEY = 'topnavCollapsed';
 
-/** Fired by the dashboard when a completion moves the XP total. */
-export const STATS_CHANGED = 'summit:stats-changed';
+/** Which of the three sections are folded. Per device, like a scroll position:
+    a convenience of this screen rather than a preference of the account. */
+const SECTIONS_KEY = 'railSections';
+
+type SectionId = 'core' | 'personal' | 'team';
+
+const ALL_OPEN: Record<SectionId, boolean> = { core: true, personal: true, team: true };
+
+function readSections(): Record<SectionId, boolean> {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SECTIONS_KEY) ?? '{}') as Partial<Record<SectionId, unknown>>;
+    return {
+      core: saved.core !== false,
+      personal: saved.personal !== false,
+      team: saved.team !== false,
+    };
+  } catch {
+    return ALL_OPEN;
+  }
+}
+
+/**
+ * Fired when a completion moves the XP total. Defined in utils/statsBus, which
+ * sends it once per burst of changes rather than once per task; re-exported
+ * here because this is where every listener has always imported it from.
+ */
+export { STATS_CHANGED };
 
 interface Tab {
   to: string;
@@ -106,6 +140,13 @@ interface Tab {
    * — analytics, records, the skill tree — are what a desk is for.
    */
   phone?: boolean;
+  /**
+   * Drawn in the foot rather than the list: a small icon to the right of the
+   * nametag. Settings is about the account the nametag names, and a gear
+   * beside the profile is where people look for it. On a phone the foot is
+   * not drawn, so it stays in the More sheet there.
+   */
+  foot?: boolean;
 }
 
 /**
@@ -128,6 +169,14 @@ const stroke = {
   strokeLinejoin: 'round' as const,
 };
 
+/** The gear, shared by the Settings entry and the foot's icon that draws it. */
+const SETTINGS_ICON = (
+  <svg {...stroke}>
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+  </svg>
+);
+
 /**
  * The app's own pages. Home is not among them — the wordmark at the top is the
  * way back to the landing page, and one route home is enough.
@@ -143,10 +192,8 @@ const TABS: Tab[] = [
     label: 'Dashboard',
     icon: (
       <svg {...stroke}>
-        <rect x="3" y="3" width="7" height="7" rx="1" />
-        <rect x="14" y="3" width="7" height="7" rx="1" />
-        <rect x="3" y="14" width="7" height="7" rx="1" />
-        <rect x="14" y="14" width="7" height="7" rx="1" />
+        <path d="M3 10.5 12 3l9 7.5" />
+        <path d="M5 9v11a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9" />
       </svg>
     ),
   },
@@ -164,27 +211,16 @@ const TABS: Tab[] = [
   {
     // Points at Recommendations rather than the Overview, which is a change and
     // a deliberate one: the rail's job is to put a reader somewhere useful, and
-    // of the seven tabs it is the only one that ends in something to do. The
+    // of its tabs it is the only one that ends in something to do. The
     // Overview is one click along the bar for anyone who wants the totals.
     to: '/recommendations',
     // The page calls itself Advanced Analytics; the rail says Analytics. The
     // rail is a column of one-word destinations and the odd two-word one
     // wraps — the heading is where the full name belongs.
     label: 'Analytics',
-    // `/records` is gone from this list: it is the Records entry below now, and
-    // leaving it here would light Analytics up while the reader is on a page
-    // that has its own entry. The analytics tab of that name is
-    // `/analytics/records`, which is here in its place.
-    also: [
-      '/analytics',
-      '/analytics/records',
-      '/analytics/goals',
-      '/trends',
-      '/habits',
-      '/insights',
-      '/subjects',
-      '/growth',
-    ],
+    // The page's other tabs. Every path a removed tab had redirects in
+    // App.tsx, so none of them can be the page the reader is on.
+    also: ['/analytics', '/insights', '/habits', '/subjects', '/analytics/growth'],
     // The per-subject pages, which are one URL each and so cannot be listed.
     under: ['/analytics/subject/'],
     // The only entry in this table that unfolds. See `Tab.menu`.
@@ -261,6 +297,21 @@ const TABS: Tab[] = [
     ),
   },
   {
+    // The private journal Summit learns from (pages/Log.tsx). Not gated in
+    // the starter days: it's how a new account tells Summit about itself.
+    to: '/log',
+    label: 'Log',
+    icon: (
+      <svg {...stroke}>
+        {/* A bound journal with a ribbon, so it doesn't read as Notes'
+            folded page beside it. */}
+        <path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5Z" />
+        <path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3" />
+        <path d="M14 3v6l-1.75-1.25L10.5 9V3" />
+      </svg>
+    ),
+  },
+  {
     // Under Notes, because both are places you go *to* rather than results you
     // come back for — the pages above this point report on work that is
     // already done, and these two are where some of it happens.
@@ -275,22 +326,12 @@ const TABS: Tab[] = [
     ),
   },
   {
+    // The account looking back at itself: personal bests, growth over time,
+    // Personal bests and the badge wall: /achievements and
+    // /achievements/badges.
     to: '/achievements',
     label: 'Achievements',
-    icon: (
-      <svg {...stroke}>
-        <path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4Z" />
-        <path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3" />
-      </svg>
-    ),
-  },
-  {
-    // Under Achievements, and beside it on purpose: both are the account
-    // looking back at itself. An achievement is a thing the app decided was
-    // worth marking; a record is the reader's own high score, which is theirs
-    // whether or not anything was awarded for it.
-    to: '/records',
-    label: 'Records',
+    under: ['/achievements/'],
     icon: (
       <svg {...stroke}>
         <path d="M4 20V9M9.5 20V4M15 20v-8M20.5 20v-5" />
@@ -301,12 +342,8 @@ const TABS: Tab[] = [
   {
     to: '/settings',
     label: 'Settings',
-    icon: (
-      <svg {...stroke}>
-        <circle cx="12" cy="12" r="3" />
-        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
-      </svg>
-    ),
+    foot: true,
+    icon: SETTINGS_ICON,
   },
 ];
 
@@ -323,6 +360,76 @@ function onPage(tab: Tab, pathname: string): boolean {
   if (tab.to === pathname) return true;
   if (tab.also?.includes(pathname)) return true;
   return Boolean(tab.under?.some((prefix) => pathname.startsWith(prefix)));
+}
+
+/** Two people: a space shared with a team. */
+const TEAM_ICON = (
+  <svg {...stroke}>
+    <circle cx="9" cy="8" r="3.5" />
+    <path d="M2.5 20a6.5 6.5 0 0 1 13 0" />
+    <circle cx="17" cy="9" r="2.5" />
+    <path d="M16 14.2a5 5 0 0 1 5.5 4.8" />
+  </svg>
+);
+
+/** A person with a plus: invite somebody. */
+const INVITE_ICON = (
+  <svg {...stroke}>
+    <circle cx="10" cy="8" r="3.5" />
+    <path d="M3.5 20a6.5 6.5 0 0 1 13 0" />
+    <path d="M19 8v6M16 11h6" />
+  </svg>
+);
+
+/** A small padlock at the end of a locked row (utils/starter). */
+const LOCK_ICON = (
+  <svg {...stroke} className="rail-lock" aria-hidden="true">
+    <rect x="5" y="11" width="14" height="10" rx="2" />
+    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+  </svg>
+);
+
+/** A page with a folded corner: one of the reader's own spaces. */
+const SPACE_ICON = (
+  <svg {...stroke}>
+    <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" />
+    <path d="M14 3v6h6" />
+  </svg>
+);
+
+interface SectionProps {
+  id: SectionId;
+  label: string;
+  open: boolean;
+  onFold: (id: SectionId) => void;
+  children: ReactNode;
+}
+
+/** A heading that folds what is under it: Core, Personal, Team. */
+function Section({ id, label, open, onFold, children }: SectionProps) {
+  const body = `rail-section-${id}`;
+  return (
+    <section className={`rail-section${open ? ' is-open' : ''}`} aria-label={label}>
+      <button
+        type="button"
+        className="rail-section-head"
+        aria-expanded={open}
+        aria-controls={body}
+        onClick={() => onFold(id)}
+      >
+        <span>{label}</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4}
+             strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="m8 10 4 4 4-4" />
+        </svg>
+      </button>
+      {open && (
+        <div className="rail-section-body" id={body}>
+          {children}
+        </div>
+      )}
+    </section>
+  );
 }
 
 export function Rail() {
@@ -387,8 +494,31 @@ export function Rail() {
   /* Below the breakpoint the bar shows four tabs and a More sheet; above it,
      all ten in a column. See PHONE and the `phone` flag on Tab. */
   const phone = useMediaQuery(PHONE);
-  const shown = phone ? TABS.filter((tab) => tab.phone) : TABS;
-  const rest = phone ? TABS.filter((tab) => !tab.phone) : [];
+
+  /* Getting started (utils/starter). A new account's rail lists Dashboard,
+     Calendar and Timer, and one "More tools" row that unfolds the rest; after
+     its first days the rest are listed with a padlock. Either way a locked row
+     is still a link, and lands on the note in components/FeatureGate. */
+  const starter = useStarter();
+  const [peek, setPeek] = useState(false);
+  const lockedTab = (tab: Tab) => {
+    const feature = featureForPath(tab.to);
+    return feature ? starter.isLocked(feature.id) : false;
+  };
+  const starting = starter.stage === 'starter';
+  /** Left out of the column for now: a locked page, in the starter days, folded. */
+  const waiting = (tab: Tab) => starting && !peek && lockedTab(tab);
+  const spacesLocked = starter.isLocked('spaces');
+  const spacesWaiting = starting && !peek && spacesLocked;
+
+  /* On a phone in the starter days the bar is the three starter pages, and
+     everything else — Settings and the locked pages, marked — is in More. */
+  const shown = phone
+    ? starting
+      ? TABS.filter((tab) => !tab.foot && !lockedTab(tab))
+      : TABS.filter((tab) => tab.phone)
+    : TABS;
+  const rest = phone ? TABS.filter((tab) => !shown.includes(tab)) : [];
 
   /**
    * The subjects under Analytics, and whether the menu is open.
@@ -414,93 +544,100 @@ export function Rail() {
     if (inSubjects) setMenuOpen(true);
   }, [inSubjects]);
 
+  /* The destinations scroll when the window is too short for them, with no
+     scrollbar drawn (styles/rail.css). Without one, nothing says there is
+     more, so the edge with more beyond it fades: `more-up` / `more-down` are
+     kept true to the scroll position, the window and the menu opening. And a
+     page whose row is out of view — Settings on a short laptop — is scrolled
+     to, so the rail still answers "where am I" without being asked. */
+  const linksRef = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState({ up: false, down: false });
+  /** Scroll the current page's row into view, clear of the fade, if it is not. */
+  const reveal = useCallback(() => {
+    const box = linksRef.current;
+    const here = box?.querySelector<HTMLElement>('.rail-sub-link.active')
+      ?? box?.querySelector<HTMLElement>('.rail-link.active');
+    if (!box || !here || box.scrollHeight <= box.clientHeight) return;
+    const frame = box.getBoundingClientRect();
+    const row = here.getBoundingClientRect();
+    // Past the 32px fade on that edge (styles/rail.css), so the row is seen
+    // whole rather than half-faded; the browser clamps it at either end.
+    const margin = 40;
+    if (row.top < frame.top + margin) box.scrollTop -= frame.top + margin - row.top;
+    else if (row.bottom > frame.bottom - margin) box.scrollTop += row.bottom - (frame.bottom - margin);
+  }, []);
+  useEffect(() => {
+    const box = linksRef.current;
+    if (!box) return undefined;
+    const measure = () => {
+      const up = box.scrollTop > 1;
+      const down = box.scrollTop + box.clientHeight < box.scrollHeight - 1;
+      setMore((was) => (was.up === up && was.down === down ? was : { up, down }));
+    };
+    /* A change of size is the window, the menu, or the foot arriving with the
+       account — which lands after the first paint and shortens this box, so
+       a row revealed before it would end up back under the fade. */
+    const resized = () => {
+      reveal();
+      measure();
+    };
+    resized();
+    box.addEventListener('scroll', measure, { passive: true });
+    const watch = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(resized);
+    watch?.observe(box);
+    for (const child of Array.from(box.children)) watch?.observe(child);
+    return () => {
+      box.removeEventListener('scroll', measure);
+      watch?.disconnect();
+    };
+  }, [menuOpen, collapsed, followed.length, reveal]);
+  useEffect(reveal, [pathname, menuOpen, reveal]);
+
   /* Closed on arrival, and closed again the moment the reader lands
      somewhere — a sheet still open over the page it just navigated to is a
      sheet the reader has to dismiss to see what they asked for. */
   const [moreOpen, setMoreOpen] = useState(false);
   useEffect(() => setMoreOpen(false), [pathname]);
 
-  /* The title, and the three dots beside it. `picked` is held here rather than
-     read from storage on every render so that choosing one repaints the rail
-     immediately; utils/rankTitle is where it is written down. */
+  /* Core, Personal and Team each fold under their own heading. Folded as an
+     icon strip, the rail has no headings to click, so every section shows. */
+  const [sections, setSections] = useState(readSections);
+  const fold = useCallback((id: SectionId) => {
+    setSections((was) => {
+      const next = { ...was, [id]: !was[id] };
+      try {
+        localStorage.setItem(SECTIONS_KEY, JSON.stringify(next));
+      } catch {
+        /* private mode: folding still works for this visit */
+      }
+      return next;
+    });
+  }, []);
+  const isOpen = (id: SectionId) => collapsed || sections[id];
+
+  // The three Personal spaces' names and the three Team ones, once there is
+  // an account to ask about.
+  const { spaces } = useSpaces(status === 'signed-in');
+  const { spaces: teamSpaces } = useSpaces(status === 'signed-in', 'team');
+  /** The team space open now, so "Invite people" invites to that one. */
+  const teamHere = /^\/team\/([1-3])\b/.exec(pathname)?.[1];
+
+  /* The nametag — picture, title, name — shared with the top bar
+     (hooks/useNametag). The title is the band the level has reached, the one
+     the hidden chain hands out once it has been earned, or whichever of them
+     the reader has picked from the three dots. */
+  const tag = useNametag();
+  const title = tag.title ?? rank;
   const [titlesOpen, setTitlesOpen] = useState(false);
-  const [picked, setPicked] = useState(() => chosenTitle(username ?? ''));
-  useEffect(() => setPicked(chosenTitle(username ?? '')), [username]);
   useEffect(() => setTitlesOpen(false), [pathname]);
 
-  const pick = useCallback(
-    (name: string) => {
-      chooseTitle(username ?? '', name);
-      setPicked(name);
-      setTitlesOpen(false);
-    },
-    [username],
-  );
+  /* The title used to be the way into the hidden chain — ten clicks on it,
+     from any page, because the rail is on all of them. The door is on the
+     dashboard now, beside the quote it opens (hooks/useQuoteEgg.ts), so the
+     title here is a title and nothing else. */
 
-  /* Every band reached, best first — and the secret title if the chain has
-     handed one out, which is a question about *this* account and so waits for
-     one. Empty until the account read lands, which is also when the whole
-     plate below appears. */
-  const account = useChainAccount();
-  const titles = level && account ? titlesFor(level.level, earnedTitle(account)) : [];
-  /* A pick the account can no longer justify falls back to the band. See
-     `titleShown` in utils/rankTitle for the case that causes. */
-  const title = picked && titles.includes(picked) ? picked : rank;
-
-  /* Ten clicks on that title open the hidden chain. The rail is the only
-     thing on screen from every page, which is why the door is here and the
-     room is on the dashboard — see hooks/useTitleEgg.ts. */
-  const { titleRef, onTitleClick } = useTitleEgg();
-
-  return (
-    <nav className="rail" aria-label="Main">
-      {/* Mark and wordmark are both the link home. The mark used to be a bare
-          span, because the easter egg counted clicks on it and had to cancel
-          the navigation to do so — a logo that quietly stopped going home in
-          dark mode. The egg's ten clicks live on the dashboard's daily quote
-          now (hooks/useQuoteEgg.ts), which is not a link and has nothing to
-          cancel, so the mark is a link again and behaves like one in both
-          themes.
-
-          The mark is the file again, and that is the rebrand undoing a
-          workaround rather than adding one. It was inlined because the old
-          mark was a single near-black glyph: it needed `mix-blend-mode:
-          multiply` to sit on white and an `invert(1)` to survive the dark
-          rail, and inlining it was how those two hacks were replaced by a
-          `fill` the theme could change. The Summit mark is a blue mountain
-          that reads on both grounds and wants no help from either theme, so
-          there is no longer anything for an inline copy to do — and one
-          `<img>` is one mark instead of two paths in two files that have to go
-          on agreeing about the same geometry. See utils/images/logo.svg. */}
-      <div className="rail-brand">
-        <NavLink className="rail-brand-mark" to="/home" aria-label="Summit home">
-          <img src="/static/images/logo.svg" alt="" width={30} height={30} />
-        </NavLink>
-        <NavLink className="rail-brand-name" to="/home">
-          Summit
-        </NavLink>
-
-        {/* Three lines rather than the chevron it was. The chevron pointed at
-            the edge it folded into, which is the honest icon for a panel and
-            the wrong one for a rail that is never fully gone — it leaves a
-            strip of icons behind, and a reader who has seen it do that once
-            reads the lines as "the menu" and the chevron as "close". */}
-        <button
-          type="button"
-          className="rail-toggle"
-          aria-expanded={!collapsed}
-          aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
-          title={collapsed ? 'Expand navigation' : 'Collapse navigation'}
-          onClick={flip}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round">
-            <path d="M4 7h16M4 12h16M4 17h16" />
-          </svg>
-        </button>
-      </div>
-
-      <div className="rail-links">
-        {shown.map((tab) => {
+  /** One destination, with the Analytics menu under it when it has one. */
+  const renderTab = (tab: Tab) => {
           /* The menu is drawn only where it can be read and only when it has
              something in it. Collapsed, the rail is a strip of icons with no
              labels, so a list of subject names has nowhere to go; on a phone
@@ -508,18 +645,22 @@ export function Rail() {
              and with nothing followed, a disclosure that opens onto a single
              row called "Overall" is a click that changes nothing. Each of
              those is the entry behaving as it always did. */
-          const menu = tab.menu === 'analytics' && followed.length > 0 && !collapsed && !phone;
+          const locked = lockedTab(tab);
+          // A locked page has no menu yet: its subjects are part of what waits.
+          const menu = tab.menu === 'analytics' && followed.length > 0 && !collapsed && !phone && !locked;
           const link = (
             <NavLink
               key={tab.to}
               to={tab.to}
+              data-tour={`rail-${tab.to.slice(1)}`}
               className={({ isActive }) =>
-                `rail-link${isActive || onPage(tab, pathname) ? ' active' : ''}`
+                `rail-link${isActive || onPage(tab, pathname) ? ' active' : ''}${locked ? ' is-locked' : ''}`
               }
-              title={tab.label}
+              title={locked ? `${tab.label} (opens with a short note first)` : tab.label}
             >
               {tab.icon}
               <span>{tab.label}</span>
+              {locked && LOCK_ICON}
             </NavLink>
           );
 
@@ -558,11 +699,21 @@ export function Rail() {
                       four subjects look like the whole of Analytics.
 
                       `end` because `/analytics` is a prefix of every subject
-                      path: without it this row would be lit on all of them. */}
+                      path: without it this row would be lit on all of them.
+
+                      And lit for every tab of the overall page, not only for
+                      `/analytics` itself. Recommendations, Goals, Insights and
+                      the rest are the same page on other URLs — the parent
+                      row above already says so through `onPage` — and with
+                      only `end` the reader on /recommendations saw Analytics
+                      lit and nothing under it, as if they were on no page in
+                      the menu at all. */}
                   <NavLink
                     to="/analytics"
                     end
-                    className={({ isActive }) => `rail-sub-link${isActive ? ' active' : ''}`}
+                    className={({ isActive }) =>
+                      `rail-sub-link${isActive || (onPage(tab, pathname) && !inSubjects) ? ' active' : ''}`
+                    }
                   >
                     Overall
                   </NavLink>
@@ -598,7 +749,145 @@ export function Rail() {
               )}
             </div>
           );
-        })}
+  };
+
+  return (
+    <nav className="rail" aria-label="Main">
+      {/* Mark and wordmark are both the link home. The mark used to be a bare
+          span, because the easter egg counted clicks on it and had to cancel
+          the navigation to do so — a logo that quietly stopped going home in
+          dark mode. The egg's ten clicks live on a second copy of the mark at
+          the foot of the dashboard now (hooks/useQuoteEgg.ts), which is not a
+          link and has nothing to cancel, so this one is a link again and
+          behaves like one in both themes.
+
+          The mark is the file again, and that is the rebrand undoing a
+          workaround rather than adding one. It was inlined because the old
+          mark was a single near-black glyph: it needed `mix-blend-mode:
+          multiply` to sit on white and an `invert(1)` to survive the dark
+          rail, and inlining it was how those two hacks were replaced by a
+          `fill` the theme could change. The Summit mark is a blue mountain
+          that reads on both grounds and wants no help from either theme, so
+          there is no longer anything for an inline copy to do — and one
+          `<img>` is one mark instead of two paths in two files that have to go
+          on agreeing about the same geometry. See utils/images/logo.svg. */}
+      <div className="rail-brand">
+        <NavLink className="rail-brand-mark" to="/home" aria-label="Summit home">
+          <img src="/static/images/logo.svg" alt="" width={30} height={30} />
+        </NavLink>
+        <NavLink className="rail-brand-name" to="/home">
+          Summit
+        </NavLink>
+
+        {/* Three lines rather than the chevron it was. The chevron pointed at
+            the edge it folded into, which is the honest icon for a panel and
+            the wrong one for a rail that is never fully gone — it leaves a
+            strip of icons behind, and a reader who has seen it do that once
+            reads the lines as "the menu" and the chevron as "close". */}
+        <button
+          type="button"
+          className="rail-toggle"
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+          title={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+          onClick={flip}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinejoin="round">
+            <rect x="4" y="4" width="6.5" height="6.5" rx="1.5" />
+            <rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5" />
+            <rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5" />
+            <rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5" />
+          </svg>
+        </button>
+      </div>
+
+      <div
+        ref={linksRef}
+        className={`rail-links${more.up ? ' more-up' : ''}${more.down ? ' more-down' : ''}`}
+      >
+        {phone ? (
+          shown.map(renderTab)
+        ) : (
+          <>
+            <Section id="core" label="Core" open={isOpen('core')} onFold={fold}>
+              {TABS.filter((tab) => !tab.foot && !waiting(tab)).map(renderTab)}
+              {/* The starter days' one extra row: what else there is, and
+                  that it can be had now. Unfolding it lists the locked pages
+                  (and the spaces) with their padlocks. */}
+              {starting && (
+                <button
+                  type="button"
+                  className="rail-later"
+                  data-tour="rail-more"
+                  aria-expanded={peek}
+                  title={peek ? 'Hide more tools' : 'Show more tools'}
+                  onClick={() => setPeek((was) => !was)}
+                >
+                  {LOCK_ICON}
+                  <span>
+                    {peek ? 'Hide tools' : 'More tools'}
+                    <small>
+                      {peek
+                        ? 'Each one opens with a short note'
+                        : `Unlock in ${starter.daysLeft === 1 ? '1 day' : `${starter.daysLeft} days`}, or open early`}
+                    </small>
+                  </span>
+                </button>
+              )}
+            </Section>
+
+            {/* Both space sections wait with the other advanced pages in the
+                starter days, and carry a padlock after them until opened. */}
+            {!spacesWaiting && (
+              <>
+            <Section id="personal" label="Personal" open={isOpen('personal')} onFold={fold}>
+              {/* Three pages of the reader's own, renamed and written in on
+                  the space page itself. See pages/Space.tsx. */}
+              {spaces.map((space) => (
+                <NavLink
+                  key={space.id}
+                  to={`/spaces/${space.id}`}
+                  className={({ isActive }) => `rail-link${isActive ? ' active' : ''}${spacesLocked ? ' is-locked' : ''}`}
+                  title={space.name}
+                >
+                  {/* The page's own icon when it has one (pages/Space.tsx). */}
+                  {space.doc?.icon ? <i className="rail-emoji" aria-hidden="true">{space.doc.icon}</i> : SPACE_ICON}
+                  <span>{space.name}</span>
+                  {spacesLocked && LOCK_ICON}
+                </NavLink>
+              ))}
+            </Section>
+
+            <Section id="team" label="Team" open={isOpen('team')} onFold={fold}>
+              {/* The same three-space shape as Personal, each with a member
+                  list on its page. Inviting is a placeholder: addresses are
+                  kept as pending and nothing is sent (components/Spaces). */}
+              {teamSpaces.map((space) => (
+                <NavLink
+                  key={space.id}
+                  to={`/team/${space.id}`}
+                  className={({ isActive }) => `rail-link${isActive ? ' active' : ''}${spacesLocked ? ' is-locked' : ''}`}
+                  title={space.name}
+                >
+                  {/* The page's own icon when it has one (pages/Space.tsx). */}
+                  {space.doc?.icon ? <i className="rail-emoji" aria-hidden="true">{space.doc.icon}</i> : TEAM_ICON}
+                  <span>{space.name}</span>
+                  {spacesLocked && LOCK_ICON}
+                </NavLink>
+              ))}
+              <Link
+                className="rail-link rail-invite"
+                to={`/team/${teamHere ?? 1}?invite=1`}
+                title="Invite people"
+              >
+                {INVITE_ICON}
+                <span>Invite people</span>
+              </Link>
+            </Section>
+              </>
+            )}
+          </>
+        )}
 
         {/* The other six, on a phone. Lit when the reader is on one of them,
             so the bar still answers "where am I" for every page in the app
@@ -606,6 +895,7 @@ export function Rail() {
         {phone && (
           <button
             type="button"
+            data-tour="rail-more-phone"
             className={`rail-link rail-more${moreOpen ? ' is-open' : ''}${
               rest.some((tab) => onPage(tab, pathname)) ? ' active' : ''
             }`}
@@ -640,12 +930,13 @@ export function Rail() {
                 to={tab.to}
                 role="menuitem"
                 className={({ isActive }) =>
-                  `rail-sheet-link${isActive || onPage(tab, pathname) ? ' active' : ''}`
+                  `rail-sheet-link${isActive || onPage(tab, pathname) ? ' active' : ''}${lockedTab(tab) ? ' is-locked' : ''}`
                 }
                 onClick={() => setMoreOpen(false)}
               >
                 {tab.icon}
                 <span>{tab.label}</span>
+                {lockedTab(tab) && LOCK_ICON}
               </NavLink>
             ))}
           </div>
@@ -663,22 +954,19 @@ export function Rail() {
           level &&
           rank && (
             <div className="rail-rank">
-              {/* The whole name when the rail is open, the level's number when
-                  it is a strip. "Grand Champion" in 54px of usable width is an
-                  ellipsis, and an ellipsis is not a rank. */}
+              {/* The account's own picture, the one in the top bar. */}
+              <img className="rail-avatar" src={tag.avatar} alt="" width={44} height={44} />
+              {/* The whole nametag when the rail is open, the level's number
+                  when it is a strip. "Grand Champion Myles" in 54px of usable
+                  width is an ellipsis, and an ellipsis is not a name. */}
               <div className="rail-rank-head">
-                {/* No role, no tabIndex, no cursor: this is where the hidden
-                    chain starts, and a title that announced itself as a button
-                    would be advertising it. What it looks like is a label, and
-                    for anybody not counting to ten that is all it is. */}
-                <span
+                {/* No role, no tabIndex, no cursor: it is a label, and the
+                    three dots beside it are the control. */}
+                <NametagText
                   className="rail-rank-title"
-                  title={`${title} · Level ${level.level}`}
-                  ref={titleRef}
-                  onClick={onTitleClick}
-                >
-                  {title}
-                </span>
+                  title={title}
+                  name={tag.name}
+                />
                 <button
                   type="button"
                   className={`rail-rank-more${titlesOpen ? ' is-open' : ''}`}
@@ -697,6 +985,20 @@ export function Rail() {
               <span className="rail-rank-num" aria-hidden="true">
                 {level.level}
               </span>
+              {/* Settings, as a gear on the right of the nametag rather than a
+                  row in Core — see `foot` on Tab. Not on a phone, where the
+                  foot is not drawn and Settings is in the More sheet. */}
+              {!phone && (
+                <NavLink
+                  to="/settings"
+                  data-tour="rail-settings"
+                  className={({ isActive }) => `rail-foot-settings${isActive ? ' active' : ''}`}
+                  aria-label="Settings"
+                  title="Settings"
+                >
+                  {SETTINGS_ICON}
+                </NavLink>
+              )}
 
               {titlesOpen && (
                 <>
@@ -710,29 +1012,8 @@ export function Rail() {
                     aria-label="Close title menu"
                     onClick={() => setTitlesOpen(false)}
                   />
-                  <div className="rail-title-menu" role="menu">
-                    <button
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked={picked === AUTOMATIC}
-                      className={`rail-title-opt${picked === AUTOMATIC ? ' active' : ''}`}
-                      onClick={() => pick(AUTOMATIC)}
-                    >
-                      <span>Automatic</span>
-                      <small>{rank}</small>
-                    </button>
-                    {titles.map((name) => (
-                      <button
-                        key={name}
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked={picked === name}
-                        className={`rail-title-opt${picked === name ? ' active' : ''}`}
-                        onClick={() => pick(name)}
-                      >
-                        <span>{name}</span>
-                      </button>
-                    ))}
+                  <div className="rail-title-menu" role="menu" aria-label="Title">
+                    <TitleChoices tag={tag} onPicked={() => setTitlesOpen(false)} />
                   </div>
                 </>
               )}
@@ -757,7 +1038,7 @@ export function Rail() {
           /* A plain Link, not a NavLink: it points at /home, so on the landing
              page NavLink would mark it active and paint it as the "you are
              here" pill, which it is not. */
-          <Link className="rail-link rail-signin" to="/home?auth=login" title="Log In">
+          <Link className="rail-link rail-signin" to="/login?auth=login" title="Log In">
             <svg {...stroke}>
               <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
               <path d="M10 17l5-5-5-5" />

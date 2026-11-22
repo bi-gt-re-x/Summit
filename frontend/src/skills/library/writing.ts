@@ -47,7 +47,7 @@ export const writing = [
   node({
     id: 'writing.editing',
     name: 'Editing Your Own Work',
-    description: 'Reading what is on the page instead of what you meant, and deleting your favourite sentence.',
+    description: 'Reading what is on the page instead of what you meant, and deleting your favorite sentence.',
     difficulty: 'intermediate',
     xpReward: 115,
     prerequisites: after('writing.clarity'),
@@ -94,7 +94,7 @@ export const writing = [
   node({
     id: 'writing.narrative',
     name: 'Narrative',
-    description: 'Scene, sequence and consequence — the machinery under a story.',
+    description: 'Scene, sequence and consequence. The machinery under a story.',
     difficulty: 'advanced',
     xpReward: 160,
     prerequisites: all('writing.paragraphs', 'writing.clarity'),

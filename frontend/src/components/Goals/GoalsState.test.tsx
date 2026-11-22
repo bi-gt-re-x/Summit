@@ -23,7 +23,8 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { GoalsState } from './Outcome';
-import type { Goal, Task } from '@/types';
+import { goalHealth as reading } from '@/test/factories';
+import type { Goal } from '@/types';
 
 /** `n` days from today as `YYYY-MM-DD`, built from local parts rather than UTC. */
 function day(offset: number): string {
@@ -33,13 +34,8 @@ function day(offset: number): string {
 }
 
 /**
- * A goal measured by a number, which is the shortest route to a fixed health.
- *
- * The two states this file needs are both early returns in `goalHealth` rather
- * than outcomes of its blend — past its date and not finished is always
- * off-track, and nothing recorded at all is always not-started — so the
- * fixtures below say what they mean without depending on four weights staying
- * where they are.
+ * A goal, with the health the server would attach to it. The rule itself is
+ * tested where it lives, in tests/test_goal_health.py; these state the reading.
  */
 function goal(over: Partial<Goal> = {}): Goal {
   return {
@@ -56,55 +52,27 @@ function goal(over: Partial<Goal> = {}): Goal {
     created_at: `${day(-60)}T09:00:00`,
     deadline: day(30),
     milestones: [],
+    health: reading('on-track'),
     ...over,
   } as unknown as Goal;
 }
 
-/** Past its date and half done: off-track by the overdue branch, every time. */
-const overdue = (over: Partial<Goal> = {}) => goal({ deadline: day(-3), ...over });
+/** Past its date and half done: behind. */
+const overdue = (over: Partial<Goal> = {}) =>
+  goal({ deadline: day(-3), health: reading('behind', 'Its date passed 3 days ago and it is 50% done.'), ...over });
 
 /** Nothing against it at all: not-started, which is not "needs attention". */
-const untouched = (over: Partial<Goal> = {}) => goal({ current_value: 0, ...over });
+const untouched = (over: Partial<Goal> = {}) =>
+  goal({ current_value: 0, health: reading('not-started'), ...over });
 
-/**
- * A goal that is genuinely fine, which takes more than a flag to build.
- *
- * Health is a blend of four signals and none of them can carry it alone, so a
- * goal has to be ahead of its pace *and* have been worked on to come out
- * green: 90% done at the halfway point of its window scores full marks on
- * pace and depth, and it still lands at-risk with no evidence behind it,
- * because a goal nobody has touched in a fortnight is not healthy however good
- * its numbers look. `evidence` is the other half and the two go together.
- */
-const healthy = (id: string) =>
-  goal({ id, current_value: 90, start_date: day(-30), deadline: day(30) });
-
-/** One task finished today against each of these goals. */
-const evidence = (...ids: string[]): Task[] =>
-  ids.map(
-    (id, at) =>
-      ({
-        id: `t-${at}`,
-        user_id: 'user-1',
-        title: 'Practice set',
-        description: '',
-        priority: 'low',
-        status: 'done',
-        xp_value: 20,
-        goal_id: id,
-        created_at: `${day(-1)}T09:00:00`,
-        completed_at: `${day(0)}T10:00:00`,
-      }) as unknown as Task,
-  );
-
-const NO_TASKS: Task[] = [];
+/** A goal that is fine. */
+const healthy = (id: string) => goal({ id, current_value: 90, health: reading('on-track') });
 
 describe('what the header counts', () => {
   it('counts the goals it was given, and names their kinds', () => {
     render(
       <GoalsState
         goals={[goal({ id: 'a', category: 'coding' }), goal({ id: 'b', category: 'math' })]}
-        tasks={NO_TASKS}
       />,
     );
 
@@ -113,7 +81,7 @@ describe('what the header counts', () => {
   });
 
   it('says goal, singular, for one', () => {
-    render(<GoalsState goals={[goal()]} tasks={NO_TASKS} />);
+    render(<GoalsState goals={[goal()]} />);
     expect(screen.getByText(/in motion/)).toHaveTextContent('1 goal in motion');
   });
 
@@ -129,7 +97,6 @@ describe('what the header counts', () => {
           goal({ id: 'd', category: 'fitness' }),
           goal({ id: 'e', category: 'personal' }),
         ]}
-        tasks={NO_TASKS}
       />,
     );
     expect(screen.getByText(/Coding · Math · Music/)).toHaveTextContent('+2 more');
@@ -139,14 +106,13 @@ describe('what the header counts', () => {
     render(
       <GoalsState
         goals={[goal({ id: 'a', category: 'math' }), goal({ id: 'b', category: 'math' })]}
-        tasks={NO_TASKS}
       />,
     );
     expect(screen.getByText('Math')).toBeInTheDocument();
   });
 
   it('says what the page is for when there are no goals, and counts nothing', () => {
-    render(<GoalsState goals={[]} tasks={NO_TASKS} />);
+    render(<GoalsState goals={[]} />);
     expect(screen.getByText(/The first goal is the hard one/)).toBeInTheDocument();
     expect(screen.queryByText(/in motion/)).not.toBeInTheDocument();
   });
@@ -154,7 +120,7 @@ describe('what the header counts', () => {
 
 describe('the attention line', () => {
   it('offers nothing to press when nothing is wrong, and says so', () => {
-    render(<GoalsState goals={[healthy('a')]} tasks={evidence('a')} onAttention={vi.fn()} />);
+    render(<GoalsState goals={[healthy('a')]} onAttention={vi.fn()} />);
 
     expect(screen.getByText('All on track')).toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
@@ -166,7 +132,6 @@ describe('the attention line', () => {
     render(
       <GoalsState
         goals={[overdue({ id: 'a' }), overdue({ id: 'b' }), healthy('c')]}
-        tasks={evidence('c')}
         onAttention={onAttention}
       />,
     );
@@ -178,7 +143,7 @@ describe('the attention line', () => {
   });
 
   it('says needs, singular, for one', () => {
-    render(<GoalsState goals={[overdue()]} tasks={NO_TASKS} onAttention={vi.fn()} />);
+    render(<GoalsState goals={[overdue()]} onAttention={vi.fn()} />);
     expect(screen.getByRole('button', { name: /1 needs attention/ })).toBeInTheDocument();
   });
 
@@ -189,7 +154,6 @@ describe('the attention line', () => {
     render(
       <GoalsState
         goals={[untouched({ id: 'a' }), untouched({ id: 'b' }), overdue({ id: 'c' })]}
-        tasks={NO_TASKS}
         onAttention={vi.fn()}
       />,
     );
@@ -202,12 +166,12 @@ describe('the attention line', () => {
      a different control, and the way back out is stated on the filtered list
      rather than a second time up here. */
   it('reads as pressed while the filter is on, without renaming itself', () => {
-    const off = render(<GoalsState goals={[overdue()]} tasks={NO_TASKS} onAttention={vi.fn()} />);
+    const off = render(<GoalsState goals={[overdue()]} onAttention={vi.fn()} />);
     const name = screen.getByRole('button').textContent;
     expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'false');
     off.unmount();
 
-    render(<GoalsState goals={[overdue()]} tasks={NO_TASKS} on onAttention={vi.fn()} />);
+    render(<GoalsState goals={[overdue()]} on onAttention={vi.fn()} />);
     const pressed = screen.getByRole('button');
     expect(pressed).toHaveAttribute('aria-pressed', 'true');
     expect(pressed.textContent).toBe(name);
@@ -216,7 +180,7 @@ describe('the attention line', () => {
   /* Without a handler there is nothing to press, and a button that does
      nothing is worse than a sentence — it invites a click and eats it. */
   it('is plain text when the page gives it nowhere to go', () => {
-    render(<GoalsState goals={[overdue()]} tasks={NO_TASKS} />);
+    render(<GoalsState goals={[overdue()]} />);
 
     expect(screen.getByText(/1 needs attention/)).toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();

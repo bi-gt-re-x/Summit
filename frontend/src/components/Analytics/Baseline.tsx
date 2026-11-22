@@ -3,7 +3,7 @@
  *
  * A baseline is the part of this page that does not need history, because the
  * account states it rather than the page measuring it. Every other panel here
- * needs weeks of record before it means anything — a fortnight for a
+ * needs weeks of record before it means anything — two weeks for a
  * recommendation, three for a habit or a trend, four for an explanation. That
  * is correct and it is not negotiable: the analysis is only worth reading
  * because it refuses to speak early. But it left a new reader with a page of
@@ -101,21 +101,21 @@ export function BaselinePanel({
       key: 'days',
       label: 'Days a week',
       actual: `${workedPerWeek}`,
-      target: `aimed ${aim.active_days}`,
+      target: `goal ${aim.active_days}`,
       pct: daysPct,
     },
     {
       key: 'session',
-      label: 'Sitting',
-      actual: typicalSession > 0 ? `${Math.round(typicalSession)} min` : '—',
-      target: `aimed ${aim.session_minutes}`,
+      label: 'Session',
+      actual: typicalSession > 0 ? `${Math.round(typicalSession)} min` : '-',
+      target: `goal ${aim.session_minutes}`,
       pct: sessionPct,
     },
   ];
 
   return (
     <Panel
-      title="Against your baseline"
+      title="Against your targets"
       note={span}
       aside={
         <button type="button" className="ax-baseline-edit" onClick={onEdit}>

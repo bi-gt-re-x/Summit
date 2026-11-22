@@ -12,7 +12,7 @@ import { open, lock } from './types';
 export const MINDFULNESS: SubjectTree = {
   id: 'mindfulness',
   title: 'Mind & Recovery',
-  blurb: 'Attention, sleep and stress — the parts of training nobody logs.',
+  blurb: 'Attention, sleep and stress. The parts of training nobody logs.',
   parent: 'fitness',
   nodes: [
     { id: 'mi.breath', name: 'Breathing', icon: 'breath', tier: 'foundation', core: true, state: open, percent: 25, xp: 1300,
@@ -40,14 +40,14 @@ export const MINDFULNESS: SubjectTree = {
     { id: 'mi.emotion', name: 'Naming Emotions', icon: 'emotion', tier: 'intermediate', requires: ['mi.stress'], state: lock, percent: 0, xp: 1800,
       desc: 'Identifying what you are feeling with some precision, which reliably reduces its intensity. Anxious, disappointed and resentful call for different responses and feel similar from inside.' },
     { id: 'mi.thoughts', name: 'Working with Thoughts', icon: 'thoughts', tier: 'advanced', requires: ['mi.emotion'], state: lock, percent: 0, xp: 2000,
-      desc: 'Noticing a thought as a thought rather than as a report on reality. Catastrophising and mind reading are patterns rather than insights, and naming them takes most of their force.' },
+      desc: 'Noticing a thought as a thought rather than as a report on reality. Catastrophizing and mind reading are patterns rather than insights, and naming them takes most of their force.' },
     { id: 'mi.journal', name: 'Journalling', icon: 'journal', tier: 'advanced', requires: ['mi.thoughts'], state: lock, percent: 0, xp: 1700,
       desc: 'Writing to find out what you think, rather than to record what happened. Ten minutes on paper resolves more circling than an hour of thinking about it does.' },
     { id: 'mi.boundaries', name: 'Boundaries', icon: 'boundary', tier: 'advanced', requires: ['mi.emotion'], state: lock, percent: 0, xp: 1900,
       desc: 'Deciding what you will and will not take on, and saying so early. Most burnout is an accumulation of small agreements that each seemed manageable in isolation.' },
     { id: 'mi.digital', name: 'Digital Habits', icon: 'device-off', tier: 'advanced', requires: ['mi.rest'], state: lock, percent: 0, xp: 1800,
       desc: 'Notifications, evening screens and the machinery designed to hold attention. Changing the environment beats resisting it, because the design is better funded than your willpower.' },
-    { id: 'mi.burnout', name: 'Recognising Burnout', icon: 'burnout', tier: 'advanced', core: true, requires: ['mi.boundaries', 'mi.digital'], state: lock, percent: 0, xp: 2100,
+    { id: 'mi.burnout', name: 'Recognizing Burnout', icon: 'burnout', tier: 'advanced', core: true, requires: ['mi.boundaries', 'mi.digital'], state: lock, percent: 0, xp: 2100,
       desc: 'Exhaustion, cynicism and a sense of ineffectiveness together. It is a state produced by conditions rather than a personal failure, and rest alone does not fix conditions.' },
     { id: 'mi.help', name: 'Getting Help', icon: 'therapy', tier: 'expert', requires: ['mi.burnout'], state: lock, percent: 0, xp: 2200,
       desc: 'Knowing when something is beyond self-management and talking to a professional. Nothing in this tree is treatment, and persistent low mood, anxiety or sleeplessness is a reason to ask somebody qualified.' },
@@ -55,5 +55,7 @@ export const MINDFULNESS: SubjectTree = {
       desc: 'Treating yourself roughly as you would a friend in the same position. It correlates with more follow-through rather than less, which is the opposite of what people fear about it.' },
     { id: 'mi.practice', name: 'A Practice That Lasts', icon: 'longevity', tier: 'mastery', requires: ['mi.compassion', 'mi.help', 'mi.nature'], state: lock, percent: 0, xp: 2800,
       desc: 'Something small and daily that survives a bad month. The version that continues at five minutes beats the ambitious one that stops when life gets busy, which is exactly when it was needed.' },
+    { id: 'mi.stressx', name: 'Stress', icon: 'stress', tier: 'intermediate', requires: ['mi.stress'], navTo: 'stress', state: lock,
+      desc: 'Its own tree: calming down fast, test anxiety, spiral thoughts and knowing when to get help.' },
   ],
 };

@@ -64,7 +64,9 @@ the plan; the account owns it.
 import json
 import os
 import re
-from typing import List
+from backend.tracking import sources
+from backend.tracking.plainwords import STYLE, plain
+from typing import List, Sequence
 
 # What the page draws, so what the model is asked for and what is enforced on
 # the way back.
@@ -180,6 +182,15 @@ GROQ_MODEL = os.environ.get('GROQ_MODEL') or 'openai/gpt-oss-120b'
 # through here is exactly how the 413 gets hit. See `_from_groq`.
 GROQ_MAX_TOKENS = 4500
 
+#: A job that asks for more gets up to this. The checkpoint steps do: their
+#: brief is short and a richer answer is worth the minute's allowance.
+GROQ_MAX_TOKENS_HIGH = 6000
+
+#: Groq's limits are per model, so when the main model is rate-limited for
+#: the minute or spent for the day, this one still has its own allowance.
+#: Empty turns the fallback off.
+GROQ_FALLBACK_MODEL = os.environ.get('GROQ_FALLBACK_MODEL', 'openai/gpt-oss-20b')
+
 # How much of that budget it is allowed to spend thinking. 'medium', not
 # 'high': the job is reading a table rather than solving it, and at 'high' this
 # model sometimes spends the entire completion on reasoning and emits nothing —
@@ -282,7 +293,13 @@ Rules for the set you return:
 - If you are given a deadline, pitch them at what can be reached by it: the \
 five are spread evenly up to that date, so the first is a few weeks out, not \
 a term.
+- If you are told what they have already done, start from there. Do not \
+return a checkpoint their record shows they have passed, and aim the first \
+one at where their misses are.
+- If you are given their starting point, the first checkpoint is the next \
+real step above it, never something it says they can already do.
 """
+SYSTEM += STYLE
 
 # Said only to the open models. The Anthropic path constrains the shape with a
 # schema instead, and repeating it there costs tokens to no effect.
@@ -309,30 +326,63 @@ STEP_COUNT = 5
 # about milestones will otherwise hedge toward states here too.
 SYSTEM_STEPS = """\
 You break one checkpoint of a long-term goal into the actions that reach it, \
-for a study-planning app.
+for a student's study-planning app. The student will do exactly what you \
+write, so every step has to say what to open, how much to do, and how they \
+know it's done.
 
-A step is an ACTION SOMEBODY DOES — a piece of work that can be sat down to \
-and finished. This is the opposite of the checkpoint above it, which is a \
-state being reached:
+A step is an ACTION SOMEBODY DOES, a piece of work they sit down to and \
+finish. The checkpoint above it is a state being reached; you are writing the \
+work underneath it.
 
-  Checkpoint: "Solving Silver DP problems unassisted"
-  Step (right): "Work through the knapsack chapter"
-  Step (wrong): "Confident with knapsack problems"
+EVERY STEP NAMES THREE THINGS
+1. The exact material: a named book and chapter, a contest and year, problem \
+numbers, a site and its section, a named piece, a named topic list. Use the \
+resources in the brief (the ones the student named, and the free ones listed \
+for the subject) before anything else, and use the reference facts for what \
+a contest or exam actually covers.
+2. An amount: a number of problems, minutes, pages, run-throughs, or reps.
+3. Where it fits, the bar for done: a score, an accuracy, a time, "without \
+looking".
 
-The second is a state. States are what checkpoints are; you are writing the \
-work underneath one.
+Good, for "Score 24+ on timed AMC 8 practice":
+  "Do AMC 8 2019 problems 1-25 in 40 minutes, score it"
+  "Redo every miss from 2019 untimed, write the trick for each"
+  "Alcumus: 30 Counting & Probability problems at 80%+"
+  "AoPS Intro to Number Theory ch. 5, all exercises"
+  "Timed AMC 8 2022, aim for 20+, log every miss by topic"
+Good, for "Play the Bach Double first movement at tempo":
+  "Bars 1-24 at 60 bpm, three clean runs in a row"
+Good, for "Solve USACO Silver prefix-sum problems":
+  "USACO Guide Silver Prefix Sums: solve 4 Easy problems"
+
+These show the level of detail, not what to write: don't copy their wording, \
+contests, years or numbers. Pick what fits this checkpoint, this student and \
+the resources in the brief, and spread different resources across the five.
+
+Never write a step like these. They're the reason this prompt exists:
+  "Review core topic notes and example problems"
+  "Practice targeted problems under timed conditions"
+  "Analyze mistakes and refine strategy"
+  "Diagnose weaknesses with a topic quiz"
+  "Take a full mock test under exam conditions"
+If a step could be pasted under any other goal unchanged, rewrite it.
 
 Rules for the set you return:
 - Exactly five, in the order they would be done.
-- Each is a single sitting or a small run of them, not a term's project.
-- Concrete to this checkpoint and its subject. "Practise more" says nothing.
-- Ten words or fewer each, starting with a verb.
-- Together they are enough that finishing all five reaches the checkpoint.
-- If you are told the checkpoints either side of this one, stay between \
-them: nothing the one before already covers, nothing that belongs to the one \
-after.
-- If you are given a date, the five have to fit before it.
+- Each is one sitting or a short run of them, never a term's project.
+- Start with a verb or the resource name. 18 words or fewer, under 110 \
+characters.
+- Together, finishing all five reaches the checkpoint.
+- If told the checkpoints either side, stay between them: nothing the one \
+before covers, nothing that belongs to the one after.
+- If given a date, the five fit before it.
+- If told what they've already done, build on it: skip what's done, and aim \
+the first step at what they got wrong.
+- Never invent a book, a chapter, a contest year or a website. If you're not \
+sure something exists, name the contest or the free resource from the brief \
+instead.
 """
+SYSTEM_STEPS += STYLE
 
 STEPS_SCHEMA = {
     'type': 'object',
@@ -354,6 +404,12 @@ class PlannerUnavailable(RuntimeError):
     Carries a message written for the person looking at the goals page rather
     than for a log, because that is where it is shown.
     """
+
+
+class RequestTooLarge(PlannerUnavailable):
+    """The provider refused the request for its size against a per-minute
+    allowance, before any model ran. Waiting does not help when the prompt
+    alone is near the allowance; another provider might. See `from_provider`."""
 
 
 # ---------------------------------------------------------------------------
@@ -456,9 +512,21 @@ def _ask(goal: str, instruction: str = '') -> str:
     return (lead + '\n\n' + goal)
 
 
+#: Over the About you and Log lines (backend/api/background.py `about_lines`)
+#: in any brief. Here rather than in journal.py because that module calls this
+#: one.
+ABOUT_HEADING = ("What they told Summit about themselves at sign-up and in their Log, "
+                 "in their own words. Use it a lot: "
+                 "let it decide what you suggest, how big and when, and fit their goals, "
+                 "habits and preferences. When a line is the reason for a suggestion, you "
+                 "can say so plainly (\"you said mornings work best\"). A line marked "
+                 "passing is how they felt then, not a fact:")
+
+
 def _brief(title: str, why: str = '', description: str = '',
            category: str = '', unit: str = '', target: str = '',
-           deadline: str = '') -> str:
+           deadline: str = '', record: Sequence[str] = (),
+           about: Sequence[str] = (), starting: str = '') -> str:
     """What the account has told us about the goal, as lines the model reads.
 
     Only the fields that were filled in. An empty "Why: " line is a line the
@@ -481,6 +549,24 @@ def _brief(title: str, why: str = '', description: str = '',
         lines.append('Target: {}{}'.format(target, ' {}'.format(unit) if unit else ''))
     if str(deadline or '').strip():
         lines.append('Deadline: {}'.format(str(deadline).strip()[:10]))
+    # Where they say they are now, in their own words, from the wizard. The
+    # record below is what Summit counted; this is what it can't count yet.
+    if str(starting or '').strip():
+        lines.append('Starting point: {}'.format(str(starting).strip()))
+    # What they have actually done, from backend/tracking/record.py
+    # `brief_lines`. Without it the brief was the goal's own words and nothing
+    # else, so a student at 442 and one at 1,900 were sent the same plan.
+    if record:
+        lines.append('')
+        lines.append('Their record so far:')
+        lines.extend('- {}'.format(line) for line in record)
+    # What they've told Summit about themselves in the Log page, from
+    # backend/tracking/journal.py `brief_lines`: their goals, habits and
+    # preferences, so a plan fits the person as well as the goal.
+    if about:
+        lines.append('')
+        lines.append(ABOUT_HEADING)
+        lines.extend('- {}'.format(line) for line in about)
     return '\n'.join(lines)
 
 
@@ -818,6 +904,28 @@ def _from_openai_chat(url: str, token: str, model_id: str, label: str,
         raise PlannerUnavailable(
             '“{}” is not being served by {}. Set a model that is.'.format(model_id, label))
     if response.status_code == 429:
+        # Two different refusals arrive as 429 and they want opposite
+        # responses. A per-minute allowance is a queue: wait in it. A per-day
+        # one is closed until the window rolls, and a caller that waits in it
+        # sleeps all afternoon for nothing. Only the body says which — the
+        # status and the headers look identical — so it is read here rather
+        # than left to every caller.
+        #
+        # What reads the distinction: RATE_LIMIT_TRIES in
+        # scripts/generate_skill_steps.py, which waits out a busy minute and
+        # stops the whole run on a spent day rather than sleeping through six
+        # hundred nodes it cannot write.
+        detail = ''
+        try:
+            detail = ((response.json() or {}).get('error') or {}).get('message') or ''
+        except ValueError:
+            detail = ''
+        lower = detail.lower()
+        if 'per day' in lower or 'tpd' in lower or 'rpd' in lower:
+            raise PlannerUnavailable(
+                '{} has spent this key\'s allowance for the day rather than for '
+                'the minute, so waiting will not help: {}'.format(
+                    label, detail[:200]))
         raise PlannerUnavailable(
             '{} is rate-limiting this key. Try again in a minute.'.format(label))
     # Not "too large" in the sense the status code usually means. Free tiers
@@ -825,7 +933,7 @@ def _from_openai_chat(url: str, token: str, model_id: str, label: str,
     # arrives when the allowance is nearly spent rather than when the prompt is
     # long — and "wait a minute" is the fix for it, not "write less".
     if response.status_code == 413:
-        raise PlannerUnavailable(
+        raise RequestTooLarge(
             'This {} key has used its tokens for the minute. Wait a minute and '
             'try again.'.format(label))
     if response.status_code >= 400:
@@ -880,11 +988,28 @@ def _from_groq(brief: str, system: str = None, instruction: str = '',
     right failure: the answer is a page of JSON, not an essay, and a caller
     that wanted a bigger one still gets as much as the tier will give.
     """
-    return _from_openai_chat(
-        GROQ_URL, _groq_token(), GROQ_MODEL, 'Groq',
-        brief, system, instruction, schema,
-        min(max_tokens or GROQ_MAX_TOKENS, GROQ_MAX_TOKENS),
-        GROQ_TEMPERATURE, GROQ_TIMEOUT, GROQ_REASONING)
+    # A budget written for Groq (up to GROQ_MAX_TOKENS_HIGH) is taken as
+    # asked; one written for Anthropic (16,000 and up) is capped as before,
+    # because its brief is the big one and the minute's allowance counts both.
+    asked = max_tokens or GROQ_MAX_TOKENS
+    budget = asked if asked <= GROQ_MAX_TOKENS_HIGH else GROQ_MAX_TOKENS
+    try:
+        return _from_openai_chat(
+            GROQ_URL, _groq_token(), GROQ_MODEL, 'Groq',
+            brief, system, instruction, schema, budget,
+            GROQ_TEMPERATURE, GROQ_TIMEOUT, GROQ_REASONING)
+    except PlannerUnavailable as exc:
+        # Each Groq model has its own allowance, so a busy or spent main
+        # model isn't the end of the request. Anything else (a bad key, a
+        # refused schema) would fail the same way on the fallback.
+        message = str(exc)
+        limited = isinstance(exc, RequestTooLarge) or 'rate-limiting' in message or 'for the day' in message
+        if not limited or not GROQ_FALLBACK_MODEL or GROQ_FALLBACK_MODEL == GROQ_MODEL:
+            raise
+        return _from_openai_chat(
+            GROQ_URL, _groq_token(), GROQ_FALLBACK_MODEL, 'Groq',
+            brief, system, instruction, schema, min(budget, GROQ_MAX_TOKENS),
+            GROQ_TEMPERATURE, GROQ_TIMEOUT, GROQ_REASONING)
 
 
 # ---------------------------------------------------------------------------
@@ -903,7 +1028,7 @@ def able() -> bool:
 
 def from_provider(brief: str, system: str = None, schema: dict = None,
                   instruction: str = '', model_id: str = '',
-                  max_tokens: int = 0) -> str:
+                  max_tokens: int = 0, topics: Sequence[str] = ()) -> str:
     """One schema-constrained answer from whichever provider is configured.
 
     The four modules that ask a model to read a table used to name Anthropic
@@ -915,12 +1040,31 @@ def from_provider(brief: str, system: str = None, schema: dict = None,
     `model_id` is Anthropic's alone. Groq's model is `GROQ_MODEL`, because the
     two providers do not share a naming scheme and a caller that knows one
     cannot be asked to know the other.
+
+    `topics` is what the draft is about, most specific first. The first that
+    finds anything is looked up in backend/tracking/sources.py and its
+    reference facts go under the brief, so the model takes facts from them
+    rather than from memory.
     """
     using = provider()
     if not using:
         raise PlannerUnavailable(NO_KEY)
+    if topics:
+        brief = brief + sources.brief_block(*topics)
     if using == 'groq':
-        return _from_groq(brief, system, instruction, schema, max_tokens)
+        try:
+            return _from_groq(brief, system, instruction, schema, max_tokens)
+        except RequestTooLarge:
+            # Groq's free tier counts the prompt *and* the answer asked for
+            # against 8,000 tokens a minute, and a reading of a long record is
+            # over that before it starts — "wait a minute" can never fix it.
+            # When an Anthropic key is there too, the request goes there
+            # rather than failing; without one, the reader is told as before.
+            # Only when nothing named a provider: a reader who chose Groq on
+            # purpose is not moved to a paid one behind their back.
+            if (os.environ.get('MILESTONE_PROVIDER') or '').strip() or not _keyed('anthropic'):
+                raise
+            return from_anthropic(brief, system, schema, instruction, model_id, max_tokens)
     if using == 'grok':
         return _from_grok(brief, system, instruction, schema, max_tokens)
     if using == 'huggingface':
@@ -932,7 +1076,8 @@ def from_provider(brief: str, system: str = None, schema: dict = None,
 # The one thing this module does
 # ---------------------------------------------------------------------------
 def suggest_milestones(title, why='', description='', category='',
-                       unit='', target='', deadline='') -> List[str]:
+                       unit='', target='', deadline='', record=(),
+                       about=(), starting='') -> List[str]:
     """Five checkpoint titles for this goal, in order.
 
     Raises `PlannerUnavailable` for anything the page should say out loud: no
@@ -947,7 +1092,8 @@ def suggest_milestones(title, why='', description='', category='',
     if not using:
         raise PlannerUnavailable(NO_KEY)
 
-    brief = _brief(title, why, description, category, unit, target, deadline)
+    brief = _brief(title, why, description, category, unit, target, deadline, record, about,
+                   starting) + sources.brief_block(title, category)
     if using == 'groq':
         text = _from_groq(brief, schema=SCHEMA)
     elif using == 'grok':
@@ -957,7 +1103,7 @@ def suggest_milestones(title, why='', description='', category='',
     else:
         text = _from_anthropic(brief)
 
-    cleaned = [str(entry).strip() for entry in _titles(text) if str(entry).strip()]
+    cleaned = [plain(str(entry)).strip() for entry in _titles(text) if str(entry).strip()]
     if len(cleaned) < COUNT:
         raise PlannerUnavailable(
             'The model returned {} checkpoints instead of {}. Try again.'.format(
@@ -965,8 +1111,37 @@ def suggest_milestones(title, why='', description='', category='',
     return cleaned[:COUNT]
 
 
+#: Steps with no number and no named thing in them. Two of these in a set
+#: and the set is sent back to be rewritten, once.
+GENERIC_LIMIT = 2
+GENERIC_WORDS = re.compile(
+    r'\b(review|practice|analy[sz]e|study|work on|go over|focus on|improve|refine|strategy|'
+    r'notes|weak(?:ness|nesses)?|areas?|key concepts|core topics|mock test|example problems|'
+    r'diagnose|errors?|mistakes?|full[- ]length|exam conditions|targeted|drills?)\b', re.I)
+STEPS_BUDGET = 5500
+
+
+def too_generic(step: str, known: str = '') -> bool:
+    """A step that names nothing and counts nothing: no figure, no proper
+    noun past its first word, no quoted title, and the usual filler words.
+
+    `known` is the goal and checkpoint titles: repeating the goal's own name
+    ("a Mathcounts topic quiz" under a Mathcounts goal) isn't naming a
+    resource.
+    """
+    text = (step or '').strip()
+    if re.search(r'\d', text) or re.search(r'["“”]', text):
+        return False
+    words = re.findall(r"[A-Za-z][\w&'.-]*", text)
+    seen = {word.lower() for word in re.findall(r"[A-Za-z][\w&'.-]*", known or '')}
+    if any(word[0].isupper() and word.lower() not in seen for word in words[1:]):
+        return False
+    return bool(GENERIC_WORDS.search(text)) or len(words) <= 4
+
+
 def suggest_steps(milestone, goal='', why='', description='', category='',
-                  unit='', target='', deadline='', before='', after='') -> List[str]:
+                  unit='', target='', deadline='', before='', after='',
+                  record=(), about=(), resources=(), taken=()) -> List[str]:
     """Five steps for one checkpoint, in the order they would be done.
 
     The goal is passed as well as the checkpoint because a checkpoint title is
@@ -993,7 +1168,7 @@ def suggest_steps(milestone, goal='', why='', description='', category='',
         raise PlannerUnavailable(NO_KEY)
 
     brief = _brief(goal or milestone, why, description, category, unit, target,
-                   deadline)
+                   deadline, record, about) + sources.brief_block(milestone, goal, category)
     if goal.strip():
         brief += '\n\nCheckpoint to break down: {}'.format(milestone.strip())
         if str(before or '').strip():
@@ -1004,18 +1179,48 @@ def suggest_steps(milestone, goal='', why='', description='', category='',
                       '{}'.format(after.strip()))
     else:
         brief = 'Checkpoint to break down: {}'.format(milestone.strip())
-    instruction = 'Break this checkpoint into the five steps that reach it.'
+    if taken:
+        brief += ('\n\nSteps already planned on the other checkpoints of this goal. '
+                  "Don't repeat them or redo the same material; build past them:\n")
+        brief += '\n'.join('- {}'.format(step) for step in taken)
+    if resources:
+        brief += ('\n\nResources to build the steps on (name them; the free ones '
+                  'have links the student can open):\n')
+        brief += '\n'.join('- {}'.format(line) for line in resources)
+    instruction = ('Break this checkpoint into the five steps that reach it. Every '
+                   'step names its material, an amount, and the bar for done.')
 
-    if using == 'groq':
-        text = _from_groq(brief, SYSTEM_STEPS, instruction, STEPS_SCHEMA)
-    elif using == 'grok':
-        text = _from_grok(brief, SYSTEM_STEPS, instruction, STEPS_SCHEMA)
-    elif using == 'huggingface':
-        text = _from_huggingface(brief, SYSTEM_STEPS, instruction)
-    else:
-        text = _from_anthropic(brief, SYSTEM_STEPS, STEPS_SCHEMA, instruction)
+    def ask(text_brief, text_instruction):
+        if using == 'groq':
+            return _from_groq(text_brief, SYSTEM_STEPS, text_instruction, STEPS_SCHEMA, STEPS_BUDGET)
+        if using == 'grok':
+            return _from_grok(text_brief, SYSTEM_STEPS, text_instruction, STEPS_SCHEMA)
+        if using == 'huggingface':
+            return _from_huggingface(text_brief, SYSTEM_STEPS, text_instruction)
+        return _from_anthropic(text_brief, SYSTEM_STEPS, STEPS_SCHEMA, text_instruction)
 
-    cleaned = [str(entry).strip() for entry in _titles(text) if str(entry).strip()]
+    text = ask(brief, instruction)
+    cleaned = [plain(str(entry)).strip() for entry in _titles(text) if str(entry).strip()]
+
+    # A second pass when the first came back as filler. It costs another call,
+    # which is the point: a checklist of "review your notes" is worth less
+    # than the quota it saved.
+    known = '{} {}'.format(goal, milestone)
+    vague = [step for step in cleaned[:STEP_COUNT] if too_generic(step, known)]
+    if len(vague) >= GENERIC_LIMIT:
+        retry = (brief + '\n\nA first draft came back too vague to act on:\n'
+                 + '\n'.join('- {}'.format(step) for step in cleaned[:STEP_COUNT])
+                 + '\nThese say nothing about what to open or how much to do: '
+                 + '; '.join('"{}"'.format(step) for step in vague)
+                 + '. Rewrite all five so each names its material, an amount and '
+                   'the bar for done.')
+        try:
+            again = [plain(str(entry)).strip() for entry in _titles(ask(retry, instruction)) if str(entry).strip()]
+            if len(again) >= STEP_COUNT and sum(too_generic(step, known) for step in again[:STEP_COUNT]) < len(vague):
+                cleaned = again
+        except PlannerUnavailable:
+            pass  # keep the first draft rather than fail the button
+    cleaned = [step if len(step) <= 110 else step[:110].rsplit(' ', 1)[0].rstrip(',;:') for step in cleaned]
     if len(cleaned) < STEP_COUNT:
         raise PlannerUnavailable(
             'The model returned {} steps instead of {}. Try again.'.format(
@@ -1102,7 +1307,7 @@ You are given roughly what somebody wants. You return the goal they meant: a \
 title, why it matters, the field, how long it should take, and the five \
 checkpoints between here and done.
 
-The title is an OUTCOME, not an activity. "Reach USACO Gold", not "Practise \
+The title is an OUTCOME, not an activity. "Reach USACO Gold", not "Practice \
 competitive programming". If the sentence names an activity, name the result \
 of doing it well.
 
@@ -1125,7 +1330,13 @@ Be honest rather than encouraging; the checkpoints are spread across it.
 projects, personal, other.
 - If the sentence is vague, commit to the most common concrete reading of it \
 rather than returning something equally vague.
+- They may say how they want it drafted (the pace, how ambitious, what to \
+focus on or leave out). Follow it.
+- If they say where they're starting from, the first checkpoint is the next \
+real step above that point, never something they can already do, and \
+"months" covers the distance from there, not from zero.
 """
+SYSTEM_GOAL += STYLE
 
 
 def _category(value) -> str:
@@ -1143,7 +1354,7 @@ def _months(value) -> int:
     return max(MONTHS_MIN, min(MONTHS_MAX, months))
 
 
-def draft_goal(idea: str) -> dict:
+def draft_goal(idea: str, about: Sequence[str] = (), starting: str = '') -> dict:
     """A whole goal from one sentence: title, why, category, months, five.
 
     Raises `PlannerUnavailable` for everything the wizard should say out loud,
@@ -1170,14 +1381,20 @@ def draft_goal(idea: str) -> dict:
             'with what is set.')
 
     text = from_provider(
-        'What they said: {}'.format(idea),
+        'What they said: {}'.format(idea)
+        + ('\nWhere they are starting from: {}'.format(starting.strip())
+           if str(starting or '').strip() else '')
+        + (
+            '\n\n{}\n{}'.format(ABOUT_HEADING, '\n'.join('- {}'.format(line) for line in about))
+            if about else ''),
         system=SYSTEM_GOAL,
         schema=DRAFT_SCHEMA,
         instruction='Turn this into a goal.',
+        topics=(idea,),
     )
 
     try:
-        found = json.loads(_json_span(text))
+        found = plain(json.loads(_json_span(text)))
     except (json.JSONDecodeError, ValueError, TypeError) as exc:
         raise PlannerUnavailable(
             'The model\u2019s answer could not be read. Try again.') from exc

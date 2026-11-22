@@ -40,7 +40,7 @@ export const PHYSICS: SubjectTree = {
     { id: 'ph.laws', name: 'Laws of Thermodynamics', icon: 'entropy', tier: 'advanced', requires: ['ph.thermo'], state: lock, percent: 0, xp: 2200,
       desc: 'Energy is conserved, and disorder in a closed system does not decrease. The second law is what forbids perpetual motion and what gives time a direction at all.' },
     { id: 'ph.waves', name: 'Waves', icon: 'waves', tier: 'intermediate', requires: ['ph.momentum'], state: lock, percent: 0, xp: 1900,
-      desc: 'Energy travelling without matter travelling with it. Frequency, wavelength and speed are locked together, so a wave entering a new medium must change one of them.' },
+      desc: 'Energy traveling without matter traveling with it. Frequency, wavelength and speed are locked together, so a wave entering a new medium must change one of them.' },
     { id: 'ph.sound', name: 'Sound & Resonance', icon: 'sound', tier: 'advanced', requires: ['ph.waves'], state: lock, percent: 0, xp: 2000,
       desc: 'Pressure waves in a medium, and the frequencies at which a system prefers to vibrate. Resonance explains a wine glass shattering and a bridge closing for repairs.' },
     { id: 'ph.optics', name: 'Light & Optics', icon: 'optics', tier: 'advanced', requires: ['ph.waves'], state: lock, percent: 0, xp: 2100,
@@ -57,5 +57,7 @@ export const PHYSICS: SubjectTree = {
       desc: 'Energy arriving in lumps, particles behaving like waves, and outcomes that are probabilities rather than certainties. Strange, exactly right experimentally, and the basis of every semiconductor.' },
     { id: 'ph.relativity', name: 'Relativity', icon: 'spacetime', tier: 'mastery', requires: ['ph.em'], state: lock, percent: 0, xp: 3000,
       desc: 'What follows from the speed of light being the same for everybody: time and length stop being absolute. Every satellite fix you use corrects for it, which is as practical as a revolution gets.' },
+    { id: 'ph.engineering', name: 'Engineering', icon: 'invention', tier: 'beginner', requires: ['ph.fbd'], navTo: 'engineering', state: lock,
+      desc: 'Its own tree: the design process, statics, materials, prototyping, testing and a capstone build.' },
   ],
 };

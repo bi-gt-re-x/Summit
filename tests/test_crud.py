@@ -31,6 +31,21 @@ def test_task_round_trip(client):
     assert db.find_row('tasks', task_id) is None
 
 
+def test_a_timer_chosen_when_the_task_is_made_is_kept(client):
+    made = client.post('/api/tasks', json={
+        'name': 'read for a bit', 'xp_reward': 10, 'timer_duration': 90,
+    }).json()
+    assert made['success']
+    row = db.find_row('tasks', made['task_id'], user_id='tester')
+    assert int(row['timer_duration']) == 90
+
+
+def test_no_timer_is_stored_as_none(client):
+    made = client.post('/api/tasks', json={'name': 'no clock', 'xp_reward': 10}).json()
+    row = db.find_row('tasks', made['task_id'], user_id='tester')
+    assert row.get('timer_duration') is None
+
+
 def test_completing_a_task_records_the_timing(client):
     """`completion_seconds` and `met_deadline` are what efficiency reads."""
     made = client.post('/api/tasks', json={
@@ -75,6 +90,30 @@ def test_note_round_trip(client):
 
     assert client.post('/api/notes/delete', json={'id': note_id}).json()['success']
     assert db.find_row('notes', note_id) is None
+
+
+def test_a_note_can_be_tied_to_a_task_and_untied_again(client, task):
+    """The task a note is about: set, left alone by an edit that does not
+    mention it, and cleared by one that sends it empty."""
+    made = client.post('/api/notes/save',
+                       json={'title': 'n', 'body': 'b', 'task_id': task}).json()['note']
+    assert made['task_id'] == task
+
+    client.post('/api/notes/save', json={'id': made['id'], 'title': 'n2', 'body': 'b'})
+    assert db.find_row('notes', made['id'], user_id='tester')['task_id'] == task
+
+    reply = client.post('/api/notes/save',
+                        json={'id': made['id'], 'title': 'n2', 'body': 'b', 'task_id': ''}).json()
+    assert 'task_id' not in reply['note']
+    assert 'task_id' not in db.find_row('notes', made['id'], user_id='tester')
+
+
+def test_a_note_will_not_point_at_someone_elses_task(client, stranger):
+    theirs = stranger.post('/api/tasks', json={'name': 'theirs', 'priority': 'low'}).json()['task_id']
+    note = client.post('/api/notes/save',
+                       json={'title': 'n', 'body': 'b', 'task_id': theirs}).json()
+    assert note['success']
+    assert 'task_id' not in note['note']
 
 
 def test_editing_a_note_that_is_gone_does_not_create_one(client):
@@ -125,6 +164,20 @@ def test_goal_round_trip(client):
 
     assert client.post('/api/delete_goal', json={'goal_id': goal_id}).json()['success']
     assert db.find_row('goals', goal_id) is None
+
+
+def test_a_goal_keeps_the_chart_it_was_given(client):
+    reply = client.post('/api/add_goal', json={
+        'title': 'chart me', 'goal_type': 'xp', 'target_xp': 10, 'chart': 'step',
+    }).json()
+    assert db.find_row('goals', reply['id'], user_id='tester')['chart'] == 'step'
+
+    client.post('/api/update_goal', json={'id': reply['id'], 'chart': 'heatmap'})
+    assert db.find_row('goals', reply['id'], user_id='tester')['chart'] == 'heatmap'
+
+    # Anything off the list reads as "let the page pick" rather than an error.
+    client.post('/api/update_goal', json={'id': reply['id'], 'chart': 'pie'})
+    assert db.find_row('goals', reply['id'], user_id='tester')['chart'] == ''
 
 
 def test_goal_progress_is_capped_at_its_target(client):
@@ -390,7 +443,7 @@ def test_a_connected_goal_outlives_the_subject_being_unfollowed(client):
 
     Unfollowing a subject takes it out of the rail; it does not mean the reader
     has changed their mind about which goal that subject is about. They follow
-    it again a fortnight later and the connection is still there — which is
+    it again two weeks later and the connection is still there — which is
     only true while the validator refuses to cross-check the two answers.
     """
     client.post('/api/settings', json={'values': {

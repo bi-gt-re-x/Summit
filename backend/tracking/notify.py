@@ -52,7 +52,7 @@ Each candidate declares a channel, and Settings has a switch per channel plus a
 master one — see FIELDS in backend/api/settings.py. A channel that is off is
 never swept, so turning one off does not just hide its notifications; it stops
 writing them, and turning it back on starts from the situations that are true
-then rather than replaying a fortnight.
+then rather than replaying two weeks.
 """
 from datetime import date, timedelta
 
@@ -160,7 +160,7 @@ def _task_candidates(facts, day):
             'title': '{} past its date'.format(_count(facts['late'], 'task'))
                      if facts['late'] == 1
                      else '{} past their dates'.format(_count(facts['late'], 'task')),
-            'body': 'Including “{}”. Give it a new date or finish it.'.format(
+            'body': 'Including "{}". Give it a new date or finish it.'.format(
                 facts['late_title'] or 'one of them'),
             'link': '/tasks',
         })
@@ -172,7 +172,7 @@ def _task_candidates(facts, day):
             'tone': 'warn',
             'for_day': day,
             'title': '{} due today'.format(_count(facts['due_today'], 'task')),
-            'body': 'Starting with “{}”.'.format(facts['due_today_title'] or ''),
+            'body': 'Starting with "{}".'.format(facts['due_today_title'] or ''),
             'link': '/tasks',
         })
 
@@ -183,7 +183,7 @@ def _task_candidates(facts, day):
             'tone': 'info',
             'for_day': day,
             'title': '{} due tomorrow'.format(_count(facts['due_tomorrow'], 'task')),
-            'body': 'Including “{}”. Today is when there is still room for it.'.format(
+            'body': 'Including "{}". Today is when there\'s still room for it.'.format(
                 facts['due_tomorrow_title'] or ''),
             'link': '/tasks',
         })
@@ -219,8 +219,8 @@ def _calendar_candidates(username, day, now_minutes):
         'channel': 'calendar',
         'tone': 'info',
         'for_day': day,
-        'title': '{} on today’s calendar'.format(_count(len(blocks), 'block')),
-        'body': 'First up: “{}” at {}.'.format(
+        'title': "{} on today's calendar".format(_count(len(blocks), 'block')),
+        'body': 'First up: "{}" at {}.'.format(
             timed[0][1].get('task') or 'an event', _clock(timed[0][0]))
             if timed else 'None of them have a time on them yet.',
         'link': '/calendar/day',
@@ -236,7 +236,7 @@ def _calendar_candidates(username, day, now_minutes):
                     'channel': 'calendar',
                     'tone': 'warn',
                     'for_day': day,
-                    'title': '“{}” starts at {}'.format(
+                    'title': '"{}" starts at {}'.format(
                         block.get('task') or 'An event', _clock(start)),
                     'body': 'In {}.'.format(
                         _count(max(1, start - now_minutes), 'minute')),
@@ -260,7 +260,7 @@ def _analytics_candidates(facts, day):
     # One digest per ISO week, on whichever day the account first turns up in
     # it. A week is the shortest window where a change means anything.
     #
-    # Only when there is something in either week to report. A fortnight of
+    # Only when there is something in either week to report. Two weeks of
     # zeroes is not a summary of anything, and telling a brand new account that
     # it finished no tasks and earned no XP is the app's first sentence to
     # somebody who has not had a chance to do either.
@@ -272,7 +272,7 @@ def _analytics_candidates(facts, day):
             'channel': 'analytics',
             'tone': 'info',
             'title': 'Your last seven days',
-            'body': '{} finished, {} — {:,} XP and {} focused.'.format(
+            'body': '{} finished, {}. {:,} XP and {} focused.'.format(
                 _count(facts['done_this_week'], 'task'),
                 _change(facts['done_this_week'], facts['done_last_week']),
                 int(facts['xp_this_week']),
@@ -302,8 +302,8 @@ def _analytics_candidates(facts, day):
             'channel': 'analytics',
             'tone': 'good',
             'for_day': day,
-            'title': 'Best day you have had',
-            'body': '{:,} XP today, past the {:,} that stood before it.'.format(
+            'title': 'Your best day ever',
+            'body': '{:,} XP today. Your old best was {:,}.'.format(
                 int(facts['xp_today']), int(facts['xp_best_day'])),
             'link': '/analytics',
         })
@@ -323,9 +323,8 @@ def _goal_candidates(facts, day):
                 'fingerprint': 'goal-done:{}'.format(goal['id']),
                 'channel': 'goals',
                 'tone': 'good',
-                'title': '“{}” is finished'.format(title),
-                'body': 'Every part of it is done. It is still open — close it '
-                        'when you want it off the ladder.',
+                'title': '"{}" is finished'.format(title),
+                'body': "Every part of it is done. Close it when you're ready.",
                 'link': '/goals',
             })
             continue
@@ -340,10 +339,9 @@ def _goal_candidates(facts, day):
                 'channel': 'goals',
                 'tone': 'urgent',
                 'for_day': day,
-                'title': '“{}” is past its date'.format(title),
-                'body': '{} ago, and it stands at {}%. Move the date or cut '
-                        'the target — a goal nobody moves is one nobody '
-                        'reads.'.format(_count(-left, 'day'), progress),
+                'title': '"{}" is past its date'.format(title),
+                'body': '{} ago, and it\'s at {}%. Move the date or lower '
+                        'the target so it stays real.'.format(_count(-left, 'day'), progress),
                 'link': '/goals',
             })
         elif left <= GOAL_SOON_DAYS:
@@ -351,37 +349,106 @@ def _goal_candidates(facts, day):
                 'fingerprint': 'goal-due:{}:{}'.format(goal['id'], deadline.isoformat()),
                 'channel': 'goals',
                 'tone': 'warn',
-                'title': '“{}” is due in {}'.format(title, _count(left, 'day'))
-                         if left else '“{}” is due today'.format(title),
-                'body': 'It stands at {}%.'.format(progress),
+                'title': '"{}" is due in {}'.format(title, _count(left, 'day'))
+                         if left else '"{}" is due today'.format(title),
+                'body': "It's at {}%.".format(progress),
                 'link': '/goals',
             })
     return out
 
 
+def _long_day(day):
+    """'October 29' — no year, since every date these name is within a month."""
+    return '{:%B} {}'.format(day, day.day)
+
+
 def _streak_candidates(user, facts, day):
-    streak = int(user.get('current_streak') or 0)
+    """The streak's notifications, read off the streak as the reader's day leaves it.
+
+    `user` is the row as stored, which may be a night behind: the decay runs on
+    `/api/stats` (backend/api/dashboard.py), and nothing orders that call
+    before this one. So the streak is refreshed here on a copy, for `day`, and
+    never written — a run that ended overnight is not warned about, and a grace
+    day spent overnight is reported the first time anybody looks.
+    """
+    today = date.fromisoformat(day)
+    live = dict(user)
+    xp_tracking.refresh_streak(live, today)
+    streak = int(live.get('current_streak') or 0)
+    finished = facts['finished_today']
     out = []
 
-    if streak and not facts['finished_today']:
+    # Today's warning. Never on a vacation day — that is what the vacation is
+    # for — and worded for the first day back when one has just ended, so the
+    # reader gets one notification about it rather than two.
+    if streak and not finished and not xp_tracking.on_vacation(live, today):
+        # "It resets at midnight" is only true when there is no grace day to
+        # catch it. Said to a run that would survive the night, it is a false
+        # alarm — and a warning that cries wolf is one people learn to swipe.
+        covered = xp_tracking.grace_covers_today(live, today)
+        keeps = ('If today slips, your grace day covers it.' if covered
+                 else 'It resets at midnight.')
+        back = [last for _, last in xp_tracking.vacations(live)
+                if last == today - timedelta(days=1)]
+        if back:
+            out.append({
+                'fingerprint': 'vacation-over:{}'.format(back[0].isoformat()),
+                'channel': 'streak',
+                'tone': 'info',
+                'for_day': day,
+                'title': 'Welcome back! Your {}-day streak is back on'.format(streak),
+                'body': 'Your vacation ended yesterday. Finish anything today '
+                        'to keep it going. {}'.format(keeps),
+                'link': '/dashboard',
+            })
+        else:
+            out.append({
+                'fingerprint': 'streak-risk:{}'.format(day),
+                'channel': 'streak',
+                'tone': 'warn' if covered else 'urgent',
+                'for_day': day,
+                'title': 'Your {}-day streak has nothing on it yet'.format(streak),
+                'body': ('Anything finished today adds to it. {}'.format(keeps)
+                         if covered else
+                         'Anything finished today keeps it. {}'.format(keeps)),
+                'link': '/dashboard',
+            })
+
+    # The save itself. Raised once per forgiven day, from the morning after it
+    # (when the run is first seen to have survived) through the day after
+    # that, so somebody who did not open the app on the first morning still
+    # hears about it.
+    grace = xp_tracking.parse_day(live.get('streak_grace_day'))
+    if streak and grace and 1 <= (today - grace).days <= 2:
+        still_to_do = (today - grace).days == 1 and not finished
         out.append({
-            'fingerprint': 'streak-risk:{}'.format(day),
+            'fingerprint': 'grace-saved:{}'.format(grace.isoformat()),
             'channel': 'streak',
-            'tone': 'urgent',
-            'for_day': day,
-            'title': 'Your {}-day streak has nothing on it yet'.format(streak),
-            'body': 'Anything finished today keeps it. It resets at midnight.',
+            'tone': 'good',
+            'title': 'Your grace day saved your {}-day streak'.format(streak),
+            'body': 'You missed {:%A}, and your streak kept going.{} Your next grace '
+                    'day is ready from {}.'.format(
+                        grace,
+                        ' Finish something today to keep it going.' if still_to_do else '',
+                        _long_day(xp_tracking.grace_back_on(grace))),
             'link': '/dashboard',
         })
 
     if streak in STREAK_MILESTONES:
+        best = 'Your best is {}.'.format(
+            _count(int(live.get('best_streak') or streak), 'day'))
+        if streak == xp_tracking.GRACE_EARNED_AT:
+            # The day the grace day is earned. Saying so here, rather than in a
+            # notification of its own, is what makes it read as the reward for
+            # the week rather than as one more thing in the bell.
+            best += (" You've also earned a grace day. Miss one day and your "
+                     "streak won't end.")
         out.append({
             'fingerprint': 'streak-milestone:{}'.format(streak),
             'channel': 'streak',
             'tone': 'good',
             'title': '{} days in a row'.format(streak),
-            'body': 'Your best is {}.'.format(
-                _count(int(user.get('best_streak') or streak), 'day')),
+            'body': best,
             'link': '/dashboard',
         })
     return out
@@ -411,7 +478,7 @@ def _progress_candidates(user, facts):
             'tone': 'good',
             'title': 'Badge earned: {}'.format(badge.get('name') or badge['id']),
             'body': badge.get('description') or '',
-            'link': '/achievements',
+            'link': '/achievements/badges',
         })
 
     for record in facts['records']:
@@ -425,14 +492,15 @@ def _progress_candidates(user, facts):
                 float(value or 0),
                 ' ' + record['unit'] if record.get('unit') else '',
                 ', on {}'.format(record['achieved_on']) if record.get('achieved_on') else ''),
-            'link': '/records',
+            'link': '/achievements',
         })
     return out
 
 
 #: Which candidates are about a backlog rather than about now. The first sweep
 #: files these without showing them; see the note at the top.
-ONE_SHOT = ('level', 'badge', 'record', 'streak-milestone', 'goal-done')
+ONE_SHOT = ('level', 'badge', 'record', 'streak-milestone', 'goal-done',
+            'grace-saved')
 
 
 # --------------------------------------------------------------------------
@@ -487,6 +555,18 @@ def sweep(user, day, at=None, channels=CHANNELS):
                                     candidate['title'], candidate['body'])
 
     written = db.add_notifications(username, fresh)
+
+    # Today's streak warning, withdrawn once it stops being true: something
+    # was finished, or a vacation was started after it was raised. Left up, it
+    # would go on saying the run ends at midnight for the rest of a day on
+    # which it does not. Only the day-scoped streak rows — a grace day saved or
+    # a milestone stays true once it has happened.
+    if 'streak' in wanted:
+        standing = {c['fingerprint'] for c in candidates}
+        stale = [row['id'] for row in db.notifications_for(username, ['streak'])
+                 if row.get('for_day') == day and row['fingerprint'] not in standing]
+        if stale:
+            db.delete_notifications(username, stale)
 
     # The backlog, on the account's very first sweep: filed under its
     # fingerprint so it is never raised again, and never put on screen.

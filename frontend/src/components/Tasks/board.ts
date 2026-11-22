@@ -18,7 +18,9 @@
 import { timeText } from '@/utils/clock';
 import type { Task, TaskPriority } from '@/types';
 import { isoDate } from '@/utils/dates';
-import { XP_BANDS, xpToBand, type XpBand } from '@/utils/priority';
+import { earnedXp, lateXp } from '@/utils/overdue';
+import { XP_BANDS, levelLabel, levelOf, type XpBand } from '@/utils/priority';
+import { blockSeconds } from '@/utils/timeSpent';
 
 const DAY = 86_400_000;
 
@@ -148,23 +150,23 @@ export type GroupKey = 'due' | 'priority' | 'band' | 'subject' | 'status' | 'non
 export const GROUPS: Array<{ key: GroupKey; label: string; hint: string }> = [
   { key: 'due', label: 'Due date', hint: 'Late, today, this week, later.' },
   { key: 'priority', label: 'Priority', hint: 'High, medium, low.' },
-  { key: 'band', label: 'Difficulty', hint: 'Easy through Very Challenging.' },
-  { key: 'subject', label: 'Subject', hint: 'What the work is about.' },
+  { key: 'band', label: 'Difficulty', hint: 'Easy to very challenging.' },
+  { key: 'subject', label: 'Subject', hint: "What it's for." },
   { key: 'status', label: 'Status', hint: 'Still open, or finished.' },
   { key: 'none', label: 'No headings', hint: 'One flat list.' },
 ];
 
 export const BUCKETS: Array<{ key: Bucket; label: string; hint: string }> = [
   { key: 'overdue', label: 'Overdue', hint: 'Past its date. Move it or finish it.' },
-  { key: 'today', label: 'Due Today', hint: 'Due before the day is out.' },
+  { key: 'today', label: 'Due today', hint: 'Due by the end of today.' },
   // Tomorrow is its own heading rather than the first day of "this week",
   // because it is the only future day a reader plans in the same breath as
   // today — everything past it is a week, not a day.
   { key: 'tomorrow', label: 'Tomorrow', hint: 'The next day up.' },
-  { key: 'soon', label: 'This Week', hint: 'The week in front of you.' },
-  { key: 'later', label: 'Later', hint: 'Dated, but not yet.' },
-  { key: 'none', label: 'No date', hint: 'Real work, just not scheduled.' },
-  { key: 'done', label: 'Completed', hint: 'Already behind you.' },
+  { key: 'soon', label: 'This week', hint: 'The next seven days.' },
+  { key: 'later', label: 'Later', hint: 'Further out.' },
+  { key: 'none', label: 'No date', hint: 'No date yet.' },
+  { key: 'done', label: 'Completed', hint: 'Done.' },
 ];
 
 /** Midnight local, as a number — the day a stamp falls on, not the instant. */
@@ -252,7 +254,7 @@ export function filterTasks(tasks: Task[], query: TaskQuery, today = new Date())
     if (query.priorities.length > 0 && !query.priorities.includes(task.priority)) {
       return false;
     }
-    if (query.bands.length > 0 && !query.bands.includes(xpToBand(Number(task.xp_value) || 0))) {
+    if (query.bands.length > 0 && !query.bands.includes(levelLabel(levelOf(task)))) {
       return false;
     }
 
@@ -420,7 +422,7 @@ export function groupTasks(
         label: band.label,
         hint: ordering,
         tasks: sorted.filter(
-          (task) => xpToBand(Number(task.xp_value) || 0) === band.label,
+          (task) => levelLabel(levelOf(task)) === band.label,
         ),
       }))
       .filter((entry) => entry.tasks.length > 0);
@@ -429,7 +431,7 @@ export function groupTasks(
   if (group === 'status') {
     return [
       { key: 'open', label: 'Open', hint: ordering },
-      { key: 'done', label: 'Completed', hint: 'Already behind you.' },
+      { key: 'done', label: 'Completed', hint: 'Done.' },
     ]
       .map((entry) => ({
         ...entry,
@@ -471,7 +473,7 @@ export function groupTasks(
 
   const groups = [...seen.values()];
   if (unfiled.length > 0) {
-    groups.push({ key: 'unfiled', label: 'No subject', hint: 'Real work, just not filed.', tasks: unfiled });
+    groups.push({ key: 'unfiled', label: 'No subject', hint: 'No subject yet.', tasks: unfiled });
   }
   return groups;
 }
@@ -523,7 +525,8 @@ export function taskCounts(tasks: Task[], today = new Date()): TaskCounts {
       dueInWeek += 1;
       if (task.status === 'done') closedInWeek += 1;
     }
-    const xp = Number(task.xp_value) || 0;
+    // What it pays, or paid: late costs XP (utils/overdue.ts).
+    const xp = task.status === 'done' ? earnedXp(task) : lateXp(task.xp_value, task.due_date, today);
     if (task.status === 'done') {
       counts.done += 1;
       if (String(task.completed_at ?? '').slice(0, 10) === stamp) counts.todayXp += xp;
@@ -578,7 +581,7 @@ export function isFiltered(query: TaskQuery): boolean {
 // The sparkline under each stat card
 // --------------------------------------------------------------------------
 /**
- * The last fortnight of each headline figure, recomputed from the task list.
+ * The last two weeks of each headline figure, recomputed from the task list.
  *
  * **Nothing here is recorded history.** The account stores no daily snapshot of
  * how many tasks were open, so a card that wanted a trend had two options:
@@ -745,20 +748,16 @@ export function trendPct(series: number[]): number | null {
  * its deadline that is three weeks, and a row printing "Est. 21d" beside it
  * would be stating a lead time as an estimate of the work.
  *
- * Undated tasks, tasks not on the calendar, and blocks longer than `MAX_BLOCK`
- * get nothing. The cap is what keeps a genuine deadline — created today, due
- * next month — from being read as a month-long sitting on the rare task that
+ * Undated tasks, tasks not on the calendar, and blocks longer than 12 hours
+ * (`LONGEST_BLOCK`) get nothing. The cap is what keeps a genuine deadline —
+ * created today, due next month — from being read as a month-long sitting on
+ * the rare task that
  * has `show_on_calendar` set without a real slot behind it.
  */
-const MAX_BLOCK = 12 * 3600;
-
 export function plannedSeconds(task: Task): number | null {
-  if (!task.show_on_calendar || !task.created_at || !task.due_date) return null;
-  const from = new Date(task.created_at).getTime();
-  const to = new Date(task.due_date).getTime();
-  if (Number.isNaN(from) || Number.isNaN(to)) return null;
-  const span = (to - from) / 1000;
-  return span > 0 && span <= MAX_BLOCK ? span : null;
+  // One rule for what a calendar block is, shared with everything that reads
+  // time spent — the cap is LONGEST_BLOCK there (utils/timeSpent).
+  return blockSeconds(task);
 }
 
 /** "1h 30m", "45m" — a span in the words a row prints it in. */

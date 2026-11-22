@@ -13,8 +13,8 @@
  * ## Why a list rather than a walk of the router
  *
  * `<Routes>` in App.tsx knows every path and nothing else: no name, no
- * synonyms, and no idea that `/analytics/records` is a tab called Records that
- * a reader might look for by typing "percentile". A search index needs the
+ * synonyms, and no idea that `/analytics/growth` is where a reader typing "year on
+ * year" or "growth" should land. A search index needs the
  * words people actually type, and those exist nowhere but here.
  *
  * The cost is that this list is a mirror and can go stale. It degrades
@@ -87,21 +87,28 @@ export const PLACES: Place[] = [
     name: 'Notes',
     where: '',
     to: '/notes',
-    keywords: 'writing markdown notebook journal shelf',
+    keywords: 'writing markdown notebook shelf',
   },
   {
-    id: 'records',
-    name: 'Records',
+    id: 'log',
+    name: 'Log',
     where: '',
-    to: '/records',
-    keywords: 'personal best hall of fame high score achievements outside the app',
+    to: '/log',
+    keywords: 'journal diary reflect reflection thoughts feelings entries what summit has learned about me personalize',
   },
   {
     id: 'achievements',
     name: 'Achievements',
     where: '',
     to: '/achievements',
-    keywords: 'badges trophies wall unlocks tiers titles',
+    keywords: 'records personal best hall of fame high score outside the app how far you have come milestones',
+  },
+  {
+    id: 'achievements-badges',
+    name: 'Badges',
+    where: 'Achievements',
+    to: '/achievements/badges',
+    keywords: 'achievements badges trophies wall unlocks tiers titles',
   },
   {
     id: 'skill-trees',
@@ -141,7 +148,7 @@ export const PLACES: Place[] = [
     keywords: 'monthly grid overview dates events',
   },
 
-  // --- Analytics, which is seven tabs. Mirrors VIEWS in
+  // --- Analytics, which is five tabs. Mirrors VIEWS in
   //     components/Analytics/Header.tsx.
   {
     id: 'analytics',
@@ -162,42 +169,28 @@ export const PLACES: Place[] = [
     name: 'Overview',
     where: 'Analytics',
     to: '/analytics',
-    keywords: 'totals trajectory standing long view summary',
-  },
-  {
-    id: 'analytics-goals',
-    name: 'Goals',
-    where: 'Analytics',
-    to: '/analytics/goals',
-    keywords: 'pacing will it happen goal health what you have not aimed at',
-  },
-  {
-    id: 'analytics-habits',
-    name: 'Habits',
-    where: 'Analytics',
-    to: '/habits',
-    keywords: 'routines rhythms consistency streaks parts of day when you work',
+    keywords: 'totals trajectory growth score long view summary',
   },
   {
     id: 'analytics-insights',
     name: 'Insights',
     where: 'Analytics',
     to: '/insights',
-    keywords: 'why patterns conditions quality difficulty execution reasons',
+    keywords: 'habits routines patterns why what changed when you work best holding slipping',
   },
   {
     id: 'analytics-subjects',
     name: 'Subjects',
     where: 'Analytics',
     to: '/subjects',
-    keywords: 'per subject levels breakdown what you are getting good at',
+    keywords: "per subject levels breakdown what you're getting good at",
   },
   {
-    id: 'analytics-records',
-    name: 'Records',
+    id: 'analytics-growth',
+    name: 'Growth',
     where: 'Analytics',
-    to: '/analytics/records',
-    keywords: 'percentile ranking standing round numbers last thirty days pacing',
+    to: '/analytics/growth',
+    keywords: 'growth year on year period timeline graded measures movers how far',
   },
 
   // --- Settings, whose sections are its `:section` parameter. Mirrors the
@@ -228,7 +221,7 @@ export const PLACES: Place[] = [
     name: 'Appearance',
     where: 'Settings',
     to: '/settings/appearance',
-    keywords: 'theme dark mode light accent colour animation motion background rail collapsed',
+    keywords: 'theme dark mode light accent color color animation motion background rail collapsed',
   },
   {
     id: 'settings-dashboard',

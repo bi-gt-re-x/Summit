@@ -18,9 +18,12 @@ import { goalHealth, goalPace } from '@/utils/goalHealth';
 import { bottleneckOf, goalActions, goalReading } from '@/utils/goalAnalytics';
 import { MilestoneChecklist } from './MilestoneChecklist';
 import { AskModel } from './AskModel';
+import { SmartPlan } from './SmartPlan';
 import { GoalRead } from './GoalRead';
 import { stepProgress } from '@/utils/milestoneSteps';
 import type { Goal, Milestone, MilestoneStatus, MilestoneStep, Task } from '@/types';
+import { Icon } from '@/components/Icon';
+import { countsToward } from '@/utils/goalLinks';
 
 /**
  * Whether a checkpoint has any step somebody actually wrote.
@@ -68,6 +71,23 @@ export interface GoalDetailProps {
    * suggestion deleting somebody's plan. Same guard, same reason, as the card.
    */
   onSuggestSteps: (milestone: Milestone) => void;
+  /**
+   * Draft a checklist for every checkpoint that has none.
+   *
+   * Additive — `fillSteps` skips anything written and anything reached — so
+   * unlike the two above it runs on a press with nothing to confirm. It is the
+   * offer that was missing entirely: the per-row button only ever appeared on
+   * an empty row, so a goal with four empty rungs meant four separate presses
+   * and no way to ask for all of them.
+   */
+  onFillSteps: (goal: Goal) => void;
+  /**
+   * Draft the ladder on a goal that already has one.
+   *
+   * Separate from `onSuggestStones` because this one has to ask first: the
+   * write replaces the whole list. See `redraftStones` in pages/Goals.
+   */
+  onRedraftStones: (goal: Goal) => void;
   /** A draft is on its way to this goal or one of its checkpoints. */
   planning?: boolean;
   onReorder: (goal: Goal, order: string[]) => void;
@@ -86,14 +106,14 @@ export interface GoalDetailProps {
 export function GoalDetail(props: GoalDetailProps) {
   const { goal, tasks, busy, planning = false } = props;
   const numbers = goalNumbers(goal);
-  const health = goalHealth(goal, tasks);
+  const health = goalHealth(goal);
   const reading = goalReading(goal, tasks);
   const pace = goalPace(goal);
   const stuck = bottleneckOf(goal, tasks);
   const actions = goalActions(goal, tasks);
   const category = categoryOf(goal);
   const rows = goal.milestones ?? [];
-  const linked = tasks.filter((task) => task.goal_id === goal.id);
+  const linked = tasks.filter((task) => countsToward(task, goal.id));
 
   /* Due dates of every task on the account, so a step linked to one can print
      the date it is taking rather than the word "task". Built once here rather
@@ -170,7 +190,7 @@ export function GoalDetail(props: GoalDetailProps) {
 
           {numbers.measure === 'number' && (
             <div className="gx-value-row">
-              <label htmlFor="gx-value">Update the figure</label>
+              <label htmlFor="gx-value">Update the number</label>
               <input
                 id="gx-value"
                 type="number"
@@ -196,7 +216,7 @@ export function GoalDetail(props: GoalDetailProps) {
           <dl className="gx-facts">
             <div>
               <dt>Started</dt>
-              <dd>{formatGoalDate(goal.start_date || goal.created_at) || '—'}</dd>
+              <dd>{formatGoalDate(goal.start_date || goal.created_at) || '-'}</dd>
             </div>
             <div>
               <dt>Target date</dt>
@@ -206,7 +226,7 @@ export function GoalDetail(props: GoalDetailProps) {
               <dt>Days left</dt>
               <dd>
                 {health.signals.daysLeft === null
-                  ? '—'
+                  ? '-'
                   : health.signals.daysLeft < 0
                     ? `${Math.abs(health.signals.daysLeft)} over`
                     : health.signals.daysLeft}
@@ -295,7 +315,7 @@ export function GoalDetail(props: GoalDetailProps) {
                       in ./Outcome. */}
                   {row.status !== 'done' && (
                     <label className="gx-ms-date" title="When this checkpoint is meant to be reached">
-                      <span aria-hidden="true">{row.target_date ? '📅' : '+'}</span>
+                      <span aria-hidden="true">{row.target_date ? <Icon name="calendar" /> : '+'}</span>
                       <input
                         type="date"
                         value={row.target_date ? String(row.target_date).slice(0, 10) : ''}
@@ -341,8 +361,7 @@ export function GoalDetail(props: GoalDetailProps) {
           {rows.length === 0 && (
             <p className="gx-ms-empty">
               <span>
-                No checkpoints yet. Five is usually the whole plan — draft them
-                and edit what does not fit.
+                No checkpoints yet. Five is usually enough. Draft them, then edit what doesn't fit.
               </span>
               <AskModel
                 label="Suggest checkpoints"
@@ -365,19 +384,33 @@ export function GoalDetail(props: GoalDetailProps) {
           >
             <input
               value={draft}
-              placeholder="Add a checkpoint — a state this goal reaches, not a task"
+              placeholder="Add a checkpoint, like a stage this goal reaches"
               onChange={(event) => setDraft(event.target.value)}
             />
             <button type="submit" className="gx-btn" disabled={busy || !draft.trim()}>
               Add
             </button>
           </form>
+
+          {/* Under the form, and here whatever state the goal is in.
+
+              The empty-list prompt above is unchanged and stays where it is —
+              a suggestion belongs in the empty box. This is the other half:
+              the offers a reader goes *looking* for once there is a plan, which
+              until now were not on this screen at all. See ./SmartPlan for
+              which appear when, and which one asks before it writes. */}
+          <SmartPlan
+            goal={goal}
+            busy={busy || planning}
+            onRedraftStones={props.onRedraftStones}
+            onFillSteps={props.onFillSteps}
+          />
         </section>
 
         {/* ---- Why it is moving at this rate ------------------------------ */}
         <section className="gx-panel">
           <header className="gx-panel-head">
-            <h3>Why it is going at this rate</h3>
+            <h3>Why it's going at this rate</h3>
           </header>
 
           <div className="gx-readings">
@@ -394,8 +427,8 @@ export function GoalDetail(props: GoalDetailProps) {
               </strong>
               <span className="gx-quiet">
                 {reading.change === null
-                  ? `${reading.now} finished in the last fortnight`
-                  : `${reading.now} this fortnight against ${reading.before} before`}
+                  ? `${reading.now} finished in the last two weeks`
+                  : `${reading.now} in the last two weeks vs. ${reading.before} before`}
               </span>
             </div>
             <div>
@@ -406,7 +439,7 @@ export function GoalDetail(props: GoalDetailProps) {
               </span>
             </div>
             <div>
-              <span className="gx-quiet">Work recorded</span>
+              <span className="gx-quiet">Work done</span>
               <strong>{reading.finished}</strong>
               <span className="gx-quiet">
                 tasks finished{reading.xp > 0 ? `, ${reading.xp.toLocaleString()} XP` : ''}
@@ -415,7 +448,7 @@ export function GoalDetail(props: GoalDetailProps) {
             <div>
               <span className="gx-quiet">At this rate</span>
               <strong>
-                {pace.lands ? formatGoalDate(pace.lands) : '—'}
+                {pace.lands ? formatGoalDate(pace.lands) : '-'}
               </strong>
               <span className="gx-quiet">
                 {pace.drift === null
@@ -423,7 +456,7 @@ export function GoalDetail(props: GoalDetailProps) {
                     ? 'no target date to compare'
                     : 'not moving yet'
                   : pace.drift > 0
-                    ? `about ${pace.drift} days after the date on it`
+                    ? `about ${pace.drift} days late`
                     : `about ${Math.abs(pace.drift)} days early`}
               </span>
             </div>
@@ -431,10 +464,10 @@ export function GoalDetail(props: GoalDetailProps) {
 
           {stuck && (
             <p className="gx-bottleneck">
-              <strong>Current bottleneck: {stuck.milestone.title}</strong>
+              <strong>What's in the way: {stuck.milestone.title}</strong>
               {stuck.waitingDays !== null
-                ? ` It has been the next checkpoint for ${stuck.waitingDays} days`
-                : ' It is the next checkpoint'}
+                ? `You've been on this checkpoint for ${stuck.waitingDays} days`
+                : " It's the next checkpoint"}
               {stuck.tasks > 0
                 ? `, with ${stuck.done} of its ${stuck.tasks} tasks done.`
                 : ', and nothing is linked to it.'}
@@ -451,8 +484,7 @@ export function GoalDetail(props: GoalDetailProps) {
           )}
 
           <p className="gx-quiet gx-caveat">
-            Counted from the {linked.length} task{linked.length === 1 ? '' : 's'} linked to this
-            goal, not estimated.
+            Based on the {linked.length} task{linked.length === 1 ? '' : 's'} linked to this goal.
           </p>
         </section>
 
@@ -472,7 +504,7 @@ export function GoalDetail(props: GoalDetailProps) {
               ))}
             </ul>
             <p className="gx-quiet gx-caveat">
-              Nothing here changes on its own. Moving a target is your call.
+              Nothing changes on its own. You decide if the target moves.
             </p>
           </section>
         )}

@@ -11,8 +11,9 @@
  * The markup keeps `.quote-container` and `#dailyQuote` because the hidden
  * quote's stylesheet is written against exactly those — the HIDDEN QUOTE
  * EASTER EGG block in styles/dashboard.css. This line is what the hidden chain
- * replaces; the ten clicks that unlock it are on the rail's title, a component
- * away, and hooks/useQuoteEgg.ts is how the two meet.
+ * replaces; the ten clicks that unlock it are on the mark in the corner of the
+ * Focus card (hooks/useMarkEgg.ts), and hooks/useQuoteEgg.ts is how the two
+ * meet.
  *
  * The quote element deliberately takes no `className`. The egg restarts CSS
  * animations on it by hand, and React must not be holding the other end of the
@@ -59,7 +60,7 @@ export function DailyQuote() {
   return (
     <div className={`quote-container${containerClass}`}>
       <p id="dailyQuote" ref={quoteRef}>
-        {clue ?? `“${line.quote}” - ${line.author}`}
+        {clue ?? `"${line.quote}" - ${line.author}`}
       </p>
     </div>
   );

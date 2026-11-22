@@ -1,0 +1,188 @@
+{
+  "_about": "Rules the browser and the server both apply, kept once. Read by backend/config/shared.py and imported in the browser as '@shared/rules.json'. Change a value here and both sides change; never copy one into code. shared/README.md says more.",
+
+  "task_xp": {
+    "_about": "How hard a task is, and what it pays. A task's level is one of the seven below, picked from the pill bar when it's made and again when it's rated; its XP is that level's xp. min and max are the ends of the scale. medium_from and hard_from are the levels where the stored priority (low, medium, high) changes. five is the level folded onto the old 1-5 difficulty scale, which the quality math (difficulty x execution) still runs on. from_five maps a rating written on that old scale back to a level. Tasks made before levels existed get the highest level whose xp is at or under their XP. backend/tracking/levels.py and frontend/src/utils/priority.ts read it.",
+    "min": 10,
+    "max": 250,
+    "default_level": 3,
+    "medium_from": 3,
+    "hard_from": 5,
+    "levels": [
+      { "level": 1, "key": "easy", "label": "Easy", "xp": 10, "five": 1 },
+      { "level": 2, "key": "slightly-easy", "label": "Slightly Easy", "xp": 25, "five": 2 },
+      { "level": 3, "key": "medium", "label": "Medium", "xp": 50, "five": 3 },
+      { "level": 4, "key": "medium-hard", "label": "Medium Hard", "xp": 80, "five": 3 },
+      { "level": 5, "key": "hard", "label": "Hard", "xp": 120, "five": 4 },
+      { "level": 6, "key": "challenging", "label": "Challenging", "xp": 170, "five": 4 },
+      { "level": 7, "key": "grueling", "label": "Grueling", "xp": 250, "five": 5 }
+    ],
+    "from_five": { "1": 1, "2": 2, "3": 3, "4": 5, "5": 7 }
+  },
+
+  "overdue": {
+    "_about": "What finishing a task after its due date costs. Each day late takes cut_per_day of the task's XP, down to floor (a share of the full XP, never less than 1 XP). A date with no time is due by the end of that day. Tasks finished before since keep the full XP they were paid. backend/api/tasks.py charges it; frontend/src/utils/overdue.ts shows it.",
+    "cut_per_day": 0.25,
+    "floor": 0.25,
+    "since": "2026-10-15"
+  },
+
+  "password": {
+    "_about": "What a new password needs, checked on sign-up by backend/tracking/auth.py password_problem and listed live on the sign-up form (frontend/src/components/Auth/passwordRules.ts). Each rule is a regex the password must match, and its label is the line the form shows. Existing passwords aren't re-checked at log-in.",
+    "min_length": 8,
+    "max_length": 128,
+    "rules": [
+      { "key": "length", "label": "At least 8 characters", "pattern": "^[\\s\\S]{8,}$" },
+      { "key": "upper", "label": "An uppercase letter", "pattern": "[A-Z]" },
+      { "key": "lower", "label": "A lowercase letter", "pattern": "[a-z]" },
+      { "key": "number", "label": "A number", "pattern": "[0-9]" },
+      { "key": "symbol", "label": "A symbol (like ! or #)", "pattern": "[^A-Za-z0-9\\s]" }
+    ]
+  },
+
+  "session_timing": {
+    "_about": "When a recommended session is booked (Plan my next session, Plan all). Slots are scored on the reader's own record: how well work at that hour goes, how often they work then, how much of that weekday they usually work, how full the day already is, and how soon it is. Two sessions for the same subject never share a day, and are best gap_days apart by difficulty (1-5). backend/tracking/session_timing.py applies it.",
+    "lookback_days": 120,
+    "gap_days": { "1": 1, "2": 1, "3": 1, "4": 2, "5": 2 },
+    "most_per_day": 2,
+    "buffer_minutes": 15,
+    "search_days": 14,
+    "earliest_hour": 6,
+    "latest_hour": 23
+  },
+
+  "grade_bands": [
+    [100, "S"], [96, "A+"], [90, "A"], [80, "B"], [70, "C"], [60, "D"], [0, "F"]
+  ],
+
+  "time_spent": {
+    "longest_block_seconds": 43200,
+    "longest_sitting_seconds": 21600
+  },
+
+  "task_reasons": {
+    "struggle": [
+      { "key": "distracted", "label": "Could not focus", "phrase": "could not focus", "fix": "Put your phone in another room and set a 25-minute timer before you start" },
+      { "key": "unclear", "label": "Did not know where to start", "phrase": "was unclear where to start", "fix": "Start with one worked example before you try one yourself" },
+      { "key": "underestimated", "label": "Bigger than it looked", "phrase": "was bigger than it looked", "fix": "Split it into 15-minute pieces and book only the first" },
+      { "key": "no-time", "label": "Ran out of time", "phrase": "ran out of time", "fix": "Book it earlier in the day, at half the size" },
+      { "key": "low-energy", "label": "Low energy", "phrase": "was done on low energy", "fix": "Do it at the time of day you're sharpest" },
+      { "key": "interrupted", "label": "Kept getting interrupted", "phrase": "kept getting interrupted", "fix": "Put it on the calendar as a block so the time is protected" }
+    ],
+    "went_well": [
+      { "key": "prepared", "label": "Knew exactly what to do", "phrase": "was clear from the start" },
+      { "key": "deep-focus", "label": "Had a clear run at it", "phrase": "had a clear run at it" },
+      { "key": "momentum", "label": "Carried momentum in", "phrase": "carried momentum in" },
+      { "key": "broken-down", "label": "Broken into small steps", "phrase": "was broken into small steps" },
+      { "key": "fresh", "label": "Was fresh", "phrase": "was done fresh" },
+      { "key": "familiar", "label": "Had done one like it", "phrase": "was familiar work" }
+    ]
+  },
+
+  "recommendations": {
+    "batch": 3,
+    "max_steps": 6,
+    "work_groups": 25,
+    "step_types": ["targeted_practice", "mixed_practice", "timed_set", "review", "concept", "project"],
+    "goal_kinds": ["exam", "competition", "mastery", "habit", "project", "coverage", "unstated"]
+  },
+
+  "spaces": {
+    "count": 3,
+    "name_max": 40,
+    "body_max": 50000,
+    "blocks_max": 1000,
+    "block_text_max": 10000,
+    "indent_max": 4,
+    "icon_max": 16,
+    "block_types": ["text", "h1", "h2", "h3", "bullet", "numbered", "todo", "toggle", "quote", "callout", "divider", "code", "chart", "sticky", "shape", "live", "container"],
+    "covers": ["sunrise", "ocean", "meadow", "dusk", "ember", "forest", "slate", "sand"],
+    "grid": { "cols": 12, "row_px": 8, "y_max": 5000 },
+    "fill_styles": ["solid", "fade", "diagonal", "radial", "aurora", "flow"],
+    "shapes": ["rectangle", "rounded", "circle", "triangle", "diamond", "star", "hexagon", "arrow"],
+    "tall_rows": { "min": 6, "max": 120 },
+    "cover_text_max": 80,
+    "cover_aligns": ["left", "center", "right"],
+    "chart": {
+      "kinds": ["bar", "line", "area", "pie", "donut"],
+      "points_min": 1,
+      "points_max": 12,
+      "label_max": 24,
+      "scale_default": 100,
+      "value_max": 1000000
+    },
+    "live": {
+      "_about": "Live blocks: a space's page reading the account's own data. backend/tracking/live.py reads each source; frontend/src/components/Spaces/LiveBlock.tsx draws it. windows/weeks/ahead are the choices a block offers, in days or weeks. poll_ms is how often an open page asks whether anything changed.",
+      "sources": ["goal", "goals", "records", "record", "calendar", "productivity", "growth", "skills", "heatmap", "rhythm", "subjects"],
+      "groups": { "analytics": ["productivity", "growth", "skills", "heatmap", "rhythm", "subjects"], "goals": ["goal", "goals", "records", "record", "calendar"] },
+      "views": {
+        "goal": ["card", "ring", "timeline"],
+        "goals": ["list", "bars", "rings"],
+        "records": ["list", "bars", "table"],
+        "record": ["line", "bars", "steps"],
+        "calendar": ["list", "week"],
+        "productivity": ["bars", "line", "area"],
+        "growth": ["area", "line", "bars", "cumulative"],
+        "skills": ["columns", "list", "accuracy", "ring"],
+        "heatmap": ["grid", "strip"],
+        "rhythm": ["weekday", "hour", "grid"],
+        "subjects": ["donut", "pie", "bars"]
+      },
+      "metrics": {
+        "productivity": ["xp", "tasks", "focus"],
+        "growth": ["xp", "tasks"],
+        "heatmap": ["xp", "tasks", "focus"],
+        "rhythm": ["tasks", "xp"],
+        "subjects": ["xp", "tasks"]
+      },
+      "heat_weeks": [12, 26, 52],
+      "rhythm_days": [30, 90, 365],
+      "goal_status": ["active", "all", "done"],
+      "subjects_max": 8,
+      "windows": [7, 30, 90],
+      "weeks": [4, 8, 12],
+      "ahead": [7, 14, 30],
+      "limit_max": 12,
+      "ref_max": 80,
+      "calendar_max": 30,
+      "poll_ms": 8000
+    }
+  },
+
+  "background": {
+    "_about": "The 'About you' answers from the last step of sign-up. How detailed they are decides the head start Analytics gives the account: days counted toward its unlock waits. A level needs at least `words` words in all and `answered` questions with `answered_words` or more; the first level that fits wins. backend/tracking/background.py and frontend/src/utils/background.ts both read this; shared/cases/background_detail.json pins them.",
+    "questions": ["describe", "doing", "done", "improve"],
+    "answered_words": 5,
+    "max_chars": 2000,
+    "levels": [
+      { "key": "detailed", "label": "Very detailed", "words": 150, "answered": 4, "head_start": 7 },
+      { "key": "good", "label": "Detailed", "words": 70, "answered": 3, "head_start": 4 },
+      { "key": "brief", "label": "Brief", "words": 20, "answered": 1, "head_start": 2 },
+      { "key": "none", "label": "Not filled in yet", "words": 0, "answered": 0, "head_start": 0 }
+    ]
+  },
+
+  "log": {
+    "_about": "The Log page: a private journal Summit learns from. Each saved entry is read by a model in the background and turned into short insights, each tagged with a kind. A passing feeling fades after `feeling_days` days and never becomes a lasting fact. `quiet_seconds` is how long an entry has to sit unchanged after an autosave before it's read; pressing Save reads it straight away. backend/tracking/journal.py and frontend/src/pages/Log.tsx both read this.",
+    "title_max": 200,
+    "body_max": 20000,
+    "feeling_days": 7,
+    "quiet_seconds": 45,
+    "insights_max": 40,
+    "kinds": [
+      { "key": "goal", "label": "Long-term goal" },
+      { "key": "pattern", "label": "Recurring pattern" },
+      { "key": "preference", "label": "Preference" },
+      { "key": "feeling", "label": "Passing feeling" }
+    ],
+    "topics": [
+      { "key": "goals", "label": "Goals" },
+      { "key": "interests", "label": "Interests" },
+      { "key": "priorities", "label": "Priorities" },
+      { "key": "motivation", "label": "Motivation" },
+      { "key": "challenges", "label": "Challenges" },
+      { "key": "preferences", "label": "Preferences" },
+      { "key": "reflections", "label": "How you work" }
+    ]
+  }
+}

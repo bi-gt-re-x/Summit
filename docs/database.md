@@ -23,7 +23,7 @@ else in the codebase opens the database.
 | `tasks.sql` | `tasks` | every task, plus the timing recorded on completion |
 | `goals.sql` | `goals` | goals of all four types |
 | `growth.sql` | `xp_events` (+ the `growth_daily` view) | the XP ledger — append-only, one row per earning moment |
-| `focus.sql` | `focus_days`, `day_focus_notes` | each day's focus total, and the day's one-line note |
+| `focus.sql` | `focus_days`, `day_focus_notes`, `focus_sittings` | each day's focus total, the day's one-line note, and one row per focus sitting with the task it was for |
 | `events.sql` | `calendar_entries`, `calendar_events`, `event_colors` | tasks placed on a day, standalone calendar blocks, the palette in use |
 | `analytics.sql` | `metric_snapshots` | the graded report card, one row per user per day per metric |
 | `achievements.sql`, `history.sql`, `library.sql`, `notes.sql`, `settings.sql` | — | schema only: those features are not built |
@@ -78,10 +78,16 @@ points at nothing rolls the whole write back.
 or all of the new. WAL is on, so a reader never blocks on the writer.
 
 **Reads write.** `GET /api/get_user_data` decays a stale streak,
-`GET /api/get_goals` re-syncs streak and focus goals, and
-`GET /api/get_growth_ratings` files a snapshot into `metric_snapshots`. All
-three save as they go — into the database, which is why the seed files no
-longer churn.
+`GET /api/get_goals` re-syncs streak and focus goals, `GET /api/achievements`
+records anything newly earned, and `GET /api/get_growth_ratings` files six
+graded rows into `metric_snapshots`. All of them save as they go — into the
+database, which is why the seed files no longer churn.
+
+Each of those writes only the rows it changed. They did not: filing the day's
+six grades rewrote every snapshot ever taken, and reading the badge wall
+rewrote the badge catalogue and every account's preferences. A read that costs
+thousands of INSERTs is a read that gets slower every day it is used, and the
+statement counts are pinned by tests for that reason.
 
 **Ids are millisecond timestamps**, stepped forward past collisions
 (`connection.new_id`). They are primary keys, so two rows created in the same
@@ -112,11 +118,20 @@ The schema is deliberately plain, so the distance is short:
    `GIN` index on `library_items.tags`. Nothing else in `data/sql/` changes.
 2. Load the files in the order `config/settings.py:SCHEMA_FILES` gives —
    `users` first, since every foreign key points at `users.username`.
-3. Repoint `connection.py` at a connection pool instead of a file. `read_table`
-   and `write_table` are the only two functions that run SQL; nothing above
-   them knows where the data lives, so `tracking/` and `pages/` do not change.
+3. Repoint `connection.py` at a connection pool instead of a file. Every
+   statement in the app is written in that one module and nowhere else, so
+   `tracking/` and `api/` do not change — none of them knows where the data
+   lives. Most of the SQL is portable as written; what is not is the SQLite
+   spelling of a few things — `PRAGMA table_info` and `PRAGMA foreign_key_check`,
+   `datetime('now')` for a default timestamp, and the `typeof(...)` guards in
+   the aggregate reads, which exist because a SQLite column holds whatever was
+   written to it and a PostgreSQL one does not.
 
-The one thing that would need rethinking is `write_table`: replacing a whole
-table on every save is fine for a local file and wasteful over a network. The
-row dicts already carry their primary keys, so it can become an upsert plus a
-delete of what is missing.
+The one thing that would need rethinking is `write_table`, which replaces a
+whole table on every save: fine for a local file and wasteful over a network.
+It is no longer on any hot path — the targeted reads and writes beside it
+(`rows_for`, `columns_for`, `insert_row`, `update_row`, `find_row` and the
+per-key `set_user_setting`) took over the request paths one at a time, and what
+is left of `write_table` is bulk saves and the seeding scripts. The row dicts
+carry their primary keys, so the rest can become an upsert plus a delete of
+what is missing.

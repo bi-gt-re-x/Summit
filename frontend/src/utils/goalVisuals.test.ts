@@ -88,7 +88,7 @@ describe('the sentence under the chart', () => {
 
     expect(chosen?.id).toBe('roadmap');
     expect(chosen?.why).toContain('3 checkpoints');
-    expect(chosen?.why).toMatch(/not yet enough finished work/);
+    expect(chosen?.why).toMatch(/not enough finished work to chart yet/);
   });
 
   it('names the days behind a consistency grid', () => {
@@ -98,7 +98,7 @@ describe('the sentence under the chart', () => {
     );
 
     expect(chosen?.id).toBe('heatmap');
-    expect(chosen?.why).toContain('5 separate days');
+    expect(chosen?.why).toContain('5 different days');
   });
 
   it('names the subjects behind a by-subject split', () => {
@@ -183,5 +183,26 @@ describe('the sentence agrees with the rule that chose it', () => {
 
     expect(pick(goal({ category: 'music' }), days(3))?.id).not.toBe('heatmap');
     expect(pick(goal({ category: 'music' }), days(4))?.id).toBe('heatmap');
+  });
+});
+
+describe('a chart the reader chose', () => {
+  it('wins over the automatic pick, even with nothing behind it', () => {
+    const chosen = pick(goal({ chart: 'heatmap', milestones: [stone('a')] }));
+
+    expect(chosen?.id).toBe('heatmap');
+    expect(chosen?.why).toMatch(/You chose this chart/);
+  });
+
+  it('draws charts the automatic pick never offers', () => {
+    expect(pick(goal({ chart: 'step' }))?.id).toBe('step');
+    expect(pick(goal({ chart: 'basic' }))?.id).toBe('basic');
+  });
+
+  it('falls back to the automatic pick for an empty or unknown choice', () => {
+    const roadmap = { milestones: [stone('a'), stone('b')] };
+
+    expect(pick(goal({ chart: '', ...roadmap }))?.id).toBe('roadmap');
+    expect(pick(goal({ chart: 'pie', ...roadmap }))?.id).toBe('roadmap');
   });
 });

@@ -12,8 +12,11 @@
  */
 import { Suspense, lazy, useEffect } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { AppBoundary, Loading, Rail, Toasts, Topbar, VerifyBanner } from '@/components';
+import { Ambient, AppBoundary, Loading, Rail, Toasts, Topbar, VerifyBanner } from '@/components';
 import { RequireAccount } from './RequireAccount';
+import { FeatureGate } from '@/components/FeatureGate';
+import { Tutorial } from '@/components/Tutorial/Tutorial';
+import { useSittingShown } from '@/components/Timer/FocusSitting';
 import { useAuth, usePinnedViewport, useSettings } from '@/hooks';
 import { useChainAccount } from '@/hooks/useChainAccount';
 import { useVoid } from '@/hooks/useVoid';
@@ -24,18 +27,21 @@ import Dashboard from '@/pages/Dashboard';
 // chunk that is always already fetched.
 import Unbuilt, { PATHS as UNBUILT_PATHS } from '@/pages/Unbuilt';
 import type { Prefs } from '@/services/settings';
+import { rememberExit } from '@/utils/settingsExit';
 
 const Homepage = lazy(() => import('@/pages/Homepage'));
+const Login = lazy(() => import('@/pages/Login'));
 const Goals = lazy(() => import('@/pages/Goals'));
 const Tasks = lazy(() => import('@/pages/Tasks'));
 const Analytics = lazy(() => import('@/pages/Analytics'));
 const SubjectAnalytics = lazy(() => import('@/pages/SubjectAnalytics'));
 const SkillTrees = lazy(() => import('@/pages/SkillTrees'));
 const Notes = lazy(() => import('@/pages/Notes'));
+const Log = lazy(() => import('@/pages/Log'));
+const Space = lazy(() => import('@/pages/Space'));
 const Timer = lazy(() => import('@/pages/Timer'));
-const Records = lazy(() => import('@/pages/Records'));
-const Settings = lazy(() => import('@/pages/Settings'));
 const Achievements = lazy(() => import('@/pages/Achievements'));
+const Settings = lazy(() => import('@/pages/Settings'));
 const AboutUs = lazy(() => import('@/pages/AboutUs'));
 const PrivacyPolicy = lazy(() => import('@/pages/PrivacyPolicy'));
 const TermsOfService = lazy(() => import('@/pages/TermsOfService'));
@@ -87,7 +93,11 @@ export function CalendarHome() {
   return <Navigate to={`/calendar/${prefs.calendar_view}${search}${hash}`} replace />;
 }
 
-function FrontDoor() {
+/* Exported for App.frontDoor.test.tsx. The redirect is the whole of what the
+   Startup setting does — the select in Settings writes `home_page` and this is
+   the only thing that reads it — so it is the one piece of this file worth
+   being able to render on its own. */
+export function FrontDoor() {
   const { status } = useAuth();
   const { prefs, ready } = useSettings();
   if (status === 'loading') return <Loading />;
@@ -141,9 +151,15 @@ function pinsViewport(pathname: string): boolean {
  * in, and it carries its own header and its own Log In / Sign Up row — the ones
  * it had before React, which styles/homepage.css still dresses. The rail beside
  * that would be a second navigation for pages the reader cannot open yet.
+ * The sign-in page (/login) is the same: a signed-out visitor's page, with the
+ * mark in its own layout.
  */
 function isLanding(pathname: string): boolean {
-  return pathname === '/home';
+  return pathname === '/home' || pathname === '/login';
+}
+
+function isSettings(pathname: string): boolean {
+  return pathname === '/settings' || pathname.startsWith('/settings/');
 }
 
 export default function App() {
@@ -154,10 +170,50 @@ export default function App() {
   // every page but this one wants it. Off here, so the landing page gets the
   // full width back.
   const landing = isLanding(pathname);
+  /* See the note on <Ambient /> below. */
+  const sitting = useSittingShown();
+  const ownsAmbient = pathname === '/timer' || sitting;
+  /* The Personal and Team spaces are the reader's own pages, and keep a plain
+     ground: no graph paper behind what they write. */
+  const custom = pathname.startsWith('/spaces/') || pathname.startsWith('/team/');
+
+  /* `on-calendar` re-rules the background's graph paper to the calendar's own
+     hour pitch while a calendar view is open — styles/ambient.css has the
+     figures and the caveat. A body class rather than a prop on <Ambient />,
+     because what changes is a stylesheet's mind about one layer and not
+     anything the component renders; `has-rail` beside it works the same way. */
+  const onCalendar = pathname === '/calendar' || pathname.startsWith('/calendar/');
+  /* Settings takes the whole window: no rail, no top bar, and an arrow in its
+     own corner back to wherever the reader came from. `no-chrome` hides the
+     two and gives their room back (styles/rail.css) rather than unmounting
+     them, so neither is rebuilt on the way out. */
+  const bare = isSettings(pathname);
   useEffect(() => {
     document.body.classList.toggle('has-rail', !landing);
     return () => document.body.classList.add('has-rail');
   }, [landing]);
+  useEffect(() => {
+    document.body.classList.toggle('no-chrome', bare);
+    return () => document.body.classList.remove('no-chrome');
+  }, [bare]);
+  /* Where Settings' back arrow goes: the last page that was not Settings.
+     Moving between its sections pushes history, so "back" is not the way out. */
+  useEffect(() => {
+    if (!bare && !landing) rememberExit(pathname);
+  }, [bare, landing, pathname]);
+  useEffect(() => {
+    document.body.classList.toggle('on-calendar', onCalendar);
+    return () => document.body.classList.remove('on-calendar');
+  }, [onCalendar]);
+  /* A focus sitting is on screen (the Timer page's or the dashboard's). The
+     rail is hidden and its width given back — styles/rail.css, `is-sitting` —
+     and the rest of the shell below is made inert, so nothing behind the
+     sitting can be clicked, tabbed to or read out while it runs. Pausing ends
+     the sitting and gives all of it back. */
+  useEffect(() => {
+    document.body.classList.toggle('is-sitting', sitting);
+    return () => document.body.classList.remove('is-sitting');
+  }, [sitting]);
 
   /* Whose hidden chain this is. Above the router so the name is right before
      any page mounts a script that reads it — see hooks/useChainAccount.ts. */
@@ -170,18 +226,57 @@ export default function App() {
 
   return (
     <>
-      {!landing && <Rail />}
+      {/* The graph paper, the slow wash and the drifting dots, once for the
+          whole app.
+          
+          It used to be a line in each page's own markup, which meant ten
+          copies of it and six pages without one — the written pages, the sign
+          in page, the records page, the calendar — because a page nobody
+          remembered to add it to simply did not have it. A background is a
+          property of the app, not a thing each screen opts into, and a screen
+          written next week gets this one without anybody remembering.
+          
+          Every page wears the whole layer — the graph paper, the slow wash and
+          the drifting dots — and the landing page adds the glow that follows
+          the pointer (see components/Ambient for why only there). The custom
+          spaces have none — see `custom`.
+          
+          The timer is the one page that renders its own. While a sitting is
+          running its field accelerates — `surge`, in the same component — and
+          a second canvas behind the first would be a second rAF loop drawing
+          something nobody can see. See pages/Timer.tsx. The dashboard shows
+          the same sitting, and `sitting` stands this one down for it too. */}
+      {!ownsAmbient && !custom && <Ambient cursor={pathname === '/home'} />}
+      {!landing && (
+        <div className="app-chrome" inert={sitting}>
+          <Rail />
+        </div>
+      )}
       {/* Beside the rail rather than above it: the rail owns the full height
           and the bar starts at `--rail-w`. Outside the router with the rail,
           so neither is torn down and rebuilt on every navigation. The account
           read they both show is not theirs any more — it belongs to
           UserDataProvider above them, and happens once for the session. */}
-      {!landing && <Topbar />}
+      {!landing && (
+        <div className="app-chrome" inert={sitting}>
+          <Topbar />
+        </div>
+      )}
       {/* Under the bar and over the page, and only when there is something to
           ask: an account whose address is confirmed never sees it. It is drawn
           here rather than by each page for the same reason the bar is — one
           strip for the app, not one per screen. See components/VerifyBanner. */}
-      {!landing && <VerifyBanner />}
+      {!landing && (
+        <div className="app-chrome" inert={sitting}>
+          <VerifyBanner />
+        </div>
+      )}
+      {/* The guided tour, with Mango. See components/Tutorial. */}
+      {!landing && (
+        <div className="app-chrome" inert={sitting}>
+          <Tutorial />
+        </div>
+      )}
       <main className="app-main">
         {/* Inside the shell, so a page that throws loses the page and not the
             rail, the top bar and the way back. Keyed on the path: navigating
@@ -193,6 +288,7 @@ export default function App() {
             {/* Public */}
             <Route path="/" element={<FrontDoor />} />
             <Route path="/home" element={<Homepage />} />
+            <Route path="/login" element={<Login />} />
             <Route path="/about-us" element={<AboutUs />} />
             <Route path="/privacy-policy" element={<PrivacyPolicy />} />
             <Route path="/terms-of-service" element={<TermsOfService />} />
@@ -200,42 +296,31 @@ export default function App() {
             {/* Account required — the same four the backend gates.
                 See backend/middleware/gate.py GATED_PATHS. */}
             <Route element={<RequireAccount />}>
+              {/* Every signed-in page passes through the getting-started
+                  note, which steps aside for the starter pages and for any
+                  page the account has opened (components/FeatureGate). */}
+              <Route element={<FeatureGate />}>
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/tasks" element={<Tasks />} />
               <Route path="/goals" element={<Goals />} />
-              {/* One page, seven tabs, seven URLs. The analytics page reads the
+              {/* One page, five tabs, six URLs — `/habits` outlived its tab and
+                  still resolves, see `viewFor`. The analytics page reads the
                   pathname to decide which tab opens (VIEWS in
                   components/Analytics/Header), so the rail, the back button and
                   a pasted link all agree about what is showing — none of which
                   a local useState could have managed. */}
               <Route path="/recommendations" element={<Analytics />} />
               <Route path="/analytics" element={<Analytics />} />
-              {/* The Goals tab. `/trends` was this slot and redirects rather
-                  than 404s, because it was a tab with its own URL for long
-                  enough to be bookmarked. */}
-              <Route path="/analytics/goals" element={<Analytics />} />
-              <Route path="/trends" element={<Navigate to="/analytics/goals" replace />} />
-              <Route path="/habits" element={<Analytics />} />
               <Route path="/insights" element={<Analytics />} />
+              <Route path="/habits" element={<Analytics />} />
               <Route path="/subjects" element={<Analytics />} />
-              {/* The Growth tab. This slot was the analytics tab called
-                  Records, which asked where the last thirty days *stand* — the
-                  percentile, the goal pacing, the round numbers cleared. Two of
-                  those three are answered better elsewhere (the Goals tab, and
-                  the /records page), so the slot now holds the question none of
-                  them asks: how far the account has come over its whole life.
-                  See VIEWS in components/Analytics/Header.
-
-                  `/analytics/records` redirects rather than 404s, for the same
-                  reason `/trends` does below: it was a tab with its own URL for
-                  long enough to be bookmarked.
-
-                  Note that `/growth` — the old server-rendered path — still
-                  redirects to `/analytics` rather than here. That is deliberate
-                  and it is a wart: the short path and the tab named Growth are
-                  different destinations. It is left alone because `/growth` has
-                  meant "the analytics page" since the port, and quietly moving
-                  it would change where an existing link lands. */}
+              <Route path="/analytics/growth" element={<Analytics />} />
+              {/* Tabs that were cut, or moved. Each had its own URL for long
+                  enough to be bookmarked, so each redirects to where its
+                  content went. See VIEWS in components/Analytics/Header. */}
+              <Route path="/analytics/goals" element={<Navigate to="/goals" replace />} />
+              <Route path="/trends" element={<Navigate to="/goals" replace />} />
+              <Route path="/analytics/records" element={<Navigate to="/analytics/growth" replace />} />
               {/* One subject, on its own — a page rather than an eighth tab.
                   There is one of these per subject the account follows, and a
                   tab bar whose shape depends on a wizard answer is a tab bar
@@ -244,15 +329,9 @@ export default function App() {
                   one a task carries, so the URL survives a rename. It is a
                   skeleton today — see the page. */}
               <Route path="/analytics/subject/:subjectId" element={<SubjectAnalytics />} />
-              <Route path="/analytics/growth" element={<Analytics />} />
-              <Route
-                path="/analytics/records"
-                element={<Navigate to="/analytics/growth" replace />}
-              />
               {/* The growth page was the other half of the original growth.js
-                  and had five tabs of its own, four of which are now tabs above
-                  and the fifth of which was a lower-resolution copy of the
-                  Overview. The path stays and redirects, because it is the one
+                  and had five tabs of its own, all of them folded into the
+                  analytics page or the Records page since. The path stays and redirects, because it is the one
                   the server-rendered app used and links to it exist. */}
               <Route path="/growth" element={<Navigate to="/analytics" replace />} />
               {/* The skill trees. `/growth-tree` was the placeholder's path and
@@ -263,16 +342,32 @@ export default function App() {
                   describe. */}
               <Route path="/skill-trees" element={<SkillTrees />} />
               <Route path="/notes" element={<Notes />} />
+              <Route path="/log" element={<Log />} />
+              {/* The three Personal spaces in the rail. An id outside 1-3
+                  goes to the first. */}
+              <Route path="/spaces/:spaceId" element={<Space key="personal" />} />
+              {/* The three Team spaces: the same page with a member list. Keyed
+                  apart so moving between the two kinds starts afresh. */}
+              <Route path="/team/:spaceId" element={<Space key="team" kind="team" />} />
               <Route path="/timer" element={<Timer />} />
-              <Route path="/records" element={<Records />} />
+              {/* One page, two tabs: personal bests and the badge wall. It was
+                  called Records until the badges' own name took over, so the
+                  /records paths redirect. Growth was a third tab here and is an
+                  analytics tab again. */}
+              <Route path="/achievements" element={<Achievements />} />
+              <Route path="/achievements/badges" element={<Achievements />} />
+              <Route path="/records" element={<Navigate to="/achievements" replace />} />
+              <Route path="/records/growth" element={<Navigate to="/analytics/growth" replace />} />
+              <Route path="/achievements/growth" element={<Navigate to="/analytics/growth" replace />} />
+              <Route path="/records/badges" element={<Navigate to="/achievements/badges" replace />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/settings/:section" element={<Settings />} />
-              <Route path="/achievements" element={<Achievements />} />
               <Route path="/growth-tree" element={<Navigate to="/skill-trees" replace />} />
               <Route path="/calendar" element={<CalendarHome />} />
               <Route path="/calendar/day" element={<CalendarDay />} />
               <Route path="/calendar/week" element={<CalendarWeek />} />
               <Route path="/calendar/month" element={<CalendarMonth />} />
+              </Route>
             </Route>
 
             {/* Not built yet, but routed, so the structure is real and the

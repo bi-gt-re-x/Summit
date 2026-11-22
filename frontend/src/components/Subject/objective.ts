@@ -42,13 +42,7 @@
  * from a subject that merely has competitions in it. That is the model's
  * call, and it is asked to justify it.
  */
-import type {
-  Bottleneck,
-  EvidenceDirection,
-  GoalEvidence,
-  GoalKind,
-  GoalRead,
-} from '@/services/analytics';
+import type { Bottleneck, GoalKind, GoalRead } from '@/services/analytics';
 import type { Performance } from './performance';
 import type { SubjectState } from './state';
 import type { SubjectGoal } from './model';
@@ -83,12 +77,6 @@ export interface Objective {
   marks: ObjectiveMark[];
 }
 
-/** A card under "what matters now". */
-export interface EvidenceCard extends GoalEvidence {
-  id: string;
-  source: 'read' | 'counted';
-}
-
 /** The words each kind is drawn with. `unstated` draws no chip at all. */
 export const KIND_WORDS: Record<GoalKind, string> = {
   exam: 'Dated exam',
@@ -108,12 +96,12 @@ export const KIND_WORDS: Record<GoalKind, string> = {
  * can see that it was made rather than discovering it in the recommendations.
  */
 export const KIND_MEANS: Record<GoalKind, string> = {
-  exam: 'Progress is coverage and timing together.',
-  competition: 'Progress is reproducing what you can do, under a clock.',
-  mastery: 'Progress is the level of work you can land.',
-  habit: 'Progress is how often there is work here at all.',
-  project: 'Progress is the thing being finished.',
-  coverage: 'Progress is getting through the material.',
+  exam: 'Progress means covering it all in time.',
+  competition: 'Progress means doing it under time pressure.',
+  mastery: 'Progress means getting harder work right.',
+  habit: 'Progress means showing up often.',
+  project: 'Progress means getting it done.',
+  coverage: 'Progress means getting through the material.',
   unstated: '',
 };
 
@@ -139,22 +127,20 @@ function plural(count: number, word: string): string {
  */
 function countedFocus(state: SubjectState, perf: Performance): string {
   if (perf.divergence.known && perf.divergence.reading === 'capability-ahead') {
-    return 'Turn what you can already do into work that lands.';
+    return 'Turn what you know into work you get right.';
   }
   if (perf.families.known && perf.families.answered >= 6
       && perf.families.notConceptual >= 60) {
-    return 'Fix how the sittings go, not what is in them.';
+    return 'Fix how your sessions go first.';
   }
   if (state.curve.threshold) {
-    return `Make ${state.curve.threshold.label} land the way the levels below it do.`;
+    return `Get ${state.curve.threshold.label} work as solid as the easier levels.`;
   }
   if (perf.gap.known && perf.gap.largest) {
-    return `Close the ${perf.gap.largest.label.toLowerCase()} gap — it carries `
-      + `${plural(perf.gap.largest.points, 'point')} of the `
-      + `${plural(perf.gap.total, 'point')} you are short.`;
+    return `Close the ${perf.gap.largest.label.toLowerCase()} gap. It's ${plural(perf.gap.largest.points, 'point')} of the ${plural(perf.gap.total, 'point')} you're missing.`;
   }
   if (state.momentum.known && state.momentum.direction === 'slipping') {
-    return 'Get execution moving the right way again before adding anything.';
+    return 'Get your ratings back up before adding more.';
   }
   return '';
 }
@@ -176,7 +162,7 @@ function daysUntil(deadline: string, today: string): number | null {
  * much of the work here is actually pointed at it. The last is the one a
  * reader almost never has: "you have done 46 things in this subject and four
  * of them were aimed at the thing you said you were doing" is the sentence
- * that changes a fortnight.
+ * that changes two weeks.
  */
 function marksFor(goal: SubjectGoal | null, today: string): ObjectiveMark[] {
   if (!goal) return [];
@@ -205,7 +191,7 @@ function marksFor(goal: SubjectGoal | null, today: string): ObjectiveMark[] {
 
   if (goal.ofFinished > 0) {
     marks.push({
-      label: 'Work pointed here',
+      label: 'Tasks linked here',
       value: `${goal.aimed} of ${goal.ofFinished}`,
       // Not a judgement on the ratio. A subject whose goal is one of several
       // honest things to do in it is not failing by having other work in it,
@@ -253,192 +239,19 @@ export function objectiveFrom(
   };
 }
 
-// ---------------------------------------------------------------------------
-// What matters now
-// ---------------------------------------------------------------------------
-interface Candidate {
-  id: string;
-  when: boolean;
-  claim: string;
-  direction: EvidenceDirection;
-  evidence: string[];
-  relevance: string;
-}
-
 /**
- * The counted evidence cards.
+ * Rated tasks behind a shortfall split before it may name anything.
  *
- * Every one is a relationship this app already computed, written as a claim
- * with the figures under it. They are ordered by what a reader could act on
- * this week rather than by size, and cut to three — the section answers "what
- * matters", and eight cards is the dashboard it replaces.
+ * The composite bottleneck divides the gap between the measures, and a
+ * division is only as trustworthy as the count under it — "turning up
+ * carries most of your shortfall" read off two afternoons is the kind of
+ * sentence that makes a reader stop believing the rest of the page.
  *
- * The `relevance` line here is mechanical: what the finding implies about what
- * to do. It cannot be goal-aware, because the arithmetic does not know what
- * kind of goal this is — that is the whole reason the model's version of this
- * section is better, and the page labels which one it is showing.
- */
-function candidates(
-  state: SubjectState,
-  perf: Performance,
-  goal: SubjectGoal | null,
-): Candidate[] {
-  const curve = state.curve;
-  const cliff = curve.threshold;
-  const hold = curve.best;
-
-  return [
-    {
-      id: 'cliff',
-      when: Boolean(cliff && cliff.execution !== null),
-      claim: `Work stops landing at ${cliff?.label}.`,
-      direction: 'hurts',
-      evidence: [
-        `${cliff?.label}: execution ${cliff?.execution} over ${plural(cliff?.done ?? 0, 'rated task')}`,
-        hold && hold.execution !== null
-          ? `${hold.label}: execution ${hold.execution} over ${plural(hold.done, 'rated task')}`
-          : '',
-        curve.drop !== null ? `a ${curve.drop}-point step between them` : '',
-      ].filter(Boolean),
-      relevance: `The level to work is ${hold?.label ?? 'the one below it'}, not the one above.`,
-    },
-    {
-      id: 'families',
-      when: perf.families.known && perf.families.answered >= 6
-        && perf.families.notConceptual >= 60,
-      claim: 'Most of what goes wrong is not about knowing the material.',
-      direction: 'hurts',
-      evidence: [
-        `${perf.families.notConceptual}% of named struggles were not conceptual`,
-        `out of ${plural(perf.families.answered, 'answered struggle')}`,
-        perf.families.leading
-          ? `most common: ${perf.families.leading.label}, ${perf.families.leading.share}%`
-          : '',
-      ].filter(Boolean),
-      relevance: 'Harder material would add a second problem on top of this one.',
-    },
-    {
-      id: 'divergence',
-      when: perf.divergence.known && perf.divergence.reading === 'capability-ahead',
-      claim: 'Capability is moving faster than the result.',
-      direction: 'watch',
-      evidence: [
-        `execution ${(perf.divergence.capability ?? 0) > 0 ? '+' : ''}${perf.divergence.capability} points across the window`,
-        `quality ${(perf.divergence.outcome ?? 0) > 0 ? '+' : ''}${perf.divergence.outcome} points over the same run`,
-      ],
-      relevance: 'The gap is between what you can do and what you finish.',
-    },
-    {
-      id: 'momentum',
-      when: state.momentum.known && state.momentum.direction !== 'flat',
-      claim: state.momentum.direction === 'climbing'
-        ? 'Execution is improving across this window.'
-        : 'Execution is falling across this window.',
-      direction: state.momentum.direction === 'climbing' ? 'helps' : 'hurts',
-      evidence: [
-        `${state.momentum.earlier} to ${state.momentum.later} on execution`,
-        `${(state.momentum.change ?? 0) > 0 ? '+' : ''}${state.momentum.change} points, earlier half to later`,
-      ],
-      relevance: state.momentum.direction === 'climbing'
-        ? 'Whatever is being done now is worth keeping in rotation.'
-        : 'Something changed recently and it is worth finding out what.',
-    },
-    {
-      id: 'rushed',
-      when: perf.calibration.known && perf.calibration.rushed >= 3,
-      claim: 'A run of work was finished fast and rated badly.',
-      direction: 'hurts',
-      evidence: [
-        `${plural(perf.calibration.rushed, 'task')} came in under your own median for the level and rated 3 or below`,
-      ],
-      relevance: 'Rushing has a different fix from not knowing.',
-    },
-    {
-      id: 'drift',
-      when: Boolean(goal && goal.drift !== null && goal.drift !== 0),
-      claim: (goal?.drift ?? 0) > 0
-        ? 'The current rate does not reach the date.'
-        : 'The current rate arrives ahead of the date.',
-      direction: (goal?.drift ?? 0) > 0 ? 'hurts' : 'helps',
-      evidence: [
-        `${goal?.title}: ${Math.round(goal?.progress ?? 0)}% done`,
-        goal?.expected !== null && goal?.expected !== undefined
-          ? `${Math.round(goal.expected)}% of its time gone`
-          : '',
-        `${plural(Math.abs(goal?.drift ?? 0), 'day')} ${(goal?.drift ?? 0) > 0 ? 'late' : 'early'} at this rate`,
-      ].filter(Boolean),
-      relevance: (goal?.drift ?? 0) > 0
-        ? 'Either the rate rises or the date moves.'
-        : 'There is room to raise the level rather than the volume.',
-    },
-    {
-      id: 'idle',
-      when: Boolean(goal && goal.sinceWork !== null && goal.sinceWork >= 14),
-      claim: 'Nothing has been pointed at this goal lately.',
-      direction: 'hurts',
-      evidence: [
-        `${plural(goal?.sinceWork ?? 0, 'day')} since a task here named it`,
-        `${goal?.recentDays ?? 0} of the last 14 days had one`,
-      ],
-      relevance: 'A goal with no work pointed at it is not being pursued.',
-    },
-  ];
-}
-
-/** How many cards the section draws. See the note on the model's own cap. */
-export const EVIDENCE_SHOWN = 3;
-
-/**
- * Rated tasks before the composite gap may name a bottleneck.
- *
- * Every other naming below carries its own floor, inherited from whatever it
- * reads: a rung needs three, a momentum half needs four, a leading reason
- * needs six. The gap has none of its own — it is a mean over whichever
- * dimensions happen to be known, so it produces a confident-looking answer
- * off two rated tasks, and "turning up carries most of your shortfall" read
- * off two afternoons is the kind of sentence that makes a reader stop
- * believing the rest of the page.
- *
- * Six, matching the floor the reasons use, and for the same reason: below it,
- * naming something stops being a finding and starts being noise with a
+ * Six, matching the floor the reasons use, and for the same reason: below
+ * it, naming something stops being a finding and starts being noise with a
  * number attached.
  */
 export const GAP_FLOOR = 6;
-
-/**
- * The section's cards: the model's when there are any, the counted ones
- * otherwise.
- *
- * Not merged. The model's three are chosen *against the goal* out of the same
- * evidence these are chosen from by rule, so interleaving them would put two
- * readings of one record side by side with nothing saying which was which —
- * and the counted card would usually be the one restating a figure the model
- * had already decided was not the point.
- */
-export function evidenceFrom(
-  state: SubjectState,
-  perf: Performance,
-  goals: SubjectGoal[],
-  read?: GoalEvidence[] | null,
-): EvidenceCard[] {
-  if (read && read.length > 0) {
-    return read.slice(0, EVIDENCE_SHOWN).map((card, at) => ({
-      ...card,
-      id: `read-${at}`,
-      source: 'read' as const,
-    }));
-  }
-
-  const ranked = candidates(state, perf, goals[0] ?? null).filter((one) => one.when);
-  return ranked.slice(0, EVIDENCE_SHOWN).map((one) => ({
-    id: one.id,
-    claim: one.claim,
-    direction: one.direction,
-    evidence: one.evidence,
-    relevance: one.relevance,
-    source: 'counted' as const,
-  }));
-}
 
 // ---------------------------------------------------------------------------
 // The bottleneck
@@ -456,11 +269,11 @@ export interface NamedBottleneck extends Bottleneck {
  * These are not ranked by which figure is worst. They are ranked by how much
  * the naming *rules out*, because ruling something out is the half of this
  * section a reader cannot get anywhere else and it is what stops the next
- * fortnight being spent on the wrong thing.
+ * two weeks being spent on the wrong thing.
  *
  * So "capability is ahead of what lands" comes first: it is the one that says
  * plainly that harder material is not the move, and getting that call wrong
- * costs a fortnight of work at the wrong level in either direction. The
+ * costs two weeks of work at the wrong level in either direction. The
  * difficulty cliff comes before the composite gap for the same reason — it
  * names a rung, and a rung is something to go and do on Tuesday.
  *
@@ -494,19 +307,19 @@ export function bottleneckFrom(
      say, because it rules out the commonest wrong move. */
   if (divergence.known && divergence.reading === 'capability-ahead') {
     return {
-      name: 'Turning capability into work that lands',
+      name: 'Knowing it vs. getting it right',
       evidence: [
-        `execution ${(divergence.capability ?? 0) > 0 ? '+' : ''}${divergence.capability} points across the window`,
-        `quality ${(divergence.outcome ?? 0) > 0 ? '+' : ''}${divergence.outcome} points over the same run`,
+        `how well it went: ${(divergence.capability ?? 0) > 0 ? '+' : ''}${divergence.capability} points in this window`,
+        `quality: ${(divergence.outcome ?? 0) > 0 ? '+' : ''}${divergence.outcome} points over the same days`,
         enough
-          ? `${families.notConceptual}% of ${families.answered} named struggles were not conceptual`
-          : `${state.ratedCount} rated tasks behind the comparison`,
+          ? `${families.notConceptual}% of ${families.answered} struggles weren't about the material`
+          : `based on ${state.ratedCount} rated tasks`,
       ],
       reading:
-        'You are taking on more than you are finishing well. The fix is '
-        + 'repetition, not new material.',
+        "You're taking on more than you're finishing well. Repeat what you've learned before "
+        + "adding more.",
       ruled_out: enough && families.notConceptual >= 60
-        ? 'Harder material. Most of what goes wrong is not about knowing it.'
+        ? "Harder material. Most of what goes wrong isn't about the content."
         : '',
       confidence: enough ? 0.7 : 0.5,
       source: 'counted',
@@ -517,16 +330,16 @@ export function bottleneckFrom(
      problem rather than a level to work at. */
   if (enough && families.notConceptual >= 60) {
     return {
-      name: 'How the sittings go, not what is in them',
+      name: 'How your sessions go',
       evidence: [
-        `${families.notConceptual}% of named struggles were not conceptual`,
-        `out of ${families.answered} answered struggles`,
+        `${families.notConceptual}% of struggles weren't about the material`,
+        `out of ${families.answered} struggles you named`,
         families.leading ? `most common: ${families.leading.label}, ${families.leading.share}%` : '',
       ].filter(Boolean),
       reading:
-        'The work goes wrong after it starts, not because of what is in it. '
-        + 'Change the shape of the session before its contents.',
-      ruled_out: 'Adding difficulty. That is a second problem on top of this one.',
+        'Your problems come from how sessions go. Change how you work before you change what you '
+        + 'study.',
+      ruled_out: 'Adding difficulty. That would make it worse.',
       confidence: families.answered >= 12 ? 0.7 : 0.55,
       source: 'counted',
     };
@@ -538,13 +351,13 @@ export function bottleneckFrom(
     return {
       name: `Work at ${cliff.label}`,
       evidence: [
-        `${cliff.label}: execution ${cliff.execution} over ${plural(cliff.done, 'rated task')}`,
-        `${holds.label}: execution ${holds.execution} over ${plural(holds.done, 'rated task')}`,
-        state.curve.drop !== null ? `a ${state.curve.drop}-point step between them` : '',
+        `${cliff.label}: rated ${cliff.execution} over ${plural(cliff.done, 'rated task')}`,
+        `${holds.label}: rated ${holds.execution} over ${plural(holds.done, 'rated task')}`,
+        state.curve.drop !== null ? `a ${state.curve.drop}-point drop between them` : '',
       ].filter(Boolean),
       reading:
-        `A ceiling, not a general weakness — the curve holds and then falls. `
-        + `The level to work is ${holds.label} until it stops being hard.`,
+        `You do well up to ${holds.label}, then drop off. `
+        + `Practice at ${holds.label} until it feels easy.`,
       ruled_out: `Everything below ${cliff.label}.`,
       confidence: cliff.done >= 8 ? 0.65 : 0.45,
       source: 'counted',
@@ -555,13 +368,13 @@ export function bottleneckFrom(
      with a specific fix, which most composites are not. */
   if (calibration.known && calibration.rushed >= 3) {
     return {
-      name: 'Rushing rather than not knowing',
+      name: "You're rushing",
       evidence: [
-        `${plural(calibration.rushed, 'task')} came in under your own median for the level and rated 3 or below`,
+        `${plural(calibration.rushed, 'task')} went faster than usual and got rated 3 or lower`,
       ],
       reading:
-        'You are finishing quicker than usual and rating it badly. That is '
-        + 'pace, and pace does not improve with more to do.',
+        "You're finishing faster than usual and rating it low. Slow down. More work won't fix "
+        + "this.",
       ruled_out: 'More volume.',
       confidence: calibration.rushed >= 6 ? 0.6 : 0.45,
       source: 'counted',
@@ -581,15 +394,14 @@ export function bottleneckFrom(
     return {
       name: gap.largest.label,
       evidence: [
-        `${plural(gap.largest.points, 'point')} of the ${plural(gap.total, 'point')} you are short`,
+        `${plural(gap.largest.points, 'point')} of the ${plural(gap.total, 'point')} you're missing`,
         ...gap.parts
           .filter((part) => part.key !== gap.largest?.key && part.points > 0)
           .slice(0, 2)
           .map((part) => `${part.label}: ${plural(part.points, 'point')}`),
       ],
       reading:
-        `More of the shortfall sits here than anywhere else: `
-        + `${gap.parts.find((part) => part.key === gap.largest?.key)?.from ?? ''}.`,
+        `This is where you lose the most points: ${gap.parts.find((part) => part.key === gap.largest?.key)?.from ?? ''}.`,
       ruled_out: '',
       confidence: 0.45,
       source: 'counted',

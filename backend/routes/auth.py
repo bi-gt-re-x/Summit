@@ -47,6 +47,10 @@ class Resend(BaseModel):
     email: Optional[str] = None
 
 
+class EmailCheck(BaseModel):
+    email: Optional[str] = None
+
+
 class CompleteProfile(BaseModel):
     username: Optional[str] = None
     theme: Optional[str] = None
@@ -68,10 +72,10 @@ def _with_theme(body, theme):
     return response
 
 
-def _home(**params):
-    """Redirect to the home page, carrying the popup's state in the query."""
+def _to_login(**params):
+    """Redirect to the sign-in page, carrying the flow's state in the query."""
     query = '&'.join('{}={}'.format(k, v) for k, v in params.items() if v != '')
-    return RedirectResponse('/home?{}'.format(query) if query else '/home',
+    return RedirectResponse('/login?{}'.format(query) if query else '/login',
                             status_code=303)
 
 
@@ -150,6 +154,9 @@ def legacy_signup(body: LegacySignup):
     """
     if not body.username or not body.password:
         return fail('Username and password are required.')
+    problem = auth.password_problem(body.password)
+    if problem:
+        return fail(problem)
 
     users = db.users()
     if auth.find_user(users, username=body.username):
@@ -178,6 +185,22 @@ def providers():
     return ok(google=auth.google_configured(), mail=auth.mail_configured())
 
 
+@router.post('/api/auth/email_check')
+def email_check(body: EmailCheck):
+    """Whether an address can still sign up, for the form to say so as soon
+    as the field is left rather than after the whole form is filled in.
+
+    A POST so the address stays out of URLs and server logs, and rate-limited
+    (backend/middleware/limit.py) so it can't be used to test a list of
+    addresses. Sign-up itself says the same thing, so this tells nobody
+    anything they couldn't already learn.
+    """
+    email = str(body.email or '').strip()
+    if not auth.EMAIL_RE.match(email):
+        return ok(valid=False, available=False)
+    return ok(valid=True, available=not auth.email_in_use(email))
+
+
 @router.post('/api/auth/signup')
 def signup(request: Request, body: Signup):
     name = str(body.name or '').strip()
@@ -187,14 +210,17 @@ def signup(request: Request, body: Signup):
     if not name:
         return fail('Enter your name.', field='name')
     if not auth.EMAIL_RE.match(email):
-        return fail('Enter a valid e-mail address.', field='email')
+        return fail('Enter a valid email address.', field='email')
+    # Before the password, so someone who already has an account is sent to
+    # log in rather than asked to fix a password they won't need.
+    # `email_in_use` matches the inbox, not the spelling: a "+tag" or Gmail's
+    # dots don't make a second account (auth.inbox_key).
+    if auth.email_in_use(email):
+        return fail('That email already has a Summit account. Log in instead.',
+                    field='email')
     problem = auth.password_problem(password)
     if problem:
         return fail(problem, field='password')
-
-    if auth.find_user(db.users(), email=email):
-        return fail('An account already uses that e-mail. Log in instead.',
-                    field='email')
 
     user = auth.create_account(name, email, password)
     # **Signed in here, before the address is confirmed.** The account used to
@@ -224,9 +250,9 @@ def signup(request: Request, body: Signup):
               username=user['username'],
               profile_complete=auth.profile_complete(user),
               message=(
-        'Account created — confirm {} when you get a moment.'.format(email)
+        'Account created! Confirm {} when you get a sec.'.format(email)
         if reply['sent'] or reply['dev_link']
-        else 'Your account is made, but the confirmation e-mail could not be '
+        else "Your account is made, but the confirmation email couldn't be "
              'sent. Try "Send it again" in a moment.'))
 
 
@@ -264,18 +290,21 @@ def resend(request: Request, body: Resend):
     if not user:
         user = auth.find_user(users, email=str(body.email or '').strip())
     if not user:
-        return fail('Start again — we lost track of that sign-up.')
+        return fail('Please start again. We lost track of that sign-up.')
     if auth.is_verified(user):
-        return ok(already=True, message='That e-mail is already confirmed.')
+        return ok(already=True, message='That email is already confirmed.')
 
     auth.new_verify_token(user)
     db.save_user(user)
     sent, link = auth.send_verification(user, request)
     reply = _verification_reply(sent, link)
+    # A dev server with no mail set up sends nothing and hands the link back,
+    # so it says that rather than claiming a mail went out.
     return ok(**reply, message=(
-        'Sent again to {}.'.format(user.get('email'))
-        if reply['sent'] or reply['dev_link']
-        else 'That still did not send. Try again in a few minutes.'))
+        'Sent again to {}.'.format(user.get('email')) if reply['sent']
+        else "Email isn't set up on this server, so nothing was sent. Use the link below."
+        if reply['dev_link']
+        else "That still didn't send. Try again in a few minutes."))
 
 
 @router.get('/verify/{token}')
@@ -283,13 +312,13 @@ def verify_link(request: Request, token: str):
     """The link from the e-mail. Confirms, signs in, opens Complete Profile."""
     user = auth.consume_verify_token(token)
     if not user:
-        return _home(auth='login', verify='invalid')
+        return _to_login(auth='login', verify='invalid')
     auth.sign_in(request, user)
     if auth.profile_complete(user):
         # The front door rather than the dashboard: '/' is the route that reads
         # the account's chosen start page. See FrontDoor in frontend/src/App.tsx.
         return RedirectResponse('/', status_code=303)
-    return _home(auth='profile', verify='ok')
+    return _to_login(auth='profile', verify='ok')
 
 
 @router.get('/api/auth/verify_status')
@@ -383,7 +412,7 @@ def complete_profile(request: Request, body: CompleteProfile):
     db.save_user(user)
 
     payload = auth.sign_in(request, user)
-    return _with_theme(ok(user=payload, message='You are all set.'), user['theme'])
+    return _with_theme(ok(user=payload, message="You're all set."), user['theme'])
 
 
 # --------------------------------------------------------------------------
@@ -392,7 +421,7 @@ def complete_profile(request: Request, body: CompleteProfile):
 @router.get('/auth/google')
 def google_start(request: Request, next: str = ''):
     if not auth.google_configured():
-        return _home(auth='login', oauth='unconfigured')
+        return _to_login(auth='login', oauth='unconfigured')
     state = secrets.token_urlsafe(24)
     request.session['oauth_state'] = state
     request.session['oauth_next'] = next or ''
@@ -402,28 +431,28 @@ def google_start(request: Request, next: str = ''):
 @router.get('/auth/google/callback')
 def google_callback(request: Request, state: str = '', code: str = ''):
     if not auth.google_configured():
-        return _home(auth='login', oauth='unconfigured')
+        return _to_login(auth='login', oauth='unconfigured')
     if state != request.session.pop('oauth_state', None):
-        return _home(auth='login', oauth='state')
+        return _to_login(auth='login', oauth='state')
     if not code:
-        return _home(auth='login', oauth='denied')
+        return _to_login(auth='login', oauth='denied')
 
     try:
         info = auth.google_profile(code, request)
     except Exception as exc:              # noqa: BLE001 - surface as a popup message
         print('[auth] google sign-in failed: {}'.format(exc))
-        return _home(auth='login', oauth='failed')
+        return _to_login(auth='login', oauth='failed')
 
     email = str(info.get('email') or '').strip()
     if not email or not info.get('email_verified', True):
-        return _home(auth='login', oauth='noemail')
+        return _to_login(auth='login', oauth='noemail')
 
     user = auth.upsert_google_user(info, email)
     auth.sign_in(request, user)
 
     nxt = request.session.pop('oauth_next', '') or ''
     if not auth.profile_complete(user):
-        return _home(auth='profile', next=nxt)
+        return _to_login(auth='profile', next=nxt)
     if nxt.startswith('/'):
         return RedirectResponse(nxt, status_code=303)
     # As above: the front door decides where an account opens.

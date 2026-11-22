@@ -14,8 +14,13 @@ import { latticeFor } from '@/components/Subject/lattice';
 import { loadProgress } from '@/utils/skillProgress';
 import { treeStanding } from '@/skills/standing';
 import { OTHER_KEY } from '@/utils/subjectXp';
+import { LimiterLine } from '../Limiter';
+import { SubjectPanel } from '../Breakdown';
 import type { AnalyticsModel } from '../useAnalyticsModel';
 import type { SubjectIndex } from '@/hooks/useSubjects';
+
+/** No catalogue yet. Shared, so a default prop is one object across renders. */
+const NO_SUBJECTS: SubjectIndex = new Map();
 
 /**
  * @param username Whose practice store to read, for the lattice list below.
@@ -28,10 +33,29 @@ import type { SubjectIndex } from '@/hooks/useSubjects';
  */
 export function SubjectsTab({
   model,
-  subjects,
+  subjects = NO_SUBJECTS,
   username = null,
-}: { model: AnalyticsModel; subjects: SubjectIndex; username?: string | null }) {
-  const { all, namedSubjects, tasks, breakdown } = model;
+}: { model: AnalyticsModel; subjects?: SubjectIndex; username?: string | null }) {
+  const { all, goalLimits, namedSubjects, tasks, breakdown, previousBySubject } = model;
+
+  /**
+   * The limiters whose subject is one this window actually shows.
+   *
+   * The tab's own rule, applied to a second kind of row: a sentence about a
+   * subject earns its place here only when the subject is on the page under
+   * it. A limiter on Chemistry, on a window where no chemistry was worked, is
+   * a finding about somewhere else — true, and belonging on the tab that is
+   * about goals rather than on the one that is about subjects.
+   *
+   * Which is also the whole of what "only where the subject has a goal" means
+   * in practice: `goalLimits` exists at all only for subjects some live goal's
+   * work is filed under, so the filter below is the second half of that test
+   * rather than a separate one.
+   */
+  const shown = useMemo(() => {
+    const worked = new Set((breakdown?.rows ?? []).map((row) => row.key));
+    return goalLimits.filter((row) => worked.has(row.subjectId));
+  }, [breakdown?.rows, goalLimits]);
 
   /**
    * What there is to learn in each subject that got worked.
@@ -67,7 +91,7 @@ export function SubjectsTab({
    * How far into each lattice this account's own work has got.
    *
    * The list below says what each subject *opens* — the size of the tree and
-   * how many of its nodes the reader has marked practised. That is the
+   * how many of its nodes the reader has marked practiced. That is the
    * curriculum's figure and a hand-kept one; neither is a reading of the
    * record. This is the reading of the record: XP filed under the subjects
    * that route to a tree, against what the tree is worth. See skills/standing,
@@ -99,13 +123,11 @@ export function SubjectsTab({
     [tasks],
   );
 
-  return (
+  const hasGoalsAndGrowth =
+    namedSubjects.total > 0 || shown.length > 0 || Boolean(breakdown && breakdown.rows.length > 0);
+  const goalsAndGrowth = hasGoalsAndGrowth ? (
     <>
-      {/* The two chapters that arrived whole. Each was a tab of the growth
-          page and neither had a counterpart here — mastery and achievement
-          are questions the five original tabs never asked. They keep their own
-          layout inside `.gr-scope`; see the stylesheet note at the top. */}
-      {/* One line above the chapter. Which subjects are being worked is
+      {/* One line above the subject panel. Which subjects are being worked is
           this tab's whole job; which of them anybody decided to aim at is
           one sentence of context on top of that, and it earns its place
           only when the two lists differ. */}
@@ -114,25 +136,55 @@ export function SubjectsTab({
           <p className="ax-goal-line">
             {namedSubjects.named === 0 ? (
               <>
-                None of the <strong>{namedSubjects.total}</strong> subjects you worked in
-                this window has a goal aimed at it.
+                None of the <strong>{namedSubjects.total}</strong> subjects you worked on here
+                has a goal.
               </>
             ) : (
               <>
                 <strong>{namedSubjects.named}</strong> of the {namedSubjects.total} subjects
-                you worked in this window {namedSubjects.named === 1 ? 'has' : 'have'} a goal
-                aimed at {namedSubjects.named === 1 ? 'it' : 'them'}.
+                you worked on here {namedSubjects.named === 1 ? 'has' : 'have'} a goal.
               </>
             )}{' '}
-            <Link to="/analytics/goals" className="ax-link">
-              See what is missing
+            <Link to="/goals" className="ax-link">
+              Add a goal
             </Link>
           </p>
         </section>
       )}
 
+      {/* Under the line about how many subjects have a goal, and answering the
+          question it raises. That line says how many were aimed at; these say,
+          for the ones that were, what the aiming is running into. Lines rather
+          than cards for the reason the line above is a line: this tab is about
+          mastery, and the goal reading is context on it. */}
+      {shown.length > 0 && (
+        <section className="ax-section">
+          {shown.map((row) => (
+            <LimiterLine key={row.goalId} row={row} />
+          ))}
+        </section>
+      )}
+
+      {/* Where the work went: XP by subject, against the window before. The
+          Overview drew it too until it stopped repeating this tab. */}
+      {breakdown && breakdown.rows.length > 0 && (
+        <section className="ax-section">
+          <SubjectPanel rows={breakdown.rows} previous={previousBySubject} linked />
+        </section>
+      )}
+    </>
+  ) : null;
+
+  return (
+    <>
+      {/* The two chapters that arrived whole. Each was a tab of the growth
+          page and neither had a counterpart here — mastery and achievement
+          are questions the five original tabs never asked. They keep their own
+          layout inside `.gr-scope`; see the stylesheet note at the top. */}
+      {/* The goal lines and where the XP went sit under the mastery track,
+          inside the chapter, so the skills lead the tab. */}
       <div className="ax-section gr-scope">
-        <SkillsChapter all={all} tasks={tasks} subjects={subjects} />
+        <SkillsChapter all={all} tasks={tasks} subjects={subjects} afterTrack={goalsAndGrowth} />
       </div>
 
       {/* How far in the work has got. The panel below says what there is to
@@ -147,10 +199,7 @@ export function SubjectsTab({
             </div>
           </div>
           <p className="ax-panel-note">
-            Your XP in each lattice against what the whole lattice is worth, over everything
-            you have finished rather than over the window above — a lattice is a curriculum,
-            not a month. Subjects that open one tree are counted as one, so the five languages
-            are Foreign Languages and not five separate climbs. Capped at a whole tree.
+            Your all-time XP in each skill tree, out of its total. Related subjects share a tree. All languages count toward Foreign Languages, for example.
           </p>
           <ul className="ax-treedepth">
             {standing.map((tree) => (
@@ -182,8 +231,7 @@ export function SubjectsTab({
             </div>
           </div>
           <p className="ax-panel-note">
-            Every subject has a skill tree behind it. The skill count is the tree's — somebody
-            wrote it — and the practised count is yours.
+            Every subject has a skill tree. You see how many skills it has and how many you've practiced.
           </p>
           <ul className="ax-lattices">
             {lattices.map(({ row, lattice }) => (
@@ -194,8 +242,8 @@ export function SubjectsTab({
                   <span className="ax-lattice-facts">
                     {lattice.nodes} skills
                     {lattice.branches.length > 0 && <> · {lattice.branches.length} branches</>}
-                    {lattice.practised > 0 && (
-                      <b> · {lattice.practised} practised</b>
+                    {lattice.practiced > 0 && (
+                      <b> · {lattice.practiced} practiced</b>
                     )}
                   </span>
                 </Link>
@@ -204,11 +252,30 @@ export function SubjectsTab({
           </ul>
           <p className="ax-panel-note ax-panel-note-foot">
             <Link to="/skill-trees" className="ax-link">
-              Open the skill trees
+              Open skill trees
             </Link>
           </p>
         </section>
       )}
+
+      {/* Last on the tab, and shut.
+
+          It was first and open, which was the wrong call twice over. The
+          chapters above are what this tab has always been — where the work
+          went and what each subject opens — and a reader arriving at Subjects
+          is looking for those. The scored list is the deepest thing here and
+          the one that rewards being sought out: eight subjects at six parts
+          each is fifty-four rows of chart, which at the top of a tab is a wall
+          before the tab has said anything.
+
+          Shut rather than merely last, for the same reason. The group states
+          what is inside it in its own heading, so a reader who wants the
+          arithmetic opens it, and one who wants the chapters above scrolls
+          past two lines instead of past a wall. */}
+      {/* "Skill Level" was here: every subject scored a second time from the
+          reader's own star ratings, on a different scale from the subject
+          levels above (Math read 88.84 there and 75 here). One level per
+          subject; the cards above keep it. */}
     </>
   );
 }

@@ -33,7 +33,7 @@ Everything else the model produced is prose over figures already on screen,
 and storing prose would mean a page that quotes yesterday's numbers.
 """
 import json
-from datetime import datetime
+from datetime import date, datetime
 from hashlib import sha1
 from typing import Any, Dict, List, Optional
 
@@ -41,10 +41,30 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from backend.api.guard import current_username
-from backend.api.reply import fail, ok
+from backend.api.reply import fail, ok as _ok
+from backend.tracking.plainwords import plain
 from backend.database import connection as db
+from backend.api.tasks import CreateTask, _create as create_task
+from backend.api import subjects as user_subjects
+from backend.config import subjects as subject_catalogue
+from backend.tracking import free_resources
+from backend.tracking import next_sessions
+from backend.tracking import session_plan
+from backend.tracking import session_timing
 from backend.tracking import subject_ai
+from backend.tracking import review_ai
+from backend.tracking import background as about_you
+from backend.tracking import journal
+from backend.api import background as background_api
 from backend.tracking.auth import load_user
+from backend.config.shared import RULES
+
+
+def ok(**fields):
+    """Every reply from here is app or model text: dashes and curly quotes
+    stored before the cleanup (backend/tracking/plainwords.py) never reach a
+    page."""
+    return _ok(**plain(fields))
 
 router = APIRouter()
 
@@ -64,6 +84,27 @@ VOCABULARY = 24
 #: Recommendations kept per subject when reading them back. Enough for the
 #: outcomes table to mean something, few enough that the brief stays a brief.
 HISTORY = 12
+
+#: Rows of real work the brief carries. Mirrors `SAMPLE` in
+#: frontend/src/components/Subject/recentWork — the client decides which
+#: forty, and this is the ceiling it is held to rather than trusted on.
+WORK = 40
+
+#: A task's own note, as much of it as goes to the model. Free text with no
+#: ceiling in the database, and forty unbounded ones would be the whole
+#: brief. Long enough for the sentence somebody actually writes in that box.
+NOTE = 200
+
+#: Name groups of the whole window's work, as the page counted them. Enough
+#: to cover an account's distinct kinds of task in one subject; past this the
+#: smallest groups are dropped by the page before they are sent.
+WORK_GROUPS = 25
+
+#: The most recommendations the panel holds at once. A batch is three, and
+#: "Generate 3 more" adds a second batch under the first; past six the
+#: reader is asked to act on some or start over, because a list longer than
+#: that is a backlog rather than a plan.
+MAX_STEPS = RULES['recommendations']['max_steps']
 
 
 # --------------------------------------------------------------------------
@@ -126,10 +167,51 @@ class GoalRead(BaseModel):
     levers: List[str] = []
 
 
+class WorkRow(BaseModel):
+    """One finished task, as the page sampled it.
+
+    No note here: the description is looked up on this side from `id`, so a
+    field the browser is deliberately never sent (see `ANALYTICS_TASK_FIELDS`
+    in api/analytics.py) does not have to travel there and back to reach the
+    model.
+    """
+
+    id: str = ''
+    title: str = ''
+    on: str = ''
+    difficulty: Optional[int] = None
+    execution: Optional[int] = None
+    minutes: Optional[int] = None
+    reason: str = ''
+
+
+class WorkGroup(BaseModel):
+    """Every finished task in the window sharing one name, counted by the page.
+
+    See `workGroups` in frontend/src/components/Subject/recentWork.ts for how
+    the names are folded together and what each figure is over.
+    """
+
+    name: str = ''
+    count: int = 0
+    examples: List[str] = []
+    rated: int = 0
+    difficulty: Optional[float] = None
+    execution: Optional[float] = None
+    minutes: Optional[int] = None
+    well: int = 0
+    badly: int = 0
+    reasons: List[str] = []
+    last: str = ''
+
+
 class SubjectStateBody(BaseModel):
     """The whole deterministic state, as the page computed it."""
 
     subject: str = ''
+    #: The catalogue id ("music") beside the display name, for finding the
+    #: tasks, notes and library items filed under it. See `_owned`.
+    subject_id: str = ''
     span: str = ''
     aim: str = ''
     level: str = ''
@@ -155,6 +237,20 @@ class SubjectStateBody(BaseModel):
     #: The authored skill tree's area names. A curriculum, not a measurement —
     #: the prompt says so at length.
     vocabulary: List[str] = []
+    #: The most recently finished tasks, newest first. The only input to the
+    #: reading that is not a measurement, and the only one that says what the
+    #: work actually is. See `_work` and the note on it.
+    recent_work: List[WorkRow] = []
+    #: Every finished task in the window, grouped by name and counted.
+    work_groups: List[WorkGroup] = []
+    #: What this call is for. `fresh` replaces the steps on screen with a new
+    #: three; `more` adds three under the ones already there, up to
+    #: `MAX_STEPS`; both ask for steps alone (`subject_ai.plan`). `read` is
+    #: the record's own button: the whole reading, leaving any steps on screen
+    #: exactly as they are, and filling them from the reading when there are
+    #: none. The default, so a caller that names no mode gets what it always
+    #: got.
+    mode: str = 'read'
 
 
 def _text(value, cap=TEXT):
@@ -167,6 +263,196 @@ def _rung(rung):
         'execution': rung.execution, 'quality': rung.quality,
         'cleared': rung.cleared, 'minutes': rung.minutes,
     }
+
+
+def _work(username: str, rows: List[WorkRow]):
+    """The sampled tasks, bounded, with each one's own note added.
+
+    ## Why the note is fetched here rather than sent
+
+    `description` is the one task field the analytics endpoint deliberately
+    withholds: unbounded free text on every row, which nothing on those pages
+    reads, and which was most of the payload when it was included. Sending it
+    to the browser so the browser could send it back would put it on the wire
+    twice to reach a place it can be read from the database once.
+
+    So the client sends ids and this joins the notes on. One indexed query,
+    on the one action in the app that was already going to cost a model call.
+
+    ## Everything is cut on this side
+
+    The caps here are not validation theatre — the client is the thing being
+    bounded. A title is a line, not a paragraph, and a note is the sentence
+    somebody wrote in the box rather than the essay they could have.
+    """
+    kept = [row for row in rows[:WORK] if _text(row.title)]
+    if not kept:
+        return []
+
+    notes = db.columns_by_ids('tasks', username,
+                              [row.id for row in kept if row.id],
+                              ('id', 'description'))
+
+    out = []
+    for row in kept:
+        entry = {
+            'title': _text(row.title),
+            'on': _text(row.on, 10),
+            # Absent rather than nought: a rating nobody gave is not a bad
+            # one, and a minute count nobody recorded is not an instant task.
+            'difficulty': row.difficulty if row.difficulty in range(1, 6) else None,
+            'execution': row.execution if row.execution in range(1, 6) else None,
+            'minutes': row.minutes if (row.minutes or 0) > 0 else None,
+            'reason': _text(row.reason, 40),
+            'note': _text((notes.get(row.id) or {}).get('description'), NOTE),
+        }
+        out.append(entry)
+    return out
+
+
+def _group(entry: WorkGroup) -> dict:
+    """One name group, bounded. Absent figures stay absent rather than nought."""
+    def level(value):
+        return round(value, 1) if value is not None and 1 <= value <= 5 else None
+
+    return {
+        'name': _text(entry.name),
+        'count': max(0, entry.count),
+        'examples': [_text(title) for title in entry.examples[:4] if _text(title)],
+        'rated': max(0, entry.rated),
+        'difficulty': level(entry.difficulty),
+        'execution': level(entry.execution),
+        'minutes': entry.minutes if (entry.minutes or 0) > 0 else None,
+        'well': max(0, entry.well),
+        'badly': max(0, entry.badly),
+        'reasons': [_text(reason, 60) for reason in entry.reasons[:3] if _text(reason)],
+        'last': _text(entry.last, 10),
+    }
+
+
+# --------------------------------------------------------------------------
+# What the reader already studies from
+# --------------------------------------------------------------------------
+def _owned(username: str, subject_id: str, subject: str) -> list:
+    """The links this account already keeps for the subject.
+
+    Read here rather than sent, for the reason `_work` gives: descriptions and
+    note bodies never go to the browser, and this is the one action that was
+    going to cost a model call anyway. Tasks are newest first, so a link from
+    this week's work outranks one from last year's. Picking the links out is
+    `subject_ai.owned_resources`.
+    """
+    wanted = {value.strip().lower() for value in
+              (subject_id, subject, subject.replace(' ', '_')) if value.strip()}
+    if not wanted:
+        return []
+
+    tasks = [row for row in db.columns_for(
+                 'tasks', username, ('id', 'subject', 'title', 'description'),
+                 order='rowid DESC')
+             if str(row.get('subject') or '').strip().lower() in wanted]
+    task_ids = {row.get('id') for row in tasks}
+
+    def filed_here(note):
+        ids = {part.strip().lower() for part in
+               str(note.get('subject_ids') or '').split(',') if part.strip()}
+        return bool(ids & wanted) or note.get('task_id') in task_ids
+
+    notes = [row for row in db.columns_for(
+                 'notes', username, ('title', 'body', 'subject_ids', 'task_id'),
+                 order='rowid DESC')
+             if filed_here(row)]
+
+    def tagged_here(item):
+        tags = item.get('tags')
+        if isinstance(tags, str):
+            try:
+                tags = json.loads(tags or '[]')
+            except ValueError:
+                tags = []
+        named = {str(tag).strip().lower() for tag in (tags or [])}
+        return not item.get('archived') and bool(named & wanted)
+
+    library = [row for row in db.rows_for('library_items', username)
+               if tagged_here(row)]
+
+    return subject_ai.owned_resources(
+        [row for row in tasks if 'http' in str(row.get('description') or '')],
+        [row for row in notes if 'http' in str(row.get('body') or '')],
+        library)
+
+
+# --------------------------------------------------------------------------
+# Free resources: sorted per account, and the only links a step may carry
+# --------------------------------------------------------------------------
+def _catalog_id(username: str, subject_id: str, subject: str,
+                names: Optional[dict] = None) -> str:
+    """The catalog's id for a subject, from the id the page sent or its name."""
+    covered = free_resources.by_subject()
+    if subject_id in covered:
+        return subject_id
+    return next_sessions.subject_named(subject, names or _subject_names(username)) or subject_id or ''
+
+
+def _free_brief(username: str, subject_ids: List[str], count: int,
+                names: Optional[dict] = None) -> list:
+    """Sort each subject's free resources against this account's task names,
+    store the order (`subject_resources`), and hand back the top few for the
+    brief. Writes, so POST paths only."""
+    free_resources.ensure_catalog(db)
+    stamp = datetime.now().isoformat(timespec='seconds')
+    out = []
+    for subject_id in subject_ids:
+        ranked = free_resources.sort_subject(db, username, subject_id, stamp)
+        out += free_resources.brief_entries(
+            ranked, count, subject=(names or {}).get(subject_id, '') if names else '')
+    return out
+
+
+def _guarded(username: str, steps: list, subject_id: str = '',
+             names: Optional[dict] = None) -> list:
+    """`steps` with free links only (backend/tracking/free_resources.py). Reads
+    only, so it's safe on a GET. A step across every subject finds its subject
+    from its `focus`."""
+    cache: Dict[str, list] = {}
+    lookup = names
+
+    def ranked_for(step):
+        nonlocal lookup
+        found = subject_id
+        if not found:
+            lookup = lookup or _subject_names(username)
+            found = next_sessions.subject_named(step.get('focus'), lookup) or ''
+        if found not in cache:
+            cache[found] = free_resources.sorted_for(db, username, found) if found else []
+        return cache[found]
+
+    return free_resources.guard([step for step in steps or [] if isinstance(step, dict)],
+                                ranked_for)
+
+
+#: What a reading holds when nothing has been read yet — the shape the page
+#: draws, empty, so a plan with no reading around it still draws.
+EMPTY_READING = {'diagnosis': [], 'priorities': [], 'next_steps': [], 'insights': []}
+
+
+def _saved_reading(username: str, subject: str) -> dict:
+    """The saved reading for this subject, or an empty one."""
+    row = next((row for row in db.rows_for('subject_readings', username)
+                if (row.get('subject') or '') == subject), None)
+    if not row:
+        return dict(EMPTY_READING)
+    try:
+        read = json.loads(row.get('body') or '')
+    except (TypeError, ValueError):
+        return dict(EMPTY_READING)
+    return {**EMPTY_READING, **read} if isinstance(read, dict) else dict(EMPTY_READING)
+
+
+def _saved_steps(username: str, subject: str) -> list:
+    """The steps on the reader's screen: the saved reading's, newest batch last."""
+    steps = _saved_reading(username, subject).get('next_steps')
+    return [step for step in (steps or []) if isinstance(step, dict)][:MAX_STEPS]
 
 
 # --------------------------------------------------------------------------
@@ -245,7 +531,7 @@ def write_reading(body: SubjectStateBody, username: str = Depends(current_userna
 
     subject = _text(body.subject)
     if not subject:
-        return fail('There is no subject to read.')
+        return fail("There's no subject to read.")
 
     execution_now = next(
         (int(entry.value) for entry in body.dimensions
@@ -253,7 +539,15 @@ def write_reading(body: SubjectStateBody, username: str = Depends(current_userna
         None)
 
     history = _history(username, subject)
+    # So a planned session finished since the last visit counts as taken.
+    _sync(username, history)
     curve = body.curve
+
+    mode = body.mode if body.mode in ('fresh', 'more', 'read') else 'read'
+    on_screen = _saved_steps(username, subject) if mode in ('more', 'read') else []
+    if mode == 'more' and len(on_screen) >= MAX_STEPS:
+        return fail('Six is the most this holds at once. Act on some of these, '
+                    'or start over with a fresh three.')
 
     state = {
         'subject': subject,
@@ -288,6 +582,9 @@ def write_reading(body: SubjectStateBody, username: str = Depends(current_userna
             for goal in body.goals[:GOALS]
         ],
         'vocabulary': [_text(item, 60) for item in body.vocabulary[:VOCABULARY]],
+        'recent_work': _work(username, body.recent_work),
+        'work_groups': [_group(entry) for entry in body.work_groups[:WORK_GROUPS]
+                        if _text(entry.name)],
         'previous': [
             {'title': row.get('title'), 'type': row.get('kind'),
              'difficulty': row.get('difficulty'), 'minutes': row.get('minutes'),
@@ -295,17 +592,64 @@ def write_reading(body: SubjectStateBody, username: str = Depends(current_userna
             for row in history[:6]
         ],
         'outcomes': _outcomes(history, execution_now),
+        'showing': [_text(step.get('title')) for step in on_screen],
+        'owned_resources': _owned(username, _text(body.subject_id), subject),
+        'background': _background(username, _text(body.subject_id) or None),
     }
+    catalog_id = _catalog_id(username, _text(body.subject_id, 64), subject)
+    state['free_resources'] = (_free_brief(username, [catalog_id], free_resources.BRIEF_COUNT)
+                               if catalog_id else [])
 
+    # The record's button asks for the whole reading. The Recommendations
+    # panel asks for steps alone, from a smaller brief, and keeps whatever
+    # reading is already saved around them — see `subject_ai.plan`.
     try:
-        read = subject_ai.read(state)
+        if mode == 'read':
+            read = subject_ai.read(state)
+        else:
+            read = {**_saved_reading(username, subject),
+                    'next_steps': subject_ai.plan(state)}
     except subject_ai.BriefUnavailable as exc:
         return fail(str(exc))
 
+    # Free links only, on the new steps and on the ones already showing.
+    read['next_steps'] = _guarded(username, read.get('next_steps') or [], catalog_id)
+    on_screen = _guarded(username, on_screen, catalog_id)
+
     # ---- Keep the recommendations, and only them -------------------------
     now = datetime.now().isoformat(timespec='seconds')
+    span = _text(body.span, 64)
+
+    # The record's own button wants findings, not a new plan: the steps on
+    # screen stay, and nothing is added to the ledger.
+    if mode == 'read' and on_screen:
+        read['next_steps'] = on_screen
+        _keep_reading(username, subject, read, now, span)
+        return ok(reading=read)
+
+    # A second batch goes under the first, without repeating a title already
+    # there, and never past MAX_STEPS.
+    seen = {str(step.get('title') or '').strip().lower() for step in on_screen}
+    room = MAX_STEPS - len(on_screen) if mode == 'more' else MAX_STEPS
+    fresh = []
+    for step in read.get('next_steps') or []:
+        key = step['title'].strip().lower()
+        if key in seen or len(fresh) >= min(room, subject_ai.NEXT_STEPS):
+            continue
+        seen.add(key)
+        fresh.append(step)
+
+    kept = _record(username, subject, fresh, now, execution_now)
+    read['next_steps'] = (on_screen + kept) if mode == 'more' else kept
+    _keep_reading(username, subject, read, now, span)
+    return ok(reading=read)
+
+
+def _record(username: str, subject: str, steps: list, now: str,
+            execution_now=None) -> list:
+    """Put new steps in the ledger, and hand them back with their ids."""
     kept = []
-    for at, step in enumerate(read.get('next_steps') or []):
+    for at, step in enumerate(steps):
         row = {
             'id': 'r{}{}'.format(int(datetime.now().timestamp() * 1000), at),
             'user_id': username,
@@ -322,10 +666,7 @@ def write_reading(body: SubjectStateBody, username: str = Depends(current_userna
         }
         db.insert_row('subject_recommendations', row)
         kept.append({**step, 'id': row['id']})
-
-    read['next_steps'] = kept
-    _keep_reading(username, subject, read, now, _text(body.span, 64))
-    return ok(reading=read)
+    return kept
 
 
 # --------------------------------------------------------------------------
@@ -358,14 +699,20 @@ def _keep_reading(username: str, subject: str, read: dict, when: str,
     except (TypeError, ValueError):
         return
 
-    row_id = 'sr{}'.format(sha1(
-        '{}|{}'.format(username, subject).encode('utf-8')).hexdigest()[:24])
     fields = {'user_id': username, 'subject': subject, 'span': span,
               'written_at': when, 'body': body}
-    if db.find_row('subject_readings', row_id, user_id=username):
-        db.update_row('subject_readings', row_id, fields, user_id=username)
-    else:
-        db.insert_row('subject_readings', {'id': row_id, **fields})
+    # Found by subject rather than by the id derived below: the table is one
+    # row per (user, subject), and an id hashed from the username stops
+    # matching the moment the account is renamed — after which an insert hits
+    # that constraint and the reading the model just wrote is lost.
+    existing = next((row for row in db.rows_for('subject_readings', username)
+                     if (row.get('subject') or '') == subject), None)
+    if existing:
+        db.update_row('subject_readings', existing['id'], fields, user_id=username)
+        return
+    row_id = 'sr{}'.format(sha1(
+        '{}|{}'.format(username, subject).encode('utf-8')).hexdigest()[:24])
+    db.insert_row('subject_readings', {'id': row_id, **fields})
 
 
 @router.get('/api/subject_reading_saved')
@@ -397,6 +744,11 @@ def saved_reading(subject: str = '', username: str = Depends(current_username)):
         # worth leaving in place long enough to be noticed.
         return ok(reading=None, written_at='', span='')
 
+    # Readings saved before links were checked get the same check on the way
+    # out, so an old plan pointing at a store page shows a free link instead.
+    if isinstance(read, dict) and read.get('next_steps'):
+        read['next_steps'] = _guarded(username, read['next_steps'],
+                                      _catalog_id(username, '', name))
     return ok(reading=read, written_at=row.get('written_at') or '',
               span=row.get('span') or '')
 
@@ -404,6 +756,54 @@ def saved_reading(subject: str = '', username: str = Depends(current_username)):
 # --------------------------------------------------------------------------
 # The loop
 # --------------------------------------------------------------------------
+def _sync(username: str, rows: list, persist: bool = True) -> dict:
+    """Each recommendation's state, read off the task it was planned as.
+
+    A step planned as a session is locked to that task. Finished, it counts as
+    taken (stamped here, if completion got there first); deleted, the link is
+    dropped and the step can be planned again; still open, it stays planned.
+    Read on every listing rather than hooked into each way a task can be
+    deleted, so no path can leave a step locked to a task that is gone.
+
+    Returns {id: {'state', 'task'}} where state is open, planned or done.
+
+    `persist=False` works the same answer out without writing it down, for
+    the GETs: a GET never writes (tests/test_get_requests_do_not_write.py).
+    The next POST that reads these rows (a reading, a plan, a suggestion)
+    writes it.
+    """
+    linked = [row for row in rows if row.get('task_id') and not row.get('taken_at')]
+    tasks = db.columns_by_ids('tasks', username, [row['task_id'] for row in linked],
+                              ('id', 'status', 'created_at', 'due_date',
+                               'completed_at', 'xp_value')) if linked else {}
+    out = {}
+    for row in rows:
+        if row.get('taken_at'):
+            out[row['id']] = {'state': 'done', 'task': None}
+            continue
+        task = tasks.get(row.get('task_id')) if row.get('task_id') else None
+        if row.get('task_id') and not task:
+            if persist:
+                db.update_row('subject_recommendations', row['id'], {'task_id': None},
+                              user_id=username)
+            row['task_id'] = None
+        if not task:
+            out[row['id']] = {'state': 'open', 'task': None}
+        elif task.get('status') == 'done':
+            row['taken_at'] = (task.get('completed_at')
+                               or datetime.now().isoformat(timespec='seconds'))
+            if persist:
+                db.update_row('subject_recommendations', row['id'],
+                              {'taken_at': row['taken_at']}, user_id=username)
+            out[row['id']] = {'state': 'done', 'task': None}
+        else:
+            out[row['id']] = {'state': 'planned', 'task': {
+                'id': task.get('id'), 'start': task.get('created_at') or '',
+                'end': task.get('due_date') or '',
+                'xp': task.get('xp_value') or 0}}
+    return out
+
+
 @router.get('/api/subject_recommendations')
 def list_recommendations(subject: str = '', username: str = Depends(current_username)):
     """What has been recommended for this subject, and how each kind has gone."""
@@ -413,6 +813,7 @@ def list_recommendations(subject: str = '', username: str = Depends(current_user
 
     name = _text(subject)
     rows = _history(username, name)
+    states = _sync(username, rows, persist=False)
     return ok(
         recommendations=[
             {'id': row.get('id'), 'title': row.get('title'),
@@ -426,11 +827,146 @@ def list_recommendations(subject: str = '', username: str = Depends(current_user
              # for now and reads the two against each other — which is the
              # whole of "did this work", and it needs both ends or neither.
              'was': row.get('execution_at'),
-             'task_id': row.get('task_id')}
+             'task_id': row.get('task_id'),
+             'state': states[row['id']]['state'],
+             'task': states[row['id']]['task']}
             for row in rows
         ],
         outcomes=_outcomes(rows, None),
     )
+
+
+class PlanSession(BaseModel):
+    id: str = ''
+    #: The catalogue id the page is showing, for filing the task. Checked by
+    #: the task API's own `_subject`, so a stale one is dropped, not stored.
+    subject_id: str = ''
+
+
+@router.post('/api/subject_recommendation/plan')
+def plan_session(body: PlanSession, username: str = Depends(current_username)):
+    """Book one recommended session onto the calendar as a task.
+
+    The minutes, the XP and the slot are `session_plan`'s rules. The step is
+    then locked to the task: it cannot be planned a second time until that
+    task is deleted (and it opens again) or completed (and it counts as done).
+    """
+    _, user = load_user(username)
+    if not user:
+        return fail('User not found')
+
+    row = db.find_row('subject_recommendations', _text(body.id), user_id=username)
+    if not row:
+        return fail('That recommendation is no longer on record.')
+
+    state = _sync(username, [row])[row['id']]['state']
+    if state == 'planned':
+        return fail('This session is already planned. Complete or delete that task '
+                    'to plan another.')
+    if state == 'done':
+        return fail('This session is already done.')
+
+    minutes = session_plan.estimate_minutes(row.get('minutes'), row.get('difficulty'))
+
+    # A session planned across every subject names its subject in `focus`
+    # (subject_ai.OVERALL_NOTE); file it there when the page had none to send.
+    subject_id = _text(body.subject_id, 64)
+    by_focus = row.get('subject') in (next_sessions.OVERALL, review_ai.SUBJECT)
+    if not subject_id and by_focus:
+        subject_id = next_sessions.subject_named(row.get('focus'), _subject_names(username)) or ''
+
+    # When: the best opening for this reader (session_timing), spaced from the
+    # sessions already booked for the same subject, else the first free one.
+    now = datetime.now()
+    tasks = db.columns_for('tasks', username, (
+        'id', 'status', 'show_on_calendar', 'created_at', 'due_date', 'completed_at',
+        'completion_seconds', 'execution', 'difficulty', 'subject'))
+    busy = session_plan.busy_spans(tasks, db.calendar_document(username), now)
+    booked = _booked_sessions(username, tasks, now, exclude=row['id'])
+    profile = session_timing.rhythm(tasks, db.rows_for('focus_days', username), now)
+    best = session_timing.best_slot(minutes, row.get('difficulty'), busy, booked,
+                                    _spacing_key(subject_id, row), profile, now)
+    if best:
+        start, end, why = best['start'], best['end'], best['why']
+    else:
+        slot = session_plan.next_slot(minutes, busy, now)
+        if not slot:
+            return fail("There's no free {}-minute slot in the next two weeks.".format(minutes))
+        (start, end), why = slot, 'The first free opening on your calendar.'
+
+    worth = session_plan.task_fields(row.get('difficulty'))
+    xp = worth['xp_reward']
+    made = create_task(CreateTask(
+        name=row.get('title') or 'Practice session',
+        **worth,
+        due_date=end.isoformat(timespec='seconds'),
+        created_at=start.isoformat(timespec='seconds'),
+        show_on_calendar=True,
+        subject=subject_id or None,
+    ), username)
+    task_id = made.get('task_id') if isinstance(made, dict) else None
+    if not task_id:
+        return fail("Couldn't add that session. Try again.")
+
+    # What to actually do, from the step as it was written, onto the task.
+    step = next((one for one in _saved_steps(username, row.get('subject') or '')
+                 if one.get('id') == row['id']), {})
+    # The free link goes on the task too, so the session opens where the work is.
+    if step:
+        step = _guarded(username, [step],
+                        _catalog_id(username, subject_id, row.get('focus')
+                                    if by_focus else row.get('subject') or ''))[0]
+    link = next(iter(step.get('resources') or []), None)
+    where = '{}: {}'.format(_text(link.get('name'), 120), link['url']) if link else ''
+    note = ' · '.join(part for part in
+                      [_text(step.get(key), 200) for key in ('problems', 'pace')]
+                      + [where or _text(step.get('resource'), 200)] if part)
+    # A review session's plan is the work itself (the new problems and their
+    # answers), so it goes on the task too, where it is when the time comes.
+    if row.get('subject') == review_ai.SUBJECT and step.get('plan'):
+        parts = '\n'.join('{}{}: {}'.format(
+            part.get('label') or 'Step', ' ({} min)'.format(part['minutes']) if part.get('minutes') else '',
+            part.get('what')) for part in step['plan'] if part.get('what'))
+        note = '\n'.join(one for one in (note, parts) if one)
+    if note:
+        db.update_row('tasks', task_id, {'description': note}, user_id=username)
+
+    db.update_row('subject_recommendations', row['id'], {'task_id': task_id},
+                  user_id=username)
+    return ok(id=row['id'], task={'id': task_id,
+                                  'start': start.isoformat(timespec='seconds'),
+                                  'end': end.isoformat(timespec='seconds'),
+                                  'xp': xp, 'subject': subject_id, 'why': why},
+              minutes=minutes)
+
+
+def _spacing_key(subject_id: str, row: dict) -> str:
+    """What two sessions share when they're for the same subject: the catalog
+    id they're filed under, else the subject the recommendation was for."""
+    if subject_id:
+        return subject_id
+    subject = row.get('subject') or ''
+    return '' if subject == next_sessions.OVERALL else subject
+
+
+def _booked_sessions(username: str, tasks: list, now: datetime, exclude: str = '') -> list:
+    """Recommended sessions booked and still ahead, as session_timing reads
+    them: `{start, end, subject}`."""
+    by_id = {task.get('id'): task for task in tasks}
+    out = []
+    for other in db.rows_for('subject_recommendations', username):
+        if other.get('id') == exclude or other.get('taken_at') or not other.get('task_id'):
+            continue
+        task = by_id.get(other['task_id'])
+        if not task or task.get('status') == 'done':
+            continue
+        start = session_plan._parse(task.get('created_at'))
+        end = session_plan._parse(task.get('due_date'))
+        if not start or not end or end <= now:
+            continue
+        out.append({'start': start, 'end': end,
+                    'subject': _spacing_key(task.get('subject') or '', other)})
+    return out
 
 
 class TakeRecommendation(BaseModel):
@@ -454,7 +990,7 @@ def take_recommendation(body: TakeRecommendation,
 
     row_id = _text(body.id)
     if not row_id:
-        return fail('There is no recommendation to record.')
+        return fail("There's no recommendation to record.")
 
     found = db.find_row('subject_recommendations', row_id, user_id=username)
     if not found:
@@ -465,3 +1001,209 @@ def take_recommendation(body: TakeRecommendation,
         'task_id': _text(body.task_id, 64),
     }, user_id=username)
     return ok(id=row_id)
+
+
+# --------------------------------------------------------------------------
+# Three next sessions, from the dashboard and the Recommendations tab
+# --------------------------------------------------------------------------
+# The subject page's panel, offered where there is no subject page behind it:
+# for any one subject, or across all of them ("All subjects"). The brief is
+# counted here from the tasks (backend/tracking/next_sessions.py) rather than
+# sent, because neither page has the figures the subject page sends. The
+# steps go in the same ledger and the same saved reading as the subject
+# page's, keyed by the subject's name — so three planned for Mathematics on
+# the dashboard are the three the Mathematics page shows, and planning and
+# "I did this" are the endpoints above.
+TASK_COLUMNS = ('id', 'title', 'description', 'status', 'subject', 'completed_at',
+                'completion_seconds', 'difficulty', 'execution', 'reason',
+                'created_at', 'due_date', 'show_on_calendar')
+
+
+def _background(username: str, subject_id: Optional[str], names: Optional[dict] = None) -> list:
+    """What the account said about itself at sign-up, as lines for the brief —
+    the facts about this subject first, others about different subjects left
+    out (backend/tracking/background.py) — then what its Log has taught."""
+    lines = about_you.brief_lines(background_api.facts_for(username), subject_id,
+                                  names if names is not None else _subject_names(username))
+    # And what they've written on the Log page since (backend/tracking/journal.py),
+    # which keeps the brief current after sign-up. Passing feelings are marked.
+    return lines + journal.brief_lines(username)
+
+
+def _subject_names(username: str) -> dict:
+    """Every subject this account can file under, id to name."""
+    names = {entry['id']: entry['name'] for entry in subject_catalogue.SUBJECTS}
+    for subject_id, row in user_subjects._rows(username).items():
+        if row.get('custom'):
+            names[subject_id] = row.get('name') or subject_id
+    return names
+
+
+def _steps_with_state(username: str, subject: str) -> list:
+    """The steps on screen for a subject, each with where it stands."""
+    steps = _saved_steps(username, subject)
+    if subject == next_sessions.OVERALL:
+        steps = [next_sessions.unbracket(step) for step in steps]
+        steps = _guarded(username, steps)
+    elif subject == review_ai.SUBJECT:
+        # Review sessions name their subject in `focus`, like the overall ones.
+        steps = _guarded(username, steps)
+    else:
+        steps = _guarded(username, steps, _catalog_id(username, '', subject))
+    states = _sync(username, _history(username, subject), persist=False)
+    return [{**step, 'state': (states.get(step.get('id')) or {}).get('state', 'open'),
+             'task': (states.get(step.get('id')) or {}).get('task')}
+            for step in steps]
+
+
+@router.get('/api/next_sessions')
+def list_next_sessions(subject_id: str = '', username: str = Depends(current_username)):
+    """The sessions already suggested for a subject (or every subject, with no
+    id), the subjects there is work in to choose from, and whether a model is
+    there to suggest more."""
+    _, user = load_user(username)
+    if not user:
+        return fail('User not found')
+    names = _subject_names(username)
+    subject_id = _text(subject_id, 64)
+    if subject_id and subject_id not in names:
+        return fail("That subject isn't one of yours.")
+    subject = names[subject_id] if subject_id else next_sessions.OVERALL
+    tasks = db.columns_for('tasks', username, ('status', 'title', 'subject', 'completed_at'))
+    return ok(subject=subject, subject_id=subject_id,
+              steps=_steps_with_state(username, subject),
+              subjects=next_sessions.subjects_in(tasks, names),
+              available=subject_ai.configured())
+
+
+class NextSessionsBody(BaseModel):
+    subject_id: str = ''
+    #: Across every subject, the ones to plan from — the panel's pill bar.
+    #: Empty means all of them.
+    subjects: List[str] = []
+
+
+@router.post('/api/next_sessions')
+def suggest_next_sessions(body: NextSessionsBody, username: str = Depends(current_username)):
+    """Three new sessions for a subject, or across every subject (or just the
+    ones in `subjects`), replacing the ones on screen. Costs a model call."""
+    _, user = load_user(username)
+    if not user:
+        return fail('User not found')
+    names = _subject_names(username)
+    subject_id = _text(body.subject_id, 64)
+    if subject_id and subject_id not in names:
+        return fail("That subject isn't one of yours.")
+    subject = names[subject_id] if subject_id else next_sessions.OVERALL
+    chosen = set() if subject_id else {_text(one, 64) for one in body.subjects[:64]} & set(names)
+    if body.subjects and not subject_id and not chosen:
+        return fail('None of those subjects are yours.')
+
+    tasks = db.columns_for('tasks', username, TASK_COLUMNS)
+    if chosen:
+        tasks = [task for task in tasks if task.get('subject') in chosen]
+    state = next_sessions.state_for(tasks, subject_id or None, subject, names)
+    # A subject with no work yet gets first sessions (subject_ai.STARTER_NOTE):
+    # the picker offers every subject, not only ones with a record.
+    starter = bool(subject_id) and not state['finished']
+    if not state['finished'] and not starter:
+        return fail("There's no finished work {} in the last {} days to plan from yet.".format(
+            'in ' + subject if subject_id else
+            'in the subjects chosen' if chosen else 'anywhere', next_sessions.WINDOW_DAYS))
+
+    history = _history(username, subject)
+    _sync(username, history)
+    state.update({
+        'previous': [
+            {'title': row.get('title'), 'type': row.get('kind'),
+             'difficulty': row.get('difficulty'), 'minutes': row.get('minutes'),
+             'on': (row.get('given_at') or '')[:10]}
+            for row in history[:6]
+        ],
+        'outcomes': _outcomes(history, None),
+        'showing': [],
+        'owned_resources': _owned(username, subject_id, subject) if subject_id else [],
+        'background': _background(username, subject_id or None, names),
+    })
+    # Free resources: this subject's, or the top two of each busiest subject.
+    if subject_id:
+        catalog_id = _catalog_id(username, subject_id, subject, names)
+        state['free_resources'] = (_free_brief(username, [catalog_id], free_resources.BRIEF_COUNT)
+                                   if catalog_id else [])
+    else:
+        busiest = [entry['id'] for entry in next_sessions.subjects_in(tasks, names, most=6)
+                   if entry['id'] in free_resources.by_subject()]
+        state['free_resources'] = _free_brief(username, busiest,
+                                              free_resources.BRIEF_COUNT_OVERALL, names)
+
+    try:
+        steps = subject_ai.plan(state, overall=not subject_id, starter=starter)
+    except subject_ai.BriefUnavailable as exc:
+        return fail(str(exc))
+    if not subject_id:
+        steps = [next_sessions.unbracket(step) for step in steps]
+    steps = _guarded(username, steps, _catalog_id(username, subject_id, subject, names)
+                     if subject_id else '', names)
+
+    now = datetime.now().isoformat(timespec='seconds')
+    kept = _record(username, subject, steps[:subject_ai.NEXT_STEPS], now)
+    _keep_reading(username, subject, {**_saved_reading(username, subject), 'next_steps': kept},
+                  now, state['span'])
+    return ok(subject=subject, subject_id=subject_id,
+              steps=[{**step, 'state': 'open', 'task': None} for step in kept])
+
+
+# --------------------------------------------------------------------------
+# Review sessions
+# --------------------------------------------------------------------------
+# Three ways to go back over your work, written by the same model and in the
+# same shape as the next sessions above, and filed in the same ledger under
+# review_ai.SUBJECT, so planning, booking and "did it" work unchanged. The
+# brief is backend/tracking/review_ai.py: the review queue, rough sessions and
+# work from 1 to 30 days ago.
+REVIEW_TASK_COLUMNS = ('id', 'title', 'status', 'subject', 'completed_at', 'execution', 'reason',
+                       'score_got', 'score_of')
+
+
+@router.get('/api/review_sessions')
+def list_review_sessions(username: str = Depends(current_username)):
+    """The review sessions already suggested, and whether a model is there to
+    suggest more. Reads only."""
+    _, user = load_user(username)
+    if not user:
+        return fail('User not found')
+    return ok(steps=_steps_with_state(username, review_ai.SUBJECT), available=subject_ai.configured())
+
+
+@router.post('/api/review_sessions')
+def suggest_review_sessions(username: str = Depends(current_username)):
+    """Three new review sessions, replacing the ones on screen. Costs a model call."""
+    from backend.api.review import read_queue  # it imports backend/api/next, which is heavier
+    _, user = load_user(username)
+    if not user:
+        return fail('User not found')
+    names = _subject_names(username)
+    today = date.today()
+    tasks = db.columns_for('tasks', username, REVIEW_TASK_COLUMNS)
+    history = _history(username, review_ai.SUBJECT)
+    _sync(username, history)
+    previous = ['- "{}" ({} min), suggested {}{}.'.format(
+        row.get('title'), row.get('minutes') or '?', (row.get('given_at') or '')[:10],
+        ', done' if row.get('taken_at') else '') for row in history[:6]]
+    outcomes = ['- {} suggested, {} done.'.format(entry['given'], entry['taken'])
+                for entry in _outcomes(history, None)]
+    reasons = {row['key']: row['label'].lower() for row in RULES['task_reasons']['struggle']}
+    state = review_ai.state_for(
+        read_queue(username, today=today), tasks, today,
+        name_of=lambda key: names.get(key, key), reasons=reasons,
+        background=_background(username, None, names), previous=previous, outcomes=outcomes)
+    try:
+        steps = review_ai.plan(state)
+    except subject_ai.BriefUnavailable as exc:
+        return fail(str(exc))
+    steps = _guarded(username, steps, '', names)
+    now = datetime.now().isoformat(timespec='seconds')
+    kept = _record(username, review_ai.SUBJECT, steps[:subject_ai.NEXT_STEPS], now)
+    _keep_reading(username, review_ai.SUBJECT,
+                  {**_saved_reading(username, review_ai.SUBJECT), 'next_steps': kept}, now, '30')
+    return ok(steps=[{**step, 'state': 'open', 'task': None} for step in kept])

@@ -72,14 +72,22 @@ import {
   type GroupKey,
   type TaskQuery,
 } from '@/components/Tasks';
-import { Ambient, ErrorState, Loading, PageHero, RefreshButton, STATS_CHANGED } from '@/components';
+import { ErrorState, Loading, PageHero, RefreshButton } from '@/components';
 import { measureOf } from '@/components/Goals';
 import { useDocumentTitle, usePageEntrance, useSettings, useSubjects, useUserData } from '@/hooks';
-import { goals as goalService, tasks as taskService } from '@/services';
+import { goals as goalService, notes as noteService, tasks as taskService } from '@/services';
+import { noteCountsByTask } from '@/utils/noteLinks';
 import type { NewTask } from '@/services/tasks';
 import type { Goal, Task } from '@/types';
 import { isoStamp } from '@/utils/calendarGrid';
+import { useConfirm } from '@/components/ui';
 import '@/styles/tasks.css';
+import { announceStatsChanged } from '@/utils/statsBus';
+import { clampLevel, levelToPriority, levelXp } from '@/utils/priority';
+import { announceXpChange, ratingTarget, withRating, type RatingTarget } from '@/utils/rated';
+
+/** The level Quick Add's priority button stands for, when it isn't the default's. */
+const QUICK_LEVEL = { low: 2, medium: 3, high: 5 } as const;
 
 /**
  * How many rows a heading draws before it asks.
@@ -150,6 +158,7 @@ export default function Tasks() {
   const { data, error, loading, refreshing, reload, mutate, username } = useUserData();
   const subjects = useSubjects(username);
   const { prefs } = useSettings();
+  const [confirm, confirmDialog] = useConfirm();
 
   /* The account's outcome goals, for the link control on each row. Read once
      rather than through useApi: nothing on this page writes a goal, and a
@@ -161,6 +170,23 @@ export default function Tasks() {
     void goalService.getGoals().then((result) => {
       if (live && result.success) setGoals(result.goals ?? []);
     });
+    return () => {
+      live = false;
+    };
+  }, [username]);
+
+  /* How many notes are about each task, for the count on its row. Read once,
+     for the same reason the goals are: a failed read means rows show no
+     count, not a failed page. See utils/noteLinks for what "about" means. */
+  const [noteCounts, setNoteCounts] = useState<Map<string, number>>(new Map());
+  useEffect(() => {
+    if (!username) return;
+    let live = true;
+    noteService.list()
+      .then((result) => {
+        if (live && result.success) setNoteCounts(noteCountsByTask(result.notes ?? []));
+      })
+      .catch(() => {});
     return () => {
       live = false;
     };
@@ -328,7 +354,7 @@ export default function Tasks() {
         if (!ok) reload();
         return ok;
       } catch (cause) {
-        setFailure(cause instanceof Error ? cause.message : 'That did not work.');
+        setFailure(cause instanceof Error ? cause.message : "Something went wrong. Try again.");
         reload();
         return false;
       } finally {
@@ -363,8 +389,7 @@ export default function Tasks() {
             xp: (Number(current.stats.xp) || 0) + (Number(result.xp_earned) || 0),
             level: result.new_level,
             tasks_completed: result.new_tasks_completed,
-            current_streak: result.current_streak,
-            best_streak: result.best_streak,
+            ...taskService.streakPatch(result),
           },
           tasks: current.tasks.map((entry) =>
             String(entry.id) === String(task.id)
@@ -374,17 +399,68 @@ export default function Tasks() {
         }));
         // The rail carries the level and the XP total and never re-reads on its
         // own. This is what moves them.
-        window.dispatchEvent(new Event(STATS_CHANGED));
+        announceStatsChanged();
         // Ask, now that the work is banked and nothing depends on the answer —
         // unless the reader has turned the questions off in Settings. How many
         // are asked is that same preference: see components/Tasks/RatePrompt.
         if (ask && prefs.rating_depth !== 'none') {
-          setReviews([{ id: String(task.id), name: task.title }]);
+          setReviews([ratingTarget(task, String(task.id))]);
         }
         return true;
       });
     },
     [username, mutate, run, prefs.rating_depth],
+  );
+
+  /**
+   * Finish many tasks as one action: one request, one state update, one
+   * signal to the rail.
+   *
+   * What the bulk bar and "finish the day" use. Each used to call `complete`
+   * per task — sixty tasks was sixty requests, sixty `mutate`s re-rendering the
+   * whole list, and sixty "stats changed" events each making the rail re-read.
+   * Now the server does the sixty completions in one transaction and the page
+   * applies the result once.
+   *
+   * Returns the tasks that were actually finished by this call, which is what
+   * the review queue should ask about — not ones that were already done, and
+   * not ones the server could not write.
+   */
+  const completeMany = useCallback(
+    async (tasks: readonly Task[]): Promise<Task[]> => {
+      const open = tasks.filter((task) => task.status !== 'done');
+      if (!username || open.length === 0) return [];
+      const result = await taskService.completeTasks(open.map((task) => String(task.id)));
+      if (!result.success) {
+        setFailure(result.message);
+        return [];
+      }
+      if (result.failed.length > 0) {
+        setFailure(
+          `${result.failed.length} ${result.failed.length === 1 ? 'task' : 'tasks'} didn't save. Try again.`,
+        );
+      }
+      const stamps = new Map(result.completed.map((row) => [String(row.task_id), row.completed_at]));
+      if (stamps.size > 0) {
+        mutate((current) => ({
+          ...current,
+          stats: {
+            ...current.stats,
+            xp: (Number(current.stats.xp) || 0) + (Number(result.xp_earned) || 0),
+            level: result.new_level,
+            tasks_completed: result.new_tasks_completed,
+            ...taskService.streakPatch(result),
+          },
+          tasks: current.tasks.map((entry) => {
+            const at = stamps.get(String(entry.id));
+            return at ? { ...entry, status: 'done' as const, completed_at: at } : entry;
+          }),
+        }));
+        announceStatsChanged();
+      }
+      return open.filter((task) => stamps.has(String(task.id)));
+    },
+    [username, mutate],
   );
 
   // ---- Rating a finished task ---------------------------------------------
@@ -401,14 +477,14 @@ export default function Tasks() {
    * after another rather than each replacing the last. A single completion puts
    * exactly one thing in it, which is what it always did.
    */
-  const [reviews, setReviews] = useState<{ id: string; name: string }[]>([]);
+  const [reviews, setReviews] = useState<RatingTarget[]>([]);
   const rating = reviews[0] ?? null;
 
   /** Done with the head, however it was dismissed. */
   const nextReview = useCallback(() => setReviews((queue) => queue.slice(1)), []);
 
   const saveRating = useCallback(
-    (values: { difficulty?: number; execution?: number; reason?: string }) => {
+    (values: taskService.RatingAnswers) => {
       const target = rating;
       nextReview();
       if (!username || !target) return;
@@ -419,9 +495,10 @@ export default function Tasks() {
         mutate((current) => ({
           ...current,
           tasks: current.tasks.map((entry) =>
-            String(entry.id) === target.id ? { ...entry, ...values } : entry,
+            String(entry.id) === target.id ? withRating(entry, values, result) : entry,
           ),
         }));
+        announceXpChange(result);
       });
     },
     [mutate, nextReview, rating, username],
@@ -508,14 +585,20 @@ export default function Tasks() {
   );
 
   const drop = useCallback(
-    (task: Task, ask = true) => {
+    async (task: Task, ask = true) => {
       if (!username) return;
       // The confirmation is a preference; off means the click is the decision.
       // `ask` is how the bulk bar opts out of it: twelve selected rows used to
       // mean twelve separate confirm dialogs, one per task, which is not asking
       // a question — it is charging for the answer. It asks once, up there,
       // for all of them.
-      if (ask && prefs.confirm_delete && !window.confirm(`Delete “${task.title}”?`)) return;
+      if (
+        ask
+        && prefs.confirm_delete
+        && !(await confirm({ title: `Delete "${task.title}"?`, confirmLabel: 'Delete', danger: true }))
+      ) {
+        return;
+      }
       void run(task.id, async () => {
         const result = await taskService.deleteTask(task.id);
         if (!result.success) {
@@ -534,7 +617,7 @@ export default function Tasks() {
         return true;
       });
     },
-    [username, mutate, run, prefs.confirm_delete],
+    [username, mutate, run, prefs.confirm_delete, confirm],
   );
 
   const add = useCallback(
@@ -579,6 +662,7 @@ export default function Tasks() {
                 priority: draft.priority ?? 'medium',
                 status: 'todo' as const,
                 xp_value: Number(draft.xp_reward) || 0,
+                ...(draft.level ? { level: draft.level } : {}),
                 due_date: draft.due_date ?? undefined,
                 show_on_calendar: draft.show_on_calendar ?? false,
                 created_at: isoStamp(new Date()),
@@ -587,7 +671,7 @@ export default function Tasks() {
             ],
           }));
         } catch (cause) {
-          setFailure(cause instanceof Error ? cause.message : 'Could not add that task.');
+          setFailure(cause instanceof Error ? cause.message : "Couldn't add that task.");
           reload();
         } finally {
           setSaving(false);
@@ -633,11 +717,9 @@ export default function Tasks() {
   /**
    * A bulk action is the single action, repeated in order.
    *
-   * One request per task rather than a batch endpoint, because there is not one
-   * — and because completing ten tasks is ten completions with ten XP awards
-   * and a streak behind them, which is exactly what ten calls produce. Serial
-   * rather than parallel: they all move the same account's totals, and the
-   * backend recalculates the level on each.
+   * Only deleting still goes this way. Completing has its own batch endpoint
+   * and goes through `completeMany`, as one request. Serial rather than
+   * parallel: every action moves the same account.
    */
   const bulk = useCallback(
     async (action: (task: Task) => Promise<unknown>) => {
@@ -662,15 +744,39 @@ export default function Tasks() {
   );
 
   /**
+   * The bulk bar's Complete: the picked tasks as one batch, then the same
+   * ticks-off and re-read `bulk` does.
+   *
+   * One review prompt, not one per task. Each per-task completion used to
+   * raise its own and each replaced the last, so a reader finishing twenty
+   * rows was asked once; queueing all twenty would turn a bulk action into
+   * twenty dialogs. "Finish the day" is where asking about every task is the
+   * point, and it does.
+   */
+  const completePicked = useCallback(async () => {
+    setSaving(true);
+    const done = await completeMany(chosen);
+    setPicked((current) => {
+      const next = new Set(current);
+      chosen.forEach((task) => next.delete(task.id));
+      return next;
+    });
+    setSaving(false);
+    const first = done[0];
+    if (first && prefs.rating_depth !== 'none') {
+      setReviews([ratingTarget(first, String(first.id))]);
+    }
+    reload();
+  }, [chosen, completeMany, prefs.rating_depth, reload]);
+
+  /**
    * Finish the day: every task due today, in order, then the reviews.
    *
-   * The same one-call-per-task shape as `bulk` and for the same reasons — there
-   * is no batch endpoint, and ten completions really are ten XP awards with a
-   * streak behind them. What it does differently is hold the prompts back
-   * (`complete(task, false)`) and raise them together at the end, so the reader
-   * confirms once, watches the list empty, and is then asked about the tasks
-   * that actually landed. A task whose completion failed is not in the queue:
-   * there is nothing to rate about work the server did not record.
+   * One batch — see `completeMany` — then the prompts raised together at the
+   * end, so the reader confirms once, watches the list empty, and is then
+   * asked about the tasks that actually landed. A task whose completion failed
+   * is not in the queue: there is nothing to rate about work the server did
+   * not record.
    *
    * `reload` at the end for the same reason `bulk` does it — the page has
    * applied every change already and this is the cheap way to be sure.
@@ -680,17 +786,12 @@ export default function Tasks() {
       const todo = dayTasks;
       if (todo.length === 0) return;
       setSaving(true);
-      const done: { id: string; name: string }[] = [];
-      for (const task of todo) {
-        if (await complete(task, false)) {
-          done.push({ id: String(task.id), name: task.title });
-        }
-      }
+      const done = (await completeMany(todo)).map((task) => ratingTarget(task, String(task.id)));
       setSaving(false);
       if (review && prefs.rating_depth !== 'none' && done.length > 0) setReviews(done);
       reload();
     },
-    [complete, dayTasks, prefs.rating_depth, reload],
+    [completeMany, dayTasks, prefs.rating_depth, reload],
   );
 
   const toggleGroup = useCallback((key: string) => {
@@ -840,14 +941,16 @@ export default function Tasks() {
   }, [opening, prefs.task_group]);
 
   /** Quick Add's three fields, through the same create the full form uses.
-   *  The XP is the account's default rather than a number picked here: this
-   *  form does not ask for one, and 25 was a third answer to a question the
-   *  composer and both task dialogs already agreed on. */
+   *  Its priority button picks a level: the account's default when the
+   *  priority is the default's, else the plain level for that priority. */
   const quickAdd = useCallback(
     (name: string, due: string | null, priority: 'high' | 'medium' | 'low') => {
-      add({ name, priority, due_date: due, xp_reward: prefs.default_xp });
+      const level = levelToPriority(prefs.default_level) === priority
+        ? clampLevel(prefs.default_level)
+        : QUICK_LEVEL[priority];
+      add({ name, priority, level, xp_reward: levelXp(level), due_date: due });
     },
-    [add, prefs.default_xp],
+    [add, prefs.default_level],
   );
 
   // ---- The shell ----------------------------------------------------------
@@ -855,14 +958,13 @@ export default function Tasks() {
      starts when there is something to animate — see hooks/usePageEntrance. */
   const entering = usePageEntrance(!loading);
 
-  if (loading) return <Loading label="Reading your tasks" />;
+  if (loading) return <Loading label="Loading your tasks" />;
   if (!data) {
     return <ErrorState message={error ?? 'No tasks yet.'} onRetry={username ? reload : undefined} />;
   }
 
   return (
     <div className="tk-page">
-      <Ambient />
       <div className={`tk-shell page-shell${entering ? ' pg-enter' : ''}`}>
         {/* Teal: the rail puts Analytics above Tasks and Goals below it, and the
             tone is the one thing that says which of the three is open before
@@ -879,7 +981,7 @@ export default function Tasks() {
                 </span>
                 Tasks
               </h1>
-              <p className="tk-quiet">What is on your plate.</p>
+              <p className="tk-quiet">Everything you need to do.</p>
             </div>
             <div className="tk-head-tools">
               <button
@@ -891,7 +993,7 @@ export default function Tasks() {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
                   <path d="M12 5v14M5 12h14" />
                 </svg>
-                New Task
+                New task
                 <i className={`tk-new-caret${composing ? ' is-open' : ''}`} aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M6 9l6 6 6-6" />
@@ -904,7 +1006,7 @@ export default function Tasks() {
                 <button
                   type="button"
                   className="tk-more is-page"
-                  aria-label="More for this page"
+                  aria-label="More options"
                   aria-expanded={pageMenu}
                   onClick={() => setPageMenu(!pageMenu)}
                 >
@@ -965,10 +1067,10 @@ export default function Tasks() {
             {composing && (
               <Composer
                 subjects={subjects}
+                goals={linkable}
                 busy={saving}
                 onAdd={add}
-                defaultXp={prefs.default_xp}
-                defaultPriority={prefs.default_priority}
+                defaultLevel={prefs.default_level}
               />
             )}
 
@@ -985,15 +1087,18 @@ export default function Tasks() {
             <BulkBar
               count={chosen.length}
               busy={saving}
-              onComplete={() => void bulk((task) => (task.status === 'done' ? Promise.resolve() : complete(task)))}
-              onDelete={() => {
+              onComplete={() => void completePicked()}
+              onDelete={async () => {
                 if (
                   prefs.confirm_delete
-                  && !window.confirm(
-                    chosen.length === 1
-                      ? `Delete “${chosen[0]?.title}”?`
-                      : `Delete ${chosen.length} tasks?`,
-                  )
+                  && !(await confirm({
+                    title:
+                      chosen.length === 1
+                        ? `Delete "${chosen[0]?.title}"?`
+                        : `Delete ${chosen.length} tasks?`,
+                    confirmLabel: 'Delete',
+                    danger: true,
+                  }))
                 ) {
                   return;
                 }
@@ -1018,8 +1123,8 @@ export default function Tasks() {
             {groups.length === 0 ? (
               <p className="tk-empty">
                 {list.length === 0
-                  ? 'Nothing here yet. Quick Add is the fastest way to change that.'
-                  : 'No task matches. Clear the filters to see the rest.'}
+                  ? 'No tasks yet. Use Quick add at the top to make one.'
+                  : 'No tasks match. Clear the filters to see the rest.'}
               </p>
             ) : (
               groups.map((group) => {
@@ -1058,6 +1163,7 @@ export default function Tasks() {
                             goals={linkable}
                             onLink={link}
                             estimate={plannedSeconds(task)}
+                            notes={noteCounts.get(task.id) ?? 0}
                             selected={picked.has(task.id)}
                             starred={starred.has(task.id)}
                             busy={busyId === task.id || saving}
@@ -1104,7 +1210,7 @@ export default function Tasks() {
             upcoming={nextUp}
             streaks={runs}
             busy={saving}
-            defaultPriority={prefs.default_priority}
+            defaultPriority={levelToPriority(prefs.default_level)}
             subjectName={subjectName}
             onAdd={quickAdd}
             onOpenFull={() => setComposing(true)}
@@ -1123,11 +1229,13 @@ export default function Tasks() {
       {rating && (
         <RatePrompt
           taskName={rating.name}
+          level={rating.level}
           depth={prefs.rating_depth}
           onSubmit={saveRating}
           onClose={nextReview}
         />
       )}
+      {confirmDialog}
     </div>
   );
 }

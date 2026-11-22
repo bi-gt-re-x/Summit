@@ -1,5 +1,5 @@
 /* ==========================================================================
-   achievements.css — the badge wall. See src/pages/Achievements.tsx.
+   achievements.css — the badge wall. See src/components/Achievements/BadgeWall.tsx.
 
    Four bands down the page, in the order the reader's questions arrive:
 
@@ -33,66 +33,65 @@
    records.css uses.
    ========================================================================== */
 
-/* body is a centred flex column (dashboard.css), so its child shrinks to its
-   content unless told otherwise. Same fix, and the same reason, as .rc-page. */
-body:has(.ac-page) > #root,
-body:has(.ac-page) .app-main {
-    width: 100%;
-    min-width: 0;
-}
+/* Fills the width beside the rail like every signed-in page — the default
+   in styles/layout.css, not a rule of this page's. */
 
 .ac-page {
-    --ac-card: #ffffff;
-    --ac-card-2: #f7f8fb;
-    --ac-line: #e6e9ef;
-    --ac-well: #eef1f6;
+    --ac-card: var(--color-surface);
+    --ac-card-2: var(--color-surface-2);
+    --ac-line: var(--color-line);
+    --ac-well: var(--color-surface-2);
 
-    --ac-text: #1f2733;
-    --ac-muted: #6b7684;
-    --ac-faint: #98a1ae;
+    --ac-text: var(--color-ink);
+    --ac-muted: var(--color-ink-muted);
+    --ac-faint: var(--color-ink-faint);
 
-    --ac-violet: #6d5ae0;
+    --ac-violet: var(--color-accent);
     --ac-blue: #2f6fd0;
     --ac-green: #1f8a54;
     --ac-gold: #c08324;
     --ac-rose: #c2407a;
     --ac-flame: #d2691e;
+    /* Analytics. A seventh heading needed a seventh tone, and teal is the one
+       hue the other six leave free at this lightness. */
+    --ac-teal: #0f7f86;
 
-    --ac-radius: 16px;
-    --ac-shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 8px 24px rgba(16, 24, 40, .05);
+    --ac-radius: var(--radius-lg);
+    --ac-shadow: var(--shadow-md);
 
     box-sizing: border-box;
     width: 100%;
     /* No column cap: the wall takes whatever width it is given and turns it
        into more badges a row rather than wider ones. A max-width here would
        leave the right of a large screen empty for no gain. */
-    padding: 26px 28px 60px;
+    padding: var(--space-6) var(--space-6) var(--space-16);
     color: var(--ac-text);
-    font-family: 'Inter', 'Segoe UI', sans-serif;
+    font-family: var(--font-sans);
 }
 
 html[data-theme="dark"] .ac-page {
-    --ac-card: #161d2c;
-    --ac-card-2: #1b2334;
-    --ac-line: #28324a;
+    --ac-card: var(--color-surface);
+    --ac-card-2: var(--color-surface-2);
+    --ac-line: var(--color-line);
     --ac-well: #0f1523;
 
     --ac-text: #e7ecf6;
-    --ac-muted: #8f9bb3;
-    --ac-faint: #6d7a94;
+    --ac-muted: var(--color-ink-muted);
+    --ac-faint: var(--color-ink-faint);
 
-    --ac-violet: #9b8bff;
+    --ac-violet: var(--color-accent);
     --ac-blue: #6a9bff;
     --ac-green: #46c483;
     --ac-gold: #e0b23c;
     --ac-rose: #ff7bb0;
     --ac-flame: #ff9245;
+    --ac-teal: #3fc4cd;
 
-    --ac-shadow: 0 1px 2px rgba(0, 0, 0, .2), 0 8px 24px rgba(0, 0, 0, .26);
+    --ac-shadow: var(--shadow-md);
     color-scheme: dark;
 }
 
-.ac-shell { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+.ac-shell { display: flex; flex-direction: column; gap: var(--space-6); min-width: 0; }
 .ac-quiet { color: var(--ac-muted); }
 
 /* ---------- Difficulty, as one property ----------------------------------
@@ -111,20 +110,20 @@ html[data-theme="dark"] .ac-page {
 /* ---------- Head ---------------------------------------------------------- */
 .ac-head {
     display: flex; align-items: flex-start; justify-content: space-between;
-    gap: 16px; flex-wrap: wrap;
+    gap: var(--space-4); flex-wrap: wrap;
 }
-.ac-head h1 { margin: 0; font-size: 27px; font-weight: 700; letter-spacing: -.02em; }
-.ac-head p { margin: 5px 0 0; font-size: 13.5px; }
-.ac-head-tools { display: flex; align-items: center; gap: 9px; }
+.ac-head h1 { margin: 0; font-size: var(--text-2xl); font-weight: 700; letter-spacing: -.02em; }
+.ac-head p { margin: var(--space-1) 0 0; font-size: var(--text-md); }
+.ac-head-tools { display: flex; align-items: center; gap: var(--space-2); }
 
 .ac-select select {
     appearance: none;
-    padding: 9px 34px 9px 14px;
+    padding: var(--space-2) var(--space-8) var(--space-2) var(--space-4);
     border: 1px solid var(--ac-line);
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     background: var(--ac-card);
     color: var(--ac-text);
-    font: inherit; font-size: 13px; font-weight: 550;
+    font: inherit; font-size: var(--text-sm); font-weight: 500;
     cursor: pointer;
     /* The chevron, drawn rather than shipped — one arrow does not earn a file
        under utils/icons/. currentColor is not available inside a data URI, so
@@ -145,19 +144,19 @@ html[data-theme="dark"] .ac-page {
     display: grid;
     grid-template-columns: auto repeat(3, minmax(0, 1fr));
     align-items: center;
-    gap: 10px 26px;
-    padding: 20px 24px;
+    gap: var(--space-2) var(--space-6);
+    padding: var(--space-5) var(--space-6);
     border: 1px solid var(--ac-line);
     border-radius: var(--ac-radius);
     background: var(--ac-card);
     box-shadow: var(--ac-shadow);
 }
 .ac-band-ring {
-    display: flex; flex-direction: column; align-items: center; gap: 8px;
-    padding-right: 26px;
+    display: flex; flex-direction: column; align-items: center; gap: var(--space-2);
+    padding-right: var(--space-6);
     border-right: 1px solid var(--ac-line);
 }
-.ac-band-ring .ac-quiet { font-size: 11.5px; }
+.ac-band-ring .ac-quiet { font-size: var(--text-xs); }
 
 .ac-ring { position: relative; width: 108px; height: 108px; }
 .ac-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
@@ -176,44 +175,44 @@ html[data-theme="dark"] .ac-page {
     display: grid; place-items: center;
 }
 .ac-ring-face strong {
-    font-size: 25px; font-weight: 700; letter-spacing: -.02em;
+    font-size: var(--text-2xl); font-weight: 700; letter-spacing: -.02em;
     font-variant-numeric: tabular-nums;
 }
 
-.ac-stat { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.ac-stat-top { display: flex; align-items: center; gap: 9px; }
+.ac-stat { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.ac-stat-top { display: flex; align-items: center; gap: var(--space-2); }
 .ac-stat-top svg { width: 22px; height: 22px; color: var(--t, var(--ac-violet)); flex: none; }
 .ac-stat-top strong {
-    font-size: 27px; font-weight: 700; line-height: 1.05; letter-spacing: -.02em;
+    font-size: var(--text-2xl); font-weight: 700; line-height: 1.05; letter-spacing: -.02em;
     font-variant-numeric: tabular-nums;
 }
-.ac-stat-label { font-size: 12.5px; font-weight: 600; }
-.ac-stat .ac-quiet { font-size: 11.5px; }
+.ac-stat-label { font-size: var(--text-sm); font-weight: 600; }
+.ac-stat .ac-quiet { font-size: var(--text-xs); }
 
 /* The one title in the app, when it has been earned. Rose, because the badge
    that confers it is the only Legendary hidden one — see `Ascended`. */
 .ac-title-banner {
     margin: 0;
-    padding: 11px 16px;
+    padding: var(--space-3) var(--space-4);
     border: 1px solid color-mix(in srgb, var(--ac-rose) 40%, var(--ac-line));
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     background: color-mix(in srgb, var(--ac-rose) 9%, var(--ac-card));
-    font-size: 13px;
+    font-size: var(--text-sm);
 }
 .ac-title-banner strong { color: var(--ac-rose); }
 
 /* ---------- Sections ------------------------------------------------------ */
-.ac-section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.ac-section { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
 .ac-section-head {
     display: flex; align-items: center; justify-content: space-between;
-    gap: 14px; flex-wrap: wrap;
+    gap: var(--space-4); flex-wrap: wrap;
 }
-.ac-section-head h2 { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+.ac-section-head h2 { margin: 0; font-size: var(--text-lg); font-weight: 600; letter-spacing: -.01em; }
 
 .ac-view-all {
     padding: 0; border: 0; background: none;
     color: var(--ac-violet);
-    font: inherit; font-size: 12.5px; font-weight: 650;
+    font: inherit; font-size: var(--text-sm); font-weight: 600;
     cursor: pointer;
 }
 .ac-view-all:hover { text-decoration: underline; }
@@ -227,12 +226,14 @@ html[data-theme="dark"] .ac-page {
     list-style: none; margin: 0; padding: 0;
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-    gap: 12px;
+    /* Matched to the wall below it, for the reason given there: four cards
+       twelve pixels apart are one wide card with lines in it. */
+    gap: var(--space-5);
 }
 .ac-recent-card {
     position: relative;
-    display: flex; flex-direction: column; align-items: center; gap: 7px;
-    padding: 20px 16px 14px;
+    display: flex; flex-direction: column; align-items: center; gap: var(--space-2);
+    padding: var(--space-5) var(--space-4) var(--space-4);
     text-align: center;
     border: 1px solid color-mix(in srgb, var(--t) 46%, var(--ac-line));
     border-radius: var(--ac-radius);
@@ -248,15 +249,15 @@ html[data-theme="dark"] .ac-page {
         var(--ac-card);
     box-shadow: 0 8px 22px color-mix(in srgb, var(--t) 15%, transparent), var(--ac-shadow);
 }
-.ac-recent-card strong { font-size: 14.5px; font-weight: 650; letter-spacing: -.01em; }
-.ac-recent-card .ac-quiet { font-size: 11.5px; line-height: 1.5; }
+.ac-recent-card strong { font-size: var(--text-md); font-weight: 600; letter-spacing: -.01em; }
+.ac-recent-card .ac-quiet { font-size: var(--text-xs); line-height: 1.5; }
 .ac-recent-foot {
     display: flex; align-items: center; justify-content: space-between;
-    gap: 10px; width: 100%;
-    margin-top: 6px; padding-top: 11px;
+    gap: var(--space-2); width: 100%;
+    margin-top: var(--space-2); padding-top: var(--space-3);
     border-top: 1px solid var(--ac-line);
 }
-.ac-recent-foot .ac-quiet { font-size: 11px; }
+.ac-recent-foot .ac-quiet { font-size: var(--text-2xs); }
 
 /* ---------- The mark ------------------------------------------------------
    A hexagon in the tier's tone with the badge's drawing inside it. Two sizes:
@@ -340,7 +341,7 @@ html[data-theme="dark"] .ac-page {
 }
 .ac-mark.is-earned .ac-pips > i { opacity: 1; }
 .ac-mark.is-lg .ac-pips > i { width: 4.5px; height: 4.5px; }
-.ac-mark.is-lg .ac-pips { gap: 2.5px; }
+.ac-mark.is-lg .ac-pips { gap: var(--space-1); }
 
 /* ---- The rosette ----
    Earning used to be said by replacing the drawing with a tick, which made two
@@ -378,15 +379,15 @@ html[data-theme="dark"] .ac-mark-tick svg { color: #10151f; }
     list-style: none; margin: 0; padding: 0;
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
-    gap: 12px;
+    gap: var(--space-3);
 }
 .ac-cat { display: flex; min-width: 0; }
 .ac-cat button {
-    display: flex; flex-direction: column; gap: 10px;
+    display: flex; flex-direction: column; gap: var(--space-2);
     width: 100%;
-    padding: 14px 15px;
+    padding: var(--space-4) var(--space-4);
     border: 1px solid var(--ac-line);
-    border-radius: 14px;
+    border-radius: var(--radius-lg);
     background: var(--ac-card);
     box-shadow: var(--ac-shadow);
     color: inherit; font: inherit; text-align: left;
@@ -406,28 +407,29 @@ html[data-theme="dark"] .ac-mark-tick svg { color: #10151f; }
 .ac-cat.cat-learning { --t: var(--ac-violet); }
 .ac-cat.cat-mastery { --t: var(--ac-rose); }
 .ac-cat.cat-milestones { --t: var(--ac-blue); }
+.ac-cat.cat-analytics { --t: var(--ac-teal); }
 .ac-cat.cat-special { --t: var(--ac-gold); }
 
-.ac-cat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ac-cat-head { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .ac-cat-ico {
     display: grid; place-items: center;
     width: 34px; height: 34px; flex: none;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     background: color-mix(in srgb, var(--t) 15%, transparent);
     color: var(--t);
 }
 .ac-cat-ico svg { width: 17px; height: 17px; }
 .ac-cat-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.ac-cat-text strong { font-size: 13px; font-weight: 650; }
-.ac-cat-text .ac-quiet { font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.ac-cat-text strong { font-size: var(--text-sm); font-weight: 600; }
+.ac-cat-text .ac-quiet { font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 
 /* ---------- Search -------------------------------------------------------- */
 .ac-search {
-    display: flex; align-items: center; gap: 8px;
+    display: flex; align-items: center; gap: var(--space-2);
     min-width: 0; width: min(280px, 100%);
-    padding: 8px 12px;
+    padding: var(--space-2) var(--space-3);
     border: 1px solid var(--ac-line);
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     background: var(--ac-card);
     color: var(--ac-faint);
 }
@@ -437,7 +439,7 @@ html[data-theme="dark"] .ac-mark-tick svg { color: #10151f; }
     min-width: 0; flex: 1;
     border: 0; background: none; outline: none;
     color: var(--ac-text);
-    font: inherit; font-size: 13px;
+    font: inherit; font-size: var(--text-sm);
 }
 .ac-search input::placeholder { color: var(--ac-faint); }
 
@@ -445,24 +447,24 @@ html[data-theme="dark"] .ac-mark-tick svg { color: #10151f; }
    A heading with the count in it, and a rule running to the right margin so
    the eye can find where one half stops without counting tiles. */
 .ac-wall-head {
-    display: flex; align-items: baseline; gap: 10px;
-    margin-top: 4px;
+    display: flex; align-items: baseline; gap: var(--space-2);
+    margin-top: var(--space-1);
 }
 .ac-wall-head h3 {
-    display: flex; align-items: baseline; gap: 8px;
+    display: flex; align-items: baseline; gap: var(--space-2);
     margin: 0; flex: none;
-    font-size: 13px; font-weight: 700;
+    font-size: var(--text-sm); font-weight: 700;
     letter-spacing: .06em; text-transform: uppercase;
 }
 .ac-wall-count {
-    padding: 2px 8px;
-    border-radius: 99px;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-full);
     background: var(--ac-well);
     color: var(--ac-muted);
-    font-size: 11.5px; font-weight: 700; letter-spacing: 0;
+    font-size: var(--text-xs); font-weight: 700; letter-spacing: 0;
     font-variant-numeric: tabular-nums;
 }
-.ac-wall-head .ac-quiet { font-size: 11.5px; }
+.ac-wall-head .ac-quiet { font-size: var(--text-xs); }
 /* The rule takes whatever the heading leaves. */
 .ac-wall-head::after {
     content: ""; flex: 1;
@@ -482,7 +484,13 @@ html[data-theme="dark"] .ac-mark-tick svg { color: #10151f; }
     list-style: none; margin: 0; padding: 0;
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 12px;
+    /* `--space-5`, the gap every other row of cards in this app uses — the
+       dashboard's four figures, the goals ladder, the records shelf. It was
+       `--space-3`, which is the gap for things that belong together inside one
+       card, and at twelve pixels a hundred tiles read as a single ruled sheet
+       rather than as a hundred separate objects. A wall is read by comparing
+       neighbours, and neighbours have to be visibly separate to be compared. */
+    gap: var(--space-5);
 }
 
 .ac-tile {
@@ -491,10 +499,10 @@ html[data-theme="dark"] .ac-mark-tick svg { color: #10151f; }
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
     align-content: start;
-    gap: 9px 13px;
-    padding: 14px 15px 12px;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-4) var(--space-4) var(--space-3);
     border: 1px solid var(--ac-line);
-    border-radius: 14px;
+    border-radius: var(--radius-lg);
     background: var(--ac-card);
     transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease;
 }
@@ -562,16 +570,16 @@ html[data-theme="dark"] .ac-mark-tick svg { color: #10151f; }
    the score pill go grey with it. */
 .ac-tile.is-secret { --t: var(--ac-faint); border-style: dashed; }
 
-.ac-tile-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ac-tile-text { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
 .ac-tile-top {
     display: flex; align-items: baseline; justify-content: space-between;
-    gap: 9px; min-width: 0;
+    gap: var(--space-2); min-width: 0;
 }
 .ac-tile-top strong {
-    font-size: 13.5px; font-weight: 650; letter-spacing: -.01em;
+    font-size: var(--text-md); font-weight: 600; letter-spacing: -.01em;
     min-width: 0;
 }
-.ac-tile-text .ac-quiet { font-size: 11.5px; line-height: 1.5; }
+.ac-tile-text .ac-quiet { font-size: var(--text-xs); line-height: 1.5; }
 
 /* The tier in words, for the reader who has not yet learned the colours or
    the pips. A chip rather than 9.5px of faint uppercase floating beside the
@@ -579,10 +587,10 @@ html[data-theme="dark"] .ac-mark-tick svg { color: #10151f; }
    set smaller and quieter than the description under it. */
 .ac-rank {
     flex: none;
-    padding: 3px 7px;
-    border-radius: 99px;
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-full);
     background: color-mix(in srgb, var(--ac-faint) 15%, transparent);
-    font-size: 9px; font-weight: 800;
+    font-size: var(--text-2xs); font-weight: 700;
     letter-spacing: .08em; text-transform: uppercase;
     color: var(--ac-faint);
 }
@@ -599,11 +607,11 @@ html[data-theme="dark"] .ac-mark-tick svg { color: #10151f; }
 
 .ac-title {
     align-self: flex-start;
-    margin-top: 3px;
-    font-style: normal; font-size: 10px; font-weight: 700;
+    margin-top: var(--space-1);
+    font-style: normal; font-size: var(--text-2xs); font-weight: 700;
     letter-spacing: .04em; text-transform: uppercase;
-    padding: 3px 8px;
-    border-radius: 99px;
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-full);
     background: color-mix(in srgb, var(--ac-rose) 16%, transparent);
     color: var(--ac-rose);
 }
@@ -613,22 +621,22 @@ html[data-theme="dark"] .ac-mark-tick svg { color: #10151f; }
 .ac-tile-foot {
     grid-column: 1 / -1;
     display: flex; align-items: center; justify-content: space-between;
-    gap: 12px; min-width: 0;
-    padding-top: 10px;
+    gap: var(--space-3); min-width: 0;
+    padding-top: var(--space-2);
     border-top: 1px solid color-mix(in srgb, var(--ac-line) 70%, transparent);
 }
-.ac-tile-foot .ac-quiet { font-size: 11px; font-variant-numeric: tabular-nums; }
+.ac-tile-foot .ac-quiet { font-size: var(--text-2xs); font-variant-numeric: tabular-nums; }
 
 .ac-done {
-    display: flex; align-items: center; gap: 6px; min-width: 0;
-    font-size: 11.5px; font-weight: 650;
+    display: flex; align-items: center; gap: var(--space-2); min-width: 0;
+    font-size: var(--text-xs); font-weight: 600;
     color: var(--ac-green);
 }
 .ac-done svg { width: 14px; height: 14px; flex: none; }
 .ac-secret-note { font-style: italic; }
 
-.ac-progress { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
-.ac-figures { font-size: 11px; font-variant-numeric: tabular-nums; }
+.ac-progress { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; flex: 1; }
+.ac-figures { font-size: var(--text-2xs); font-variant-numeric: tabular-nums; }
 
 /* ---------- Bars ----------------------------------------------------------
    One bar, painted from `--t`, so a bar's colour is its difficulty wherever it
@@ -636,7 +644,7 @@ html[data-theme="dark"] .ac-mark-tick svg { color: #10151f; }
 .ac-bar {
     display: block;
     height: 6px;
-    border-radius: 99px;
+    border-radius: var(--radius-full);
     background: var(--ac-well);
     overflow: hidden;
 }
@@ -649,11 +657,11 @@ html[data-theme="dark"] .ac-mark-tick svg { color: #10151f; }
 
 /* ---------- The score pill ------------------------------------------------ */
 .ac-xp {
-    padding: 5px 10px;
-    border-radius: 99px;
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-full);
     background: color-mix(in srgb, var(--t) 13%, transparent);
     color: var(--t);
-    font-size: 11.5px; font-weight: 700;
+    font-size: var(--text-xs); font-weight: 700;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }
@@ -664,21 +672,21 @@ html[data-theme="dark"] .ac-mark-tick svg { color: #10151f; }
 
 /* ---------- Feet ---------------------------------------------------------- */
 .ac-empty {
-    margin: 0; padding: 26px;
+    margin: 0; padding: var(--space-6);
     text-align: center;
     border: 1px dashed var(--ac-line);
-    border-radius: 13px;
+    border-radius: var(--radius-md);
     color: var(--ac-muted);
-    font-size: 13px;
+    font-size: var(--text-sm);
 }
 .ac-foot {
-    display: flex; align-items: center; justify-content: center; gap: 9px;
-    margin: 4px 0 0; padding: 15px;
+    display: flex; align-items: center; justify-content: center; gap: var(--space-2);
+    margin: var(--space-1) 0 0; padding: var(--space-4);
     border: 1px dashed var(--ac-line);
-    border-radius: 13px;
+    border-radius: var(--radius-md);
     background: var(--ac-card-2);
     color: var(--ac-muted);
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     text-align: center;
 }
 .ac-foot svg { width: 15px; height: 15px; flex: none; }
@@ -688,17 +696,17 @@ html[data-theme="dark"] .ac-mark-tick svg { color: #10151f; }
    its own — `auto-fill` drops to a single column the moment two 300px tiles
    stop fitting. */
 @media (max-width: 900px) {
-    .ac-band { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+    .ac-band { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
     .ac-band-ring {
         grid-column: 1 / -1;
-        flex-direction: row; gap: 14px;
-        padding: 0 0 16px; border-right: 0;
+        flex-direction: row; gap: var(--space-4);
+        padding: 0 0 var(--space-4); border-right: 0;
         border-bottom: 1px solid var(--ac-line);
     }
 }
 
 @media (max-width: 640px) {
-    .ac-page { padding: 20px 15px 48px; }
+    .ac-page { padding: var(--space-5) var(--space-4) var(--space-12); }
     .ac-band { grid-template-columns: minmax(0, 1fr); }
     /* Below the floor the grid would enforce anyway, so it is stated: one
        column, and tiles that use the width rather than centring in it. */
@@ -717,3 +725,82 @@ html[data-theme="dark"] .ac-mark-tick svg { color: #10151f; }
        motion this setting is asking not to see. */
     .ac-tile.is-earned:is(.tier-4, .tier-5):hover::after { animation: none; }
 }
+
+/* ---------- The skill trees ----------------------------------------------
+   The one heading with a section of its own. See `TreeWall` in
+   frontend/src/components/Achievements/BadgeWall.tsx for why it earns the space; this only
+   has to make it read as part of the page rather than as a panel bolted on.
+
+   It takes Mastery's own tone through `--t`, so the mark, the ladder bars and
+   every tile in it agree with the chip in the band above — which is the whole
+   argument for one tone per heading, applied to the section as well as to the
+   chip. */
+.ac-trees { --t: var(--ac-rose); }
+
+.ac-trees .ac-section-head h2 {
+    display: flex; align-items: center; gap: var(--space-2);
+}
+.ac-trees-mark {
+    display: grid; place-items: center;
+    width: 30px; height: 30px; flex: none;
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--t) 13%, transparent);
+    color: var(--t);
+}
+.ac-trees-mark svg { width: 17px; height: 17px; }
+
+.ac-trees-note {
+    margin: 0;
+    max-width: 78ch;
+    color: var(--ac-muted);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+}
+
+/* The six ladders, each showing its next rung. `auto-fill` rather than a fixed
+   count: six is what there are today and the grid should not have to be edited
+   the day a seventh ladder is added. */
+.ac-ladders {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: var(--space-2);
+    margin: 0; padding: 0;
+    list-style: none;
+}
+.ac-ladder {
+    display: flex; align-items: flex-start; gap: var(--space-3);
+    padding: var(--space-3) var(--space-3);
+    border: 1px solid var(--ac-line);
+    border-radius: var(--radius-md);
+    background: var(--ac-card);
+    min-width: 0;
+}
+.ac-ladder-count {
+    flex: none;
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-full);
+    background: color-mix(in srgb, var(--t) 12%, transparent);
+    color: var(--t);
+    font-size: var(--text-2xs); font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.ac-ladder-next {
+    display: flex; flex-direction: column; gap: var(--space-1);
+    min-width: 0; flex: 1;
+    font-size: var(--text-xs);
+}
+.ac-ladder-next strong {
+    color: var(--ac-text);
+    font-size: var(--text-sm); font-weight: 600;
+}
+/* A ladder with every rung earned has no bar and needs none — the sentence in
+   it is the whole message, and an empty track under it would read as nothing
+   done rather than as everything. */
+.ac-ladder-next.is-done strong { color: var(--t); }
+
+.ac-trees .ac-foot a {
+    color: var(--t);
+    font-weight: 600;
+    text-decoration: none;
+}
+.ac-trees .ac-foot a:hover { text-decoration: underline; }

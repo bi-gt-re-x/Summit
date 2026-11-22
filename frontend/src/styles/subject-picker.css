@@ -11,17 +11,17 @@
  * the pill is the selected one and the whole thing inverts.
  */
 .subject-picker {
-    --sp-ink: #2c302e;
-    --sp-ink-soft: #6b7280;
-    --sp-line: #e0e3ea;
-    --sp-surface: #ffffff;
-    --sp-surface-soft: #f5f6f9;
+    --sp-ink: var(--color-ink);
+    --sp-ink-soft: var(--color-ink-muted);
+    --sp-line: var(--color-line);
+    --sp-surface: var(--color-surface);
+    --sp-surface-soft: var(--color-surface-2);
     --sp-accent: #a38a70;
     --sp-accent-ink: #ffffff;
     /* The dialogs put this between the name field and the XP slider, and both
        of those own their own vertical rhythm; this matches it rather than
        inventing a third. */
-    margin: 18px 0 20px;
+    margin: var(--space-4) 0 var(--space-5);
     text-align: left;
     font-family: inherit;
     /* The rail is allowed to run the control's full width and no further —
@@ -30,27 +30,27 @@
 }
 
 html[data-theme="dark"] .subject-picker {
-    --sp-ink: #e6edf3;
-    --sp-ink-soft: #8b949e;
-    --sp-line: #2b323c;
-    --sp-surface: #161b22;
-    --sp-surface-soft: #1b212a;
+    --sp-ink: var(--color-ink);
+    --sp-ink-soft: var(--color-ink-muted);
+    --sp-line: var(--color-line);
+    --sp-surface: var(--color-surface);
+    --sp-surface-soft: var(--color-surface-2);
     --sp-accent: #c2a888;
     --sp-accent-ink: #14181d;
 }
 
 .sp-label {
     display: block;
-    font-size: 13px;
+    font-size: var(--text-sm);
     font-weight: 500;
     color: var(--sp-ink-soft);
-    margin-bottom: 6px;
+    margin-bottom: var(--space-2);
 }
 /* The field says which it is once, quietly, instead of the dialog having to
    explain it in a hint underneath. Optional on a task, required on a goal —
    the reasoning is at the top of components/SubjectPicker. */
 .sp-optional {
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-weight: 500;
     letter-spacing: 0.02em;
     color: var(--sp-ink-soft);
@@ -76,20 +76,20 @@ html[data-theme="dark"] .subject-picker {
 }
 
 /* ---- Closed: one button, and a way to undo it ------------------------- */
-.sp-closed { display: flex; align-items: center; gap: 8px; }
+.sp-closed { display: flex; align-items: center; gap: var(--space-2); }
 
 .sp-chosen {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     max-width: 100%;
-    padding: 9px 16px;
+    padding: var(--space-2) var(--space-4);
     border: 1px solid var(--sp-line);
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: var(--sp-surface);
     color: var(--sp-ink-soft);
     font-family: inherit;
-    font-size: 13.5px;
+    font-size: var(--text-md);
     font-weight: 600;
     cursor: pointer;
     transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
@@ -100,7 +100,7 @@ html[data-theme="dark"] .subject-picker {
 .sp-chosen:not(.is-set) { border-style: dashed; }
 .sp-chosen.is-set { color: var(--sp-ink); border-color: var(--sp-accent); }
 .sp-chosen-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sp-plus { font-size: 15px; line-height: 1; }
+.sp-plus { font-size: var(--text-lg); line-height: 1; }
 
 .sp-clear {
     flex: 0 0 auto;
@@ -113,7 +113,7 @@ html[data-theme="dark"] .subject-picker {
     border-radius: 50%;
     background: transparent;
     color: var(--sp-ink-soft);
-    font-size: 18px;
+    font-size: var(--text-xl);
     line-height: 1;
     cursor: pointer;
 }
@@ -126,13 +126,13 @@ html[data-theme="dark"] .subject-picker {
     display: block;
     width: 100%;
     box-sizing: border-box;
-    padding: 9px 14px;
+    padding: var(--space-2) var(--space-4);
     border: 1px solid var(--sp-accent);
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     background: var(--sp-surface);
     color: var(--sp-ink);
     font-family: inherit;
-    font-size: 13.5px;
+    font-size: var(--text-md);
     outline: none;
 }
 .sp-search::placeholder { color: var(--sp-ink-soft); }
@@ -143,9 +143,9 @@ html[data-theme="dark"] .subject-picker {
    flush against it. */
 .sp-rail {
     display: flex;
-    gap: 8px;
-    margin-top: 10px;
-    padding: 2px 6px;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+    padding: 2px var(--space-2);
     overflow-x: auto;
     overflow-y: hidden;
     /* Without this the flex row grows to the width of a hundred pills and
@@ -173,14 +173,14 @@ html[data-theme="dark"] .subject-picker {
     scroll-snap-align: start;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 8px 13px;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
     border: 1px solid var(--sp-line);
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: var(--sp-surface);
     color: var(--sp-ink);
     font-family: inherit;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     font-weight: 600;
     white-space: nowrap;
     cursor: pointer;
@@ -194,8 +194,8 @@ html[data-theme="dark"] .subject-picker {
 }
 
 .sp-empty {
-    margin: 10px 0 0;
-    font-size: 12.5px;
+    margin: var(--space-2) 0 0;
+    font-size: var(--text-sm);
     color: var(--sp-ink-soft);
 }
 
