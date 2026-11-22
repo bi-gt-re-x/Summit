@@ -1,248 +1,185 @@
 # Summit
 
-## Overview
+**A productivity app for students and lifelong learners that turns the work you
+do into a record you can learn from.**
 
-Summit is a gamified productivity and self-improvement platform designed to help students and lifelong learners build consistent habits, track meaningful progress, and stay motivated over long periods of time. Instead of acting as a simple to-do list, Summit combines productivity, analytics, and progression systems into a unified dashboard that encourages continuous growth.
-
-The project was built with the goal of making productivity feel rewarding while still providing detailed insights into performance, consistency, and long-term improvement.
-
----
-
-# Features
-
-## Dashboard
-
-The dashboard serves as the central hub of the application.
-
-Features include:
-
-* Personalized welcome screen
-* Daily task overview
-* XP and level progression
-* Daily statistics
-* Growth summaries
-* Quick access to all major sections
-* Responsive card-based layout
+Summit is a task list, a calendar, a goal tracker and a study tool in one place.
+Finishing work earns XP, keeps a streak alive and moves your goals forward, and
+everything you log feeds an analytics side that tries to answer one question:
+*what should you do differently tomorrow?*
 
 ---
 
-## Task Management
+## Contents
 
-Summit includes a full task management system that allows users to organize their work efficiently.
-
-Features include:
-
-* Create tasks
-* Edit existing tasks
-* Delete tasks
-* Task priorities
-* Categories
-* Due dates
-* Estimated completion times
-* Task descriptions
-* Completion tracking
-* Automatic XP rewards
-* Daily task statistics
+- [What's inside](#whats-inside)
+- [Getting started](#getting-started)
+- [Configuration](#configuration)
+- [Accounts and sign-in](#accounts-and-sign-in)
+- [Tests and checks](#tests-and-checks)
+- [Tech stack](#tech-stack)
+- [Project layout](#project-layout)
+- [Design philosophy](#design-philosophy)
+- [Roadmap](#roadmap)
 
 ---
 
-## Calendar
+## What's inside
 
-The calendar provides a visual planning interface for scheduling work.
+### Dashboard
+The home screen for the day: today's tasks, XP and level, the streak, a focus
+timer that runs on a task, and quick links into the rest of the app. One broken
+card can't blank the page.
 
-Features include:
+### Tasks
+Create, edit and complete tasks with priorities, subjects, due dates, time
+estimates and descriptions. Bulk-complete a day's work in one go. Every finished
+task pays out XP and lands in the record that Analytics reads.
 
-* Monthly calendar view
-* Daily schedules
-* Time-block planning
-* Calendar task synchronization
-* Scheduled task display
-* Daily workload visualization
-* Automatic updates when tasks are completed
+### Calendar
+Day, Week and Month views on a calm paper look. Tasks with a time sit on the
+calendar as blocks; recurring routine blocks are kept separate from real
+commitments so they don't count against you.
 
----
+### Goals
+Goals with steps, checkpoints and deadlines. Progress is read from the work you
+actually log rather than typed in by hand, each goal gets a health read and a
+plan, and finishing one asks first, then celebrates. Mango, the guide, walks a
+new account through setting its first real goal.
 
-## XP & Leveling System
+### Analytics
+One page, several tabs, built to agree with itself:
 
-Productivity is rewarded through a progression system.
+| Tab | What it's for |
+| --- | --- |
+| **Recommendations** | What to do next, ranked by priority, capacity and how far each goal has to go |
+| **Overview** | Tasks finished, focus time, XP, streak and completion rate for a chosen period |
+| **Insights** | Patterns in when and how you work, including the Behavior read |
+| **Subjects** | Where your time goes by subject, with a full page per subject |
+| **Growth** | The growth chart and the five-metric report card |
+| **Review** | A weekly review, and experiments that test a change against your own work |
 
-Features include:
+Each figure says what kind of claim it is making (counted exactly, estimated,
+or still preliminary), so a new account isn't shown confident numbers it
+hasn't earned.
 
-* XP earned from completing tasks
-* User leveling
-* Progress bars
-* Automatic level calculation
-* Daily XP tracking
-* Lifetime XP tracking
-* XP history
+### Skill Trees
+Subject trees for mathematics, science, programming, computer science, AI/ML,
+music, writing, chess, fitness, productivity and more. Each node has practice
+problems with strict answer marking, and nodes you already know can be skipped.
 
-The leveling system is designed to encourage consistency instead of short bursts of productivity.
+### Spaces
+Personal and team pages built from blocks: text, tables, countdowns, real tasks,
+and live panels from the rest of the app (analytics, goals, records, the timer,
+the log). Pages can be filed into folders and come with undo, version history
+and templates.
 
----
+### Log
+A running journal of what you did. Pin entries, mark milestones, and search the
+whole thing.
 
-## Analytics
+### Achievements
+XP, levels, streaks (with one forgiven day a month once a run is a week old),
+badges and personal records.
 
-One of Summit's primary focuses is long-term progress tracking.
-
-Analytics include:
-
-* Daily XP
-* Weekly XP
-* Monthly XP
-* Growth charts
-* Productivity trends
-* Historical performance
-* Task completion statistics
-* Average XP per task
-* Total completed tasks
-* Total hours worked
-
-Interactive charts allow users to visualize improvements over time rather than relying on isolated daily performance.
-
----
-
-## Growth Ratings
-
-Summit evaluates multiple aspects of productivity through an overall Growth Rating.
-
-Current categories include:
-
-* Productivity
-* Quality
-* Consistency
-* Efficiency
-* Overall Growth Score
-
-The system is designed to reward sustainable habits rather than excessive workloads.
-
----
-
-## Streak System
-
-Users are rewarded for maintaining consistent habits.
-
-Features include:
-
-* Daily streak tracking
-* One forgiven day a month, once a run is a week old
-* Longest streak
-* Streak history
-* Consecutive productivity rewards
-
----
-
-## Search
-
-The magnifier in the top bar searches two things at once:
-
-* **Tasks** — the account's own work, matched on the server
-* **Components** — the containers the app is made of: every page, every tab
-  inside Analytics and the Calendar, and every section of Settings
-
-It takes you to the closest match as you type, and the `›` arrow walks the
-rest — each step moves the page behind the panel, so nothing has to be
-confirmed with Enter. That is what makes it useful for the thing a search box
-is usually no help with: reaching a control without knowing which screen it is
-on. Typing "dark mode" lands on Settings → Appearance; "percentile" lands on
-the Records tab of Analytics.
-
-Focus never leaves the box, so the keyboard is the whole control:
+### Search
+The magnifier in the top bar searches your **tasks** and the **components** the
+app is made of: every page, every Analytics and Calendar tab, and every section
+of Settings. It moves to the closest match as you type, so typing "dark mode"
+lands on Settings → Appearance without pressing Enter.
 
 | Key | Does |
 | --- | --- |
-| Down / Up | the next and previous match |
-| Right / Left | the same, from the end and the start of the text |
+| Down / Up | next and previous match |
 | Enter | close; you are already there |
-| Escape | close, and stay where you were |
+| Escape | close, and go back to where you were |
 
-A task match goes to where the task actually is. One the calendar draws opens
-the Day view on its day, scrolled to the block and ringed for a moment; one
-nobody put on the calendar opens the tasks page, which reveals the row — the
-heading it is under, past the draw limit, or behind a filter — and marks it.
-Only unfinished tasks are searched: what this panel does with a match is take
-you to it, and a finished task is not somewhere to be taken.
+### Notifications
+The bell reads your own record when you open the app and says what's true:
+overdue and upcoming tasks, today's calendar, a weekly summary, goals near their
+date, a streak at risk, and progress worth marking. There are six kinds, each
+with its own switch in Settings. A deleted notification stays deleted until
+something new happens.
 
----
-
-## Notifications
-
-The bell in the top bar is the one part of Summit that speaks first. Nothing is
-sent on a schedule — the app reads your own record when you open it and says
-what is true, so a quiet week is a quiet bell.
-
-Six kinds, each with its own switch in Settings:
-
-* **Tasks** — work past its date, work due today, work due tomorrow
-* **Calendar** — what is on today, and the block about to start within the hour
-* **Analytics** — a weekly summary against the week before, a gap of four days
-  or more with nothing on it, and the day you beat your own best
-* **Goals** — a goal past its date, one due inside a week, one finished but
-  still open
-* **Streak** — a live streak with nothing on the board yet today, and the days
-  worth marking
-* **Progress** — a level reached, a badge earned, a record set
-
-They arrive as a pop-up at the corner of the page and stay in the bell. Each
-one can be deleted, and there is a Delete all — and a deleted notification does
-not come back: the situation behind it is remembered as answered, so the bell
-stays quiet until something genuinely new happens.
-
-Everything can be turned off: the whole feature, the on-screen pop-ups alone,
-or any one of the six kinds.
+### Themes
+Light and dark themes, a warm paper look, and per-account preferences set in
+Settings.
 
 ---
 
-## Themes & Personalization
+## Getting started
 
-Users can customize the appearance of the application.
+You need **Python 3** (developed on 3.13) and **Node.js 20.19+**. Everything
+runs from the repo root.
 
-Features include:
+```bash
+git clone -b summit-v1.2.3 https://github.com/bi-gt-re-x/Summit-v1.2.2.git Summit
+cd Summit
 
-* Multiple built-in themes
-* Modern minimal UI
-* Responsive layout
-* Personalized dashboard experience
+# Backend
+python3 -m venv .venv-fastapi
+.venv-fastapi/bin/python -m pip install -r requirements.txt
+
+# Frontend
+npm install
+
+# Optional: copy the env template and fill in only what you want
+cp .env.example .env
+```
+
+Run the two servers in separate terminals:
+
+```bash
+.venv-fastapi/bin/python run.py   # API on http://127.0.0.1:5050
+npm run dev                       # the app on http://127.0.0.1:5090
+```
+
+**Open port 5090 while developing.** The Vite dev server proxies `/api`,
+`/static`, `/auth` and `/verify` to the backend, so the whole app works on that
+one origin with hot reload.
+
+With no `DATABASE_URL` set, Summit builds a local SQLite database at
+`data/summit.db` from the schema in `data/sql/` on first start. Point it at a
+throwaway copy with `SUMMIT_DB=/path/to/copy.db` for anything experimental.
+
+Port 5050 is used instead of 5000 because macOS reserves 5000 for AirPlay
+Receiver. Set `PORT` to override it.
+
+Interactive API docs are served at `/docs` while the backend is running.
 
 ---
 
-## Data Tracking
+## Configuration
 
-Summit stores and tracks a wide variety of productivity metrics.
+Every setting is optional; the app runs without a `.env`. See
+[`.env.example`](.env.example) for the full list with comments. The main ones:
 
-Tracked data includes:
+| Variable | What it turns on |
+| --- | --- |
+| `SECRET_KEY` | Session signing. Unset, a per-machine key is generated into a git-ignored file. **Set it for any deployment.** |
+| `DATABASE_URL` | PostgreSQL instead of SQLite. Tables are created on first start. |
+| `MAIL_USERNAME`, `MAIL_PASSWORD` | Real verification e-mail over SMTP. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | The "Continue with Google" button. |
+| `HF_TOKEN`, `ANTHROPIC_API_KEY`, `XAI_API_KEY` | Model-written goal checkpoints, plans and suggestions. Without them those parts use built-in rules or stay hidden. |
 
-* Daily XP
-* Total XP
-* Levels
-* Task history
-* Completion history
-* Daily statistics
-* Productivity history
-* Growth history
-* Calendar events
-* Streak information
+To move an existing SQLite database into Postgres, run
+`scripts/migrate_to_postgres.py`.
 
 ---
 
-# Accounts & Sign-In
+## Accounts and sign-in
 
-Pages that show personal data — Dashboard, Calendar, Goals and Growth — need an
-account. A signed-out visitor who opens one is sent to the home page with the
-account popup already open, and finishing the flow drops them on the page they
-were originally after.
-
-The popup walks one path:
+Pages with personal data need an account. A signed-out visitor who opens one is
+sent to the home page with the sign-in popup open, and lands on the page they
+wanted once they're through.
 
 ```
                        ┌──────────── Welcome ────────────┐
                     Log In                         Create Account
                        │                                 │
                        │                     Name · E-mail · Password
-                       │                        (password strength)
                        │                                 │
-                       │                      verification e-mail sent
-                       │                         "check your inbox"
-                       │                            verify e-mail
+                       │                       verification e-mail
                        └────────────────┬────────────────┘
                                 Complete Profile
                      (username optional · theme · daily goal)
@@ -250,148 +187,112 @@ The popup walks one path:
                                     Dashboard
 ```
 
-Accounts created before this flow still work: they sign in with their username,
-and their stored password is upgraded to a hash the first time they do.
+**Verification e-mail.** Without mail credentials the app runs in dev mode: the
+verification link is printed to the server console and shown in the popup, so
+the whole flow works on a laptop. With `MAIL_USERNAME` and `MAIL_PASSWORD` set
+it sends over SMTP instead. For Gmail, use an
+[App Password](https://myaccount.google.com/apppasswords) (2-Step Verification
+must be on).
 
-## Optional credentials
+**Sign in with Google.** The button only appears once `GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_SECRET` are set.
 
-Everything below is optional — the app runs without any of it. Copy
-`.env.example` to `.env` and fill in only what you want.
+1. In the [Google Cloud Console](https://console.cloud.google.com/), make or pick a project.
+2. APIs & Services → OAuth consent screen → External → add yourself under Test users.
+3. Credentials → Create credentials → OAuth client ID → Web application.
+4. Add `http://127.0.0.1:5050/auth/google/callback` as an authorised redirect URI.
+5. Copy the client ID and secret into `.env` and restart.
 
-**Sending real verification e-mail.** Without mail credentials the app is in dev
-mode: the verification link is printed to the server console *and* shown in the
-popup, so the flow can be walked start to finish on a laptop with no mail
-account. Set `MAIL_USERNAME` and `MAIL_PASSWORD` and it sends over SMTP instead,
-with no code change. For Gmail, that password is an **App Password**: Google
-Account → Security → 2-Step Verification (must be on) → App passwords → create
-one for "Mail". Recipients can be on any provider — Gmail, Outlook, anything.
-
-**Sign in with Google.** The "Continue with Google" button only appears once
-`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set, so nothing looks broken
-until then. To create them:
-
-1. Open <https://console.cloud.google.com/> and make (or pick) a project.
-2. APIs & Services → OAuth consent screen → External → fill in the app name and
-   your e-mail → add yourself under Test users.
-3. APIs & Services → Credentials → Create credentials → OAuth client ID →
-   Web application.
-4. Under *Authorised redirect URIs* add exactly:
-   `http://127.0.0.1:5050/auth/google/callback`
-5. Copy the client ID and client secret into `.env`, then restart the app.
-
-Signing in with Google needs no verification e-mail — Google has already proved
-the address — so it goes straight to Complete Profile.
+Google has already verified the address, so Google sign-in skips the
+verification e-mail and goes straight to Complete Profile.
 
 ---
 
-# Technology Stack
+## Tests and checks
 
-Frontend
+```bash
+.venv-fastapi/bin/python -m pytest   # backend
+npm test                             # frontend (Vitest)
+npm run build                        # typecheck + repo checks + production build
+```
 
-* React
-* TypeScript
-* Vite
-* CSS
+`npm run build` runs a set of repo checks before Vite builds: the TypeScript
+typecheck, the skill-tree and step validators, a CSS check, and a docs check
+that fails if a comment points at a file that no longer exists.
 
-Backend
+To run the backend suite against Postgres instead of SQLite:
 
-* Python
-* FastAPI
-* Uvicorn
-
-Storage
-
-* PostgreSQL when `DATABASE_URL` is set (see `.env.example`); the tables are
-  created on first start from the same schema as below
-* SQLite (`data/summit.db`, built from `data/sql/`) otherwise, and for the test
-  suite — `scripts/migrate_to_postgres.py` copies a SQLite file into Postgres
-* `SUMMIT_TEST_DATABASE_URL=postgresql://localhost/summit_test pytest` runs the
-  suite against a throwaway Postgres database instead
-
-Visualization
-
-* Chart.js
-
-Interactive API documentation is generated from the code and served at
-`/docs` while the app is running.
+```bash
+SUMMIT_TEST_DATABASE_URL=postgresql://localhost/summit_test .venv-fastapi/bin/python -m pytest
+```
 
 ---
 
-# Design Philosophy
+## Tech stack
 
-Summit is built around four core ideas:
-
-### Consistency over intensity
-
-Long-term habits are more valuable than occasional bursts of productivity.
-
-### Progress should be measurable
-
-Users should be able to see how they have improved over weeks, months, and years.
-
-### Productivity should feel rewarding
-
-Gamification encourages users to return every day while maintaining meaningful progress.
-
-### Simplicity first
-
-The interface prioritizes clarity and usability without sacrificing functionality.
+| Layer | Tools |
+| --- | --- |
+| Frontend | React 19, TypeScript, Vite, React Router, KaTeX, Lucide icons |
+| Backend | Python, FastAPI, Uvicorn |
+| Storage | SQLite by default, PostgreSQL when `DATABASE_URL` is set |
+| Engine | A small C++ library that searches candidate schedules (`engine/`, built with `engine/build.sh`) |
+| Tests | pytest, Vitest, Testing Library |
 
 ---
 
-# Current Status
+## Project layout
 
-Summit is currently under active development.
+```
+run.py              entry point (API on :5050)
+backend/            FastAPI app: routes, tracking (the rules), database, config
+frontend/src/       the React app: pages, components, services, styles
+frontend/html, js/  the original server-rendered pages, still live for a few routes
+shared/             rules and test cases both halves read
+engine/             C++ engine source
+data/sql/           database schema and seed
+scripts/            repo checks, seeding and migration tools
+tests/              backend test suite
+docs/               architecture, API, database, roadmap and changelog
+```
 
-Completed areas include:
+More detail:
 
-* Dashboard
-* Task management
-* Calendar
-* XP system
-* Leveling system
-* Growth analytics
-* Charts
-* Theme system
-* Responsive interface
-* Productivity tracking
-* Statistics
-* Data persistence
-
-Features currently being expanded include:
-
-* Advanced analytics
-* Growth Ratings
-* Automation tools
-* Smarter productivity insights
-* Improved account management
-* Additional personalization options
+- [docs/architecture.md](docs/architecture.md): how the pieces fit together
+- [docs/api.md](docs/api.md): the API
+- [docs/database.md](docs/database.md): the datastore and the move to Postgres
+- [docs/roadmap.md](docs/roadmap.md): what's built and what's next
+- [docs/changelog.md](docs/changelog.md): what changed and why
 
 ---
 
-# Future Roadmap
+## Design philosophy
 
-Planned features include:
+**Consistency over intensity.** Long-term habits matter more than occasional
+bursts, so streaks forgive a day and the growth ratings reward steady work over
+big workloads.
 
-* User authentication
-* Cloud synchronization
-* Cross-device support
-* Advanced goal tracking
-* AI-powered productivity recommendations
-* Achievement system
-* Habit tracking
-* Scheduled reminders (the app has no job runner; notifications are read from
-  the record when you open it rather than sent at a time)
-* Data export
-* Team workspaces
-* Enhanced analytics dashboard
+**Progress should be measurable.** You should be able to see how you've
+improved over weeks, months and years.
+
+**Say something useful or say nothing.** A figure earns its place only if it
+changes what you'd do tomorrow. A quiet week means a quiet notification bell.
+
+**Productivity should feel rewarding.** XP, levels, badges and records are
+there to bring you back each day.
+
+**Simplicity first.** Clarity and usability without losing depth.
 
 ---
 
-# Project Vision
+## Roadmap
 
-Summit aims to become more than a productivity app.
+Summit is under active development. Next up:
 
-The long-term vision is to create a platform that helps users understand how they spend their time, identify patterns in their work, and continuously improve through meaningful data and consistent habits.
+- Scheduled reminders (they need a job runner; today's notifications are read
+  when you open the app)
+- Cloud sync and cross-device support
+- Data export
+- Fuller team workspaces
+- Habit tracking as a feature of its own
 
-Rather than simply checking off tasks, Summit is designed to help users build discipline, maintain motivation, and visualize personal growth over months and years.
+See [docs/roadmap.md](docs/roadmap.md) for the engineering view.

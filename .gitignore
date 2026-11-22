@@ -44,3 +44,8 @@ data/.session_key
 # is per-machine and per-architecture, and `engine/build.sh` makes it in
 # seconds. See engine/README.md.
 engine/build/
+
+# pg_dump snapshots taken before a seeding or migration run. The Postgres
+# counterpart of the *.db copies above: real account data, local only.
+data/backups/*.dump
+data/backups/*.sql
